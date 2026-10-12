@@ -1,44 +1,48 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { alive, classify, finder, parseLsof, parsePs } from '../src/procs.mjs';
+import { alive, classify, finder, parseEtime, parseLsof, parsePs } from '../src/procs.mjs';
 
-// `ps -A -ww -o pid=,ppid=,tty=,lstart=,args=` on macOS, in the C locale.
+// `ps -A -ww -o pid=,ppid=,tty=,args=` on macOS.
 const MAC_PS = `
-    1     0 ??       Mon Oct  5 09:00:01 2026 /sbin/launchd
-  610     1 ??       Mon Oct  5 09:01:10 2026 tmux new -s work
-  700   610 ttys003  Mon Oct 12 14:35:02 2026 -zsh
-  720   700 ttys003  Mon Oct 12 14:36:40 2026 claude -d --permission-mode auto
-  800   610 ttys004  Mon Oct 12 15:00:00 2026 -zsh
-  810   800 ttys004  Mon Oct 12 15:00:05 2026 node /Users/me/handibot/main.js
-  811   810 ttys004  Mon Oct 12 15:00:06 2026 /opt/homebrew/lib/node_modules/@openai/codex/vendor/aarch64-apple-darwin/codex/codex app-server
-  900   610 ttys005  Mon Oct 12 15:10:00 2026 -zsh
-  910   900 ttys005  Mon Oct 12 15:10:02 2026 node /opt/homebrew/bin/codex --yolo
-  911   910 ttys005  Mon Oct 12 15:10:03 2026 /opt/homebrew/lib/node_modules/@openai/codex/vendor/aarch64-apple-darwin/codex/codex --yolo
-  950   610 ttys006  Mon Oct 12 15:20:00 2026 -zsh
-  960   950 ttys006  Mon Oct 12 15:20:02 2026 vim /Users/me/notes/claude-code tips.md
+    1     0 ??       /sbin/launchd
+  610     1 ??       tmux new -s work
+  700   610 ttys003  -zsh
+  720   700 ttys003  claude -d --permission-mode auto
+  800   610 ttys004  -zsh
+  810   800 ttys004  node /Users/me/handibot/main.js
+  811   810 ttys004  /opt/homebrew/lib/node_modules/@openai/codex/vendor/aarch64-apple-darwin/codex/codex app-server
+  900   610 ttys005  -zsh
+  910   900 ttys005  node /opt/homebrew/bin/codex --yolo
+  911   910 ttys005  /opt/homebrew/lib/node_modules/@openai/codex/vendor/aarch64-apple-darwin/codex/codex --yolo
+  950   610 ttys006  -zsh
+  960   950 ttys006  vim /Users/me/notes/claude-code tips.md
 `;
 
 // The same columns from procps on Linux.
 const LINUX_PS = `
-      1       0 ?        Mon Oct 12 10:35:00 2026 /sbin/init splash
-   8696    8601 pts/3    Mon Oct 12 11:02:13 2026 claude -d -r
-   9001    8601 pts/9    Mon Oct 12 11:05:00 2026 node /home/u/.npm-global/bin/pi
+      1       0 ?        /sbin/init splash
+   8696    8601 pts/3    claude -d -r
+   9001    8601 pts/9    node /home/u/.npm-global/bin/pi
 `;
 
-test('ps output is read into processes with a terminal, a start time and a name', () => {
+test('ps output is read into processes with a terminal and a name', () => {
   const procs = parsePs(MAC_PS);
   assert.equal(procs.size, 12);
-  assert.deepEqual(procs.get(720), {
-    ppid: 700, comm: 'claude', args: 'claude -d --permission-mode auto', tty: '/dev/ttys003',
-    startMs: new Date(2026, 9, 12, 14, 36, 40).getTime(),
-  });
+  assert.deepEqual(procs.get(720), { ppid: 700, comm: 'claude', args: 'claude -d --permission-mode auto', tty: '/dev/ttys003' });
   assert.equal(procs.get(1).tty, '', 'no terminal');
-  assert.equal(procs.get(1).startMs, new Date(2026, 9, 5, 9, 0, 1).getTime(), 'a one-digit day is padded with a space');
+  assert.equal(procs.get(960).args, 'vim /Users/me/notes/claude-code tips.md', 'spaces in the command line are kept');
   assert.equal(procs.get(700).comm, 'zsh', 'a login shell');
   const linux = parsePs(LINUX_PS);
   assert.equal(linux.get(8696).tty, '/dev/pts/3');
   assert.equal(linux.get(1).tty, '');
   assert.equal(linux.get(9001).comm, 'node');
+});
+
+test('the running time of a process is read in each of its three forms', () => {
+  assert.equal(parseEtime('   00:07\n'), 7);
+  assert.equal(parseEtime('01:02:03'), 3723);
+  assert.equal(parseEtime('2-01:02:03'), 2 * 86400 + 3723);
+  assert.equal(parseEtime('garbage'), null);
 });
 
 test('lsof output is read into descriptor and name pairs', () => {

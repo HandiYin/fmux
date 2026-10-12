@@ -107,27 +107,31 @@ const proc = {
 
 // ---- macOS and the BSDs: ps and lsof ----
 
-// The C locale keeps the start time in one format: "Mon Oct 12 14:35:02 2026".
 const PS_ENV = { ...process.env, LC_ALL: 'C', LANG: 'C' };
-const PS_LINE = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(\w{3}\s+\w{3}\s+\d+\s+[\d:]+\s+\d{4})\s+(.*)$/;
+const PS_LINE = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/;
 
-// Output of `ps -A -o pid=,ppid=,tty=,lstart=,args=`.
+// Output of `ps -A -o pid=,ppid=,tty=,args=`.
 export function parsePs(out) {
   const procs = new Map();
   for (const line of out.split('\n')) {
     const m = PS_LINE.exec(line);
     if (!m) continue;
-    const args = m[5].trim();
+    const args = m[4].trim();
     procs.set(Number(m[1]), {
       ppid: Number(m[2]),
       comm: baseName(args.split(/\s+/)[0]),
       args,
       // "ttys003" on macOS, "pts/3" on Linux, "??" or "?" for no terminal.
       tty: /^\?+$/.test(m[3]) || m[3] === '-' ? '' : `/dev/${m[3]}`,
-      startMs: Date.parse(m[4].replace(/\s+/g, ' ')) || 0,
     });
   }
   return procs;
+}
+
+// Output of `ps -o etime=`: how long a process has run, as [[dd-]hh:]mm:ss. Returns seconds.
+export function parseEtime(out) {
+  const m = /^(?:(?:(\d+)-)?(\d+):)?(\d+):(\d+)$/.exec(out.trim());
+  return m ? ((Number(m[1] || 0) * 24 + Number(m[2] || 0)) * 60 + Number(m[3])) * 60 + Number(m[4]) : null;
 }
 
 // Output of `lsof -F fn`: file descriptor -> name. A descriptor is "cwd", "txt" or a number.
@@ -150,30 +154,31 @@ async function lsof(pid, fds) {
   }
 }
 
-// What a process reads from and where it stands do not change while it lives.
-// Entries are keyed by pid and start time, and dropped when the process is gone.
-const facts = new Map();
+// What a process reads from does not change while it lives, so lsof runs once for each process.
+// An entry is dropped when its pid is gone or belongs to another command.
+const stdins = new Map();
+const same = (a, b) => a && b && a.ppid === b.ppid && a.args === b.args;
 
 const ps = {
   async snapshot() {
-    const procs = parsePs(await sh('ps', ['-A', '-ww', '-o', 'pid=,ppid=,tty=,lstart=,args='], { env: PS_ENV }));
-    for (const [pid, fact] of facts) if (procs.get(pid)?.startMs !== fact.startMs) facts.delete(pid);
+    const procs = parsePs(await sh('ps', ['-A', '-ww', '-o', 'pid=,ppid=,tty=,args='], { env: PS_ENV }));
+    for (const [pid, known] of stdins) if (!same(procs.get(pid), known)) stdins.delete(pid);
     return index(procs);
   },
   args(pid, entry) {
     return entry?.args || '';
   },
   async stdin(pid, entry) {
-    const cached = facts.get(pid);
-    if (cached && cached.startMs === entry?.startMs && cached.stdin !== undefined) return cached.stdin;
+    const known = stdins.get(pid);
+    if (same(known, entry)) return known.stdin;
     const stdin = (await lsof(pid, '0')).find((f) => f.fd === '0')?.name || '';
-    if (entry) facts.set(pid, { ...facts.get(pid), startMs: entry.startMs, stdin });
+    if (entry) stdins.set(pid, { ppid: entry.ppid, args: entry.args, stdin });
     return stdin;
   },
   async startMs(pid) {
     try {
-      const out = await sh('ps', ['-o', 'lstart=', '-p', String(pid)], { env: PS_ENV });
-      return Date.parse(out.trim().replace(/\s+/g, ' ')) || 0;
+      const seconds = parseEtime(await sh('ps', ['-o', 'etime=', '-p', String(pid)], { env: PS_ENV }));
+      return seconds === null ? 0 : Date.now() - seconds * 1000;
     } catch {
       return 0;
     }
@@ -195,13 +200,16 @@ export async function snapshot() {
 
 // Claude Code writes ~/.claude/sessions/<pid>.json while it runs. A file left by a dead
 // process whose pid went to another one is older than that process.
-function hasClaudeSession(pid, startMs) {
+async function hasClaudeSession(pid, startMs) {
+  let meta;
   try {
-    const meta = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude', 'sessions', `${pid}.json`), 'utf8'));
-    return (meta.kind ?? 'interactive') === 'interactive' && (!startMs || !meta.startedAt || meta.startedAt >= startMs - 5000);
+    meta = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude', 'sessions', `${pid}.json`), 'utf8'));
   } catch {
     return false;
   }
+  if ((meta.kind ?? 'interactive') !== 'interactive') return false;
+  const started = await startMs();
+  return !started || !meta.startedAt || meta.startedAt >= started - 5000;
 }
 
 // Nearest agent process below the pane's root process (breadth first), or null for a plain shell.
@@ -219,7 +227,7 @@ export function finder(via) {
         // ps knows the terminal a process belongs to. One on another terminal does not read from this pane.
         if (entry.tty !== undefined && entry.tty !== tty) continue;
         let kind = classify(entry.comm, await via.args(pid, entry));
-        if (!kind && hasClaudeSession(pid, entry.startMs ?? (await via.startMs(pid)))) kind = 'claude';
+        if (!kind && (await hasClaudeSession(pid, () => via.startMs(pid)))) kind = 'claude';
         if (kind && (await via.stdin(pid, entry)) === tty) return { kind, pid };
       }
       level = next;
