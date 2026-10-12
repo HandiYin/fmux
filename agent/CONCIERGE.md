@@ -34,7 +34,7 @@ not see them. You get the messages only while nothing is attached, or when the o
 | `fmuxctl new <name> --agent <agent> --cwd <dir> --continue` | Start a tmux session that resumes the latest conversation of that agent in that directory |
 | `fmuxctl kill <session> --yes` | End a tmux session |
 | `fmuxctl dashboard` | Post the session dashboard card (buttons to attach and peek) |
-| `fmuxctl show <session>` | Post the session's screen as a card with a key pad. The card refreshes itself for 10 minutes |
+| `fmuxctl show <session>` | Post the session's card: state, last prompt, last reply. With `--terminal`: the terminal with a key pad |
 | `fmuxctl notify <text>` | Post a plain card to the chat |
 | `fmuxctl status` | Hub health |
 

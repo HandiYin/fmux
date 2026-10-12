@@ -37,31 +37,35 @@ Feishu app  ⇄  @larksuite/channel (WebSocket)  ⇄  Router ──► tmux send
 
 | You do | Result |
 |---|---|
-| Send `面板`, or tap **会话** on any card | A new dashboard card |
-| Tap **接入** on the dashboard | The chat is attached. Messages now go to that session |
-| Send text while attached | The text is typed into the session. A live card shows tool calls and the reply |
+| Send `面板` | A dashboard card: every tmux session with its light |
+| Tap **接入** | The chat is attached. Messages now go to that session. One card shows where the session is |
+| Send text while attached | The text is typed into the session. One card streams the work and then holds the reply |
 | Send an image or file | It is saved under `~/.local/state/fmux/inbox/` and its path is sent to the session |
 | Quote-reply a card of some session | The reply goes to that session without switching |
 | Type in the box of a "finished" card | Same: a reply without switching |
-| Tap **查看 / 屏幕** | A screen snapshot with keys (Enter, Esc, arrows, Tab, Ctrl-C, 1 2 3, y n) and an input box |
+| Tap **查看** | The session's card: state, last prompt, last reply. A shell shows its terminal |
+| Tap **终端** | The terminal, cut for a phone: the last 18 lines, four keys, more keys behind a fold, an input box |
 | Tap an option on a **等待确认** card | The matching key is sent to the dialog |
-| Tap **断开** or **Pi 管家** | Back to the concierge |
-| Tap **新建** | A form: name, agent type, with or without `-d` / `--yolo`, a new or a past conversation, directory, first message |
+| Tap **断开**, or send `//d` | Back to the concierge |
+| Tap **新建会话** | A form: new or past conversation, agent type, with or without `-d` / `--yolo`, directory, name (optional), first message |
 
 Voice messages are not forwarded. Dictate with the phone keyboard and send the text.
 
-### Cards that refresh themselves
+### What the cards look like
 
-| Card | Refreshes | Until |
+A header has a color only when the session needs a glance: green while it runs, orange while it
+waits for you. Everything else is plain. A card carries only the buttons that fit its state.
+
+| Card | Stays current | Until |
 |---|---|---|
-| Dashboard (the newest one) | When a session changes, once a minute while an agent runs, every 5 minutes otherwise | A newer dashboard is sent (13 days at most) |
-| "已接入" card | When the session's state or last reply changes | You detach or switch |
-| Screen card | Every 3 s, only if the screen changed | 10 minutes after the last tap on it (`live.peekMinutes`) |
-| Turn card | With each output of the agent, and once a minute | The turn ends |
+| Dashboard | When a session changes, once a minute while an agent runs, every 5 minutes otherwise | A newer dashboard is sent. The old one shrinks to one line |
+| Session card (查看, 接入) | State and buttons. The last reply too, while you are not attached | 10 minutes (`live.peekMinutes`), or a newer card for the same session |
+| Terminal card | Every 3 s, if the screen changed | 10 minutes after the last tap on it |
+| Turn card | With each output of the agent | The turn ends. The card then holds the reply |
 
-A card that stopped refreshing says so in its last line. Tapping **刷新** starts it again.
-A refresh redraws the whole card, so text typed into a screen card's input box is lost if the
-screen changes before you send it.
+A turn that ran longer than `notify.minWorkSec` ends with one short text line that quotes its card.
+The line rings the phone; an edited card does not. A refresh redraws the whole card, so text typed
+into a terminal card's input box is lost if the screen changes before you send it.
 
 Text commands. Use `//` while attached, because a single `/` belongs to the session
 (`/compact`, `/model`). While detached a single `/` works too.
@@ -168,7 +172,7 @@ fmuxctl attach proc               # loose names work: this finds gt_process
 fmuxctl history                  # past Claude Code and Codex conversations
 fmuxctl new fig --resume 魔方     # new tmux session that resumes the conversation with that title
 fmuxctl new fix --agent codex --cwd ~/proj --no-yolo
-fmuxctl show gt_process          # post the session's screen card to the chat
+fmuxctl show gt_process          # post the session's card to the chat (--terminal for the terminal)
 fmuxctl notify "渲染跑完了"        # push a card to the phone
 ```
 
@@ -214,6 +218,6 @@ the state and socket of the service.
 - Dialog detection reads the screen. A dialog layout it does not know shows as a screen excerpt
   with the key pad, without option buttons.
 - Card edits do not ring the phone. A turn longer than `notify.minWorkSec` therefore ends with a
-  new card.
+  short text line.
 - A card holds about 30 KB. Longer replies are cut, and the full text stays in the terminal.
 - State is polled every 2 s. The end of a turn shows 2 to 4 s late.

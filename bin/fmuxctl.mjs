@@ -20,7 +20,7 @@ const USAGE = `fmuxctl — control the running fmux
   fmuxctl kill <session> --yes            end the tmux session
   fmuxctl notify <text…> [--title T]      send a card to the owner's chat
   fmuxctl dashboard                       post a fresh session dashboard card
-  fmuxctl show <session>                  post the session's screen card (it refreshes itself for 10 minutes)
+  fmuxctl show <session> [--terminal]     post the session's card to the chat: its last exchange, or its terminal
 
 <session> is the number shown by "ls", or a loose name: part of the tmux name, of the
 agent's title or of the directory. A name that fits several sessions is refused with the list.`;
@@ -84,7 +84,7 @@ async function main() {
     case 'attach':
       return console.log(JSON.stringify(await call('attach', { ref: args[0] })));
     case 'show':
-      return console.log(JSON.stringify(await call('show', { ref: args[0] })));
+      return console.log(JSON.stringify(await call('show', { terminal: has(args, '--terminal'), ref: args[0] })));
     case 'new': {
       if (!args.length) return console.log(JSON.stringify(await call('form')));
       const resume = take(args, '--resume') || (has(args, '--continue') ? 'last' : 'new');

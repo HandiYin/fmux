@@ -92,7 +92,11 @@ export async function createFeishu({ appId, appSecret, ownerOpenId, tenant = 'fe
       const res = await channel.send(chatId, { markdown: text }, replyTo ? { replyTo } : undefined);
       return res.messageId;
     },
-    react: (messageId, emoji) => channel.addReaction(messageId, emoji).catch(() => null),
+    // Resolves to null when the reaction could not be added, so a caller can fall back to a card.
+    react: (messageId, emoji) => channel.addReaction(messageId, emoji).catch((err) => {
+      log('warn', 'feishu.react', { emoji, message: err.message });
+      return null;
+    }),
     download: (messageId, resource) => channel.downloadResource(messageId, resource.fileKey, resource.type === 'image' ? 'image' : 'file'),
     botName: () => {
       try {
@@ -139,7 +143,10 @@ export function createFakeFeishu({ dir } = {}) {
       api.record('text', messageId, { chatId, text, replyTo: opts.replyTo });
       return messageId;
     },
-    react: async (messageId, emoji) => api.record('reaction', messageId, { emoji }),
+    react: async (messageId, emoji) => {
+      api.record('reaction', messageId, { emoji });
+      return 'reaction_fake';
+    },
     download: async () => Buffer.from('fake'),
     botName: () => 'fmux (fake)',
     // test drivers

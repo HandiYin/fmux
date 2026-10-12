@@ -4,7 +4,7 @@ import * as realTmux from './tmux.mjs';
 import * as cards from './cards.mjs';
 import { lookupConversation, recentConversations } from './history.mjs';
 import { findDialog, keysFor } from './screen.mjs';
-import { expandHome, log, oneLine, shellQuote, sleep } from './util.mjs';
+import { expandHome, fmtDuration, log, oneLine, shellQuote, sleep } from './util.mjs';
 
 const ALIASES = {
   sessions: 'ls', 会话: 'ls', attach: 'a', 接入: 'a', detach: 'd', 断开: 'd',
@@ -38,7 +38,7 @@ export class Router {
     this.finished = new Map(); // message id -> { key, turn } of a "finished" card, for re-rendering
     this.follows = new Map(); // session key -> token of a running screen follow
     this.promised = new Set(); // sessions left mid-turn: their result is announced whatever the notify settings
-    this.live = new Map(); // message id -> { kind: 'dash' | 'attached' | 'peek', key, until, signature }: cards kept current
+    this.live = new Map(); // message id -> { kind: 'dash' | 'peek' | 'term', key, until, signature }: cards kept current
     this.piView = null;
     this.ticking = false;
     this.nudgeTimer = null;
@@ -99,7 +99,7 @@ export class Router {
   }
 
   info(title, text, extra = {}) {
-    return this.post(cards.infoCard({ title, text, buttons: [{ label: '会话', icon: cards.ICON.sessions, value: { a: 'dash.new' } }], ...extra }));
+    return this.post(cards.infoCard({ title, text, ...extra }));
   }
 
   // ---- inbound chat messages ----
@@ -119,7 +119,7 @@ export class Router {
 
       const command = this.parseCommand(text);
       if (command) {
-        await this.runCommand(command);
+        await this.runCommand(command, msg);
         return;
       }
       const quotedKey = this.store.sessionKeyFor(msg.replyToMessageId) || this.store.sessionKeyFor(msg.rootId);
@@ -181,7 +181,7 @@ export class Router {
     return { name, arg: (m[3] || '').trim() };
   }
 
-  async runCommand({ name, arg }) {
+  async runCommand({ name, arg }, msg) {
     switch (name) {
       case 'ls':
         await this.sendDashboard();
@@ -193,7 +193,7 @@ export class Router {
       }
       case 'd':
         await this.detach();
-        await this.info('已断开', '现在的消息由 Pi 管家处理。');
+        await this.ack(msg, 'DONE', '已断开。现在的消息由 Pi 管家处理。');
         return;
       case 'peek': {
         const session = arg ? await this.choose(arg, 'peek', '') : this.attachedSession();
@@ -212,7 +212,7 @@ export class Router {
         }
         await this.tmux.sendKeys(session.key, tokens);
         await sleep(450);
-        await this.sendPeek(session);
+        await this.sendTerminal(session);
         return;
       }
       case 'new': {
@@ -235,13 +235,19 @@ export class Router {
         return;
       }
       case 'kill': {
-        const session = await this.choose(arg, 'peek', '用法：`//kill <序号或名字>`');
-        if (session) await this.sendPeek(session);
+        const session = await this.choose(arg, 'term', '用法：`//kill <名字>`');
+        if (session) await this.sendTerminal(session);
         return;
       }
       default:
         await this.post(cards.helpCard());
     }
+  }
+
+  // A reaction on the owner's message says "done" without another card. A stub card stands in if it fails.
+  async ack(msg, emoji, text) {
+    const ok = msg?.messageId ? await this.feishu.react(msg.messageId, emoji) : null;
+    if (!ok) await this.post(cards.stubCard(text));
   }
 
   // The session a loosely typed name means. When the name fits several, a card asks which one.
@@ -366,20 +372,25 @@ export class Router {
     // A dialog that opened and closed while the agent was idle (the folder trust prompt) is not a turn.
     if (empty && !turn.worked) {
       if (view) await view.ready;
-      if (view?.messageId) await this.feishu.updater.flush(view.messageId, cards.infoCard({ title: session.name, text: '已处理。' }));
+      if (view?.messageId) await this.feishu.updater.flush(view.messageId, cards.stubCard(`${session.name}：已处理。`));
       return;
     }
     if (followed) {
       const done = this.renderTurn(session, 'done', turn);
       if (view) await view.ready;
-      if (view?.messageId && !long) {
-        await this.feishu.updater.flush(view.messageId, done);
-      } else {
-        // An edit to an old card does not ring the phone, so a long turn ends with a new card.
-        if (view?.messageId) await this.feishu.updater.flush(view.messageId, cards.infoCard({ title: `${session.name} · 完成`, text: '回复在下面的新卡片里。' }));
+      if (!view?.messageId) {
         await this.post(done, session.key);
+        return;
       }
-      if (!turn.texts.length && session.kind !== 'shell') await this.sendPeek(session);
+      await this.feishu.updater.flush(view.messageId, done);
+      // An edit does not ring the phone. After a long turn, one short line does.
+      if (long) {
+        const preview = oneLine(turn.texts.at(-1) || '', 60);
+        const line = `**${session.name}** 已结束（${fmtDuration(seconds)}）${preview ? `：${preview}` : ''}`;
+        this.feishu.sendText(this.chatId, line, { replyTo: view.messageId })
+          .then((id) => this.store.rememberMessage(id, session.key))
+          .catch((err) => log('warn', 'turn.ping', { message: err.message }));
+      }
       return;
     }
     if (empty) return;
@@ -406,22 +417,22 @@ export class Router {
 
   async attach(session, { announce = true } = {}) {
     const previous = this.attachedSession();
-    if (previous && previous.key !== session.key) this.dropView(previous, '已切到别的会话，这个会话仍在运行。完成后会另行通知。');
+    if (previous && previous.key !== session.key) this.dropView(previous, `已切到 ${session.name}。${previous.name} 仍在运行，结束后会通知你。`);
     this.promised.delete(session.key);
     this.store.set('attached', { key: session.key, name: session.name });
-    this.retireKind('attached');
     this.nudge();
     log('info', 'attach', { session: session.name });
-    if (announce) await this.postLive('attached', session, Infinity);
-    if (session.status === 'working') this.ensureView(session);
+    if (!announce) return;
+    // One card says where the session is: its dialog, its running turn, or its last reply.
     if (session.status === 'blocked') await this.showBlocked(session);
+    else if (session.status === 'working') this.ensureView(session);
+    else await this.sendPeek(session);
   }
 
   async detach() {
     const previous = this.attachedSession();
-    if (previous) this.dropView(previous, '已断开，这个会话仍在运行。完成后会另行通知。');
+    if (previous) this.dropView(previous, `已断开。${previous.name} 仍在运行，结束后会通知你。`);
     this.store.set('attached', null);
-    this.retireKind('attached');
     this.nudge();
   }
 
@@ -430,7 +441,7 @@ export class Router {
     if (!view) return;
     this.views.delete(session.key);
     this.promised.add(session.key);
-    view.ready.then(() => view.messageId && this.feishu.updater.flush(view.messageId, cards.infoCard({ title: session.name, text })));
+    view.ready.then(() => view.messageId && this.feishu.updater.flush(view.messageId, cards.stubCard(text)));
   }
 
   // Before a restart: turn cards cannot be picked up again, so they say where the reply will be.
@@ -439,7 +450,7 @@ export class Router {
     const pending = [];
     for (const [key, view] of this.views) {
       const session = this.registry.sessions.get(key);
-      if (view.messageId) pending.push(this.feishu.updater.flush(view.messageId, cards.infoCard({ title: session?.name || '会话', text: 'fmux 重启了。这一轮的回复会出现在新的卡片里。' })));
+      if (view.messageId) pending.push(this.feishu.updater.flush(view.messageId, cards.stubCard(`fmux 重启了。${session?.name || '会话'} 这一轮的回复会出现在新的卡片里。`)));
     }
     this.views.clear();
     await Promise.race([Promise.allSettled(pending), sleep(2000)]);
@@ -447,10 +458,10 @@ export class Router {
 
   // ---- cards that stay current: the dashboard, the "attached" card, screen cards ----
 
-  // One dashboard and one "attached" card are live at a time, and one screen card for each session.
+  // One dashboard is live at a time, and for each session one session card and one terminal card.
   track(kind, messageId, key = '', ttlMs = Infinity) {
     for (const [id, other] of [...this.live]) {
-      if (id !== messageId && other.kind === kind && (kind !== 'peek' || other.key === key)) this.retire(id);
+      if (id !== messageId && other.kind === kind && (kind === 'dash' || other.key === key)) this.retire(id, { replaced: true });
     }
     const entry = this.live.get(messageId) || { signature: '' };
     Object.assign(entry, { kind, key, until: Date.now() + ttlMs });
@@ -459,12 +470,15 @@ export class Router {
     return entry;
   }
 
-  // Stop updating a card, and say so on the card.
-  retire(messageId) {
+  // Stop updating a card, and say so on the card. A card that a newer one replaced shrinks to
+  // one line, so the chat does not keep two copies of the same content.
+  retire(messageId, { replaced = false } = {}) {
     const entry = this.live.get(messageId);
     if (!entry) return;
     this.forget(messageId);
-    this.renderLive(entry, { final: true })
+    const name = this.registry.sessions.get(entry.key)?.name;
+    const shrink = replaced && entry.kind !== 'dash' && name;
+    (shrink ? Promise.resolve({ card: cards.stubCard(`${name}：看下面更新的卡片。`) }) : this.renderLive(entry, { final: true }))
       .then((out) => this.feishu.updater.flush(messageId, out.card))
       .catch((err) => log('warn', 'live.retire', { message: err.message }));
   }
@@ -486,8 +500,11 @@ export class Router {
     const saved = this.store.get('live') || [];
     const legacy = this.store.get('dash');
     if (legacy?.messageId && !saved.some((e) => e.kind === 'dash')) saved.push({ id: legacy.messageId, kind: 'dash', key: '', until: null });
-    for (const e of saved) this.live.set(e.id, { kind: e.kind, key: e.key, until: e.until ?? Infinity, signature: '' });
-    for (const [id, e] of [...this.live]) if (e.kind === 'attached' && e.key !== this.attachedKey()) this.retire(id);
+    for (const e of saved) {
+      // "attached" cards of an earlier version are session cards now, with the same time limit.
+      const legacy = e.kind === 'attached';
+      this.live.set(e.id, { kind: legacy ? 'peek' : e.kind, key: e.key, until: legacy ? Date.now() + this.peekTtl : e.until ?? Infinity, signature: '' });
+    }
     const attached = this.attachedSession();
     if (attached?.status === 'working') this.ensureView(attached);
     this.startTicker();
@@ -513,28 +530,37 @@ export class Router {
   async renderLive(entry, { final = false } = {}) {
     const now = Date.now();
     if (entry.kind === 'dash') {
+      if (final) return { signature: 'stale', card: cards.stubCard('这张面板已停止更新。发「面板」看最新的。') };
       const sessions = this.registry.list();
       const running = sessions.some((s) => s.status === 'working');
       // Elapsed times move once a minute while an agent runs. An idle dashboard gets a heartbeat every 5 minutes.
       const beat = Math.floor(now / (running ? 60000 : 300000));
       return {
-        card: cards.dashboardCard({ sessions, attachedKey: this.attachedKey(), quiet: this.cfg.notify.enabled && this.localActive(), now, stale: final }),
+        card: cards.dashboardCard({ sessions, attachedKey: this.attachedKey(), quiet: this.cfg.notify.enabled && this.localActive(), now }),
         signature: [this.registry.signature, this.attachedKey(), beat].join('\u0003'),
       };
     }
     const session = this.registry.sessions.get(entry.key);
-    if (!session) return { gone: true, signature: 'gone', card: cards.infoCard({ title: '会话已结束', text: '这个 tmux 会话已经不在了。' }) };
+    if (!session) return { gone: true, signature: 'gone', card: cards.stubCard('这个 tmux 会话已经结束。') };
+    const attached = this.attachedKey() === session.key;
+    const live = final ? 'off' : 'on';
     const minute = session.status === 'working' ? Math.floor((now - session.statusSince) / 60000) : 0;
-    if (entry.kind === 'attached') {
+    // A shell has nothing but its screen. An agent shows its last exchange unless the terminal was asked for.
+    if (entry.kind === 'term' || session.kind === 'shell') {
+      const screen = await this.tmux.capture(session.key);
       return {
-        card: cards.attachedCard({ session, now, detached: final }),
-        signature: [session.status, session.statusSince, session.note, session.title, session.lastPrompt.slice(0, 60), session.lastText.length, session.lastText.slice(-60), minute].join('\u0003'),
+        card: cards.terminalCard({ session, screen, attached, now, live }),
+        signature: [screen, session.status, session.note, minute, attached, live].join('\u0003'),
       };
     }
-    const screen = await this.tmux.capture(session.key);
+    // While attached, replies arrive as their own cards below. This card then keeps the exchange it
+    // showed at that moment, and only its state and buttons stay current.
+    if (attached) entry.frozen ??= { lastText: session.lastText, lastPrompt: session.lastPrompt };
+    else entry.frozen = null;
+    const shown = entry.frozen ? { ...session, ...entry.frozen } : session;
     return {
-      card: cards.peekCard({ session, screen, attached: this.attachedKey() === session.key, now, live: final ? 'off' : 'on' }),
-      signature: [screen, session.status, session.note, minute].join('\u0003'),
+      card: cards.sessionCard({ session: shown, attached, now, live }),
+      signature: [session.status, session.statusSince, session.note, session.title, shown.lastPrompt.slice(0, 90), shown.lastText.length, shown.lastText.slice(-60), minute, attached, live].join('\u0003'),
     };
   }
 
@@ -598,15 +624,22 @@ export class Router {
     return (this.cfg.live?.peekMinutes ?? 10) * 60000;
   }
 
-  // Poll first, so the status light matches the screen in the same card.
+  // Poll first, so the status light matches the content of the same card.
   async sendPeek(session) {
     await this.registry.poll();
     return this.postLive('peek', session, this.peekTtl);
   }
 
-  async peekReply(session, evt) {
+  async sendTerminal(session) {
     await this.registry.poll();
-    return this.adopt('peek', evt.messageId, session, this.peekTtl);
+    return this.postLive('term', session, this.peekTtl);
+  }
+
+  // The card a click came from, drawn again and kept current. Used as the reply to that click.
+  async redraw(session, evt, fallbackKind) {
+    await this.registry.poll();
+    const kind = this.live.get(evt.messageId)?.kind;
+    return this.adopt(kind === 'peek' || kind === 'term' ? kind : fallbackKind, evt.messageId, session, this.peekTtl);
   }
 
   // ---- card clicks ----
@@ -638,7 +671,7 @@ export class Router {
         return {};
       case 'detach':
         await this.detach();
-        return v.from === 'dash' ? replace(await this.adopt('dash', evt.messageId, null, DASH_TTL), '已回到 Pi 管家') : toast('已回到 Pi 管家');
+        return v.from === 'dash' ? replace(await this.adopt('dash', evt.messageId, null, DASH_TTL), '已断开') : toast('已断开，消息回到 Pi 管家');
       case 'pi.stop':
         this.concierge?.abort();
         return toast('已请求停止');
@@ -654,7 +687,7 @@ export class Router {
         }
         await this.attach(session, { announce: false });
         this.store.rememberMessage(evt.messageId, session.key);
-        return replace(await this.adopt('attached', evt.messageId, session, Infinity), `已创建 ${session.name}`);
+        return replace(await this.adopt('peek', evt.messageId, session, this.peekTtl), `已创建 ${session.name}`);
       }
       default:
         break;
@@ -663,19 +696,29 @@ export class Router {
     const session = this.find(v);
     if (!session) return toast(`会话 ${v.n || ''} 已不存在`, 'error');
     switch (v.a) {
-      case 'attach':
-        await this.attach(session);
+      case 'attach': {
+        // A click on the session's own card needs no second card: that card turns into "已接入".
+        const own = this.live.get(evt.messageId);
+        const sameCard = own && own.kind !== 'dash' && own.key === session.key && session.status !== 'working' && session.status !== 'blocked';
+        await this.attach(session, { announce: !sameCard });
+        if (sameCard) return replace(await this.redraw(session, evt, own.kind), `已接入 ${session.name}`);
         return v.from === 'dash' ? replace(await this.adopt('dash', evt.messageId, null, DASH_TTL), `已接入 ${session.name}`) : toast(`已接入 ${session.name}`);
+      }
       case 'peek':
         this.sendPeek(session).catch((err) => log('error', 'peek.send', { message: err.message }));
         return {};
+      case 'term':
+        this.sendTerminal(session).catch((err) => log('error', 'term.send', { message: err.message }));
+        return {};
       case 'peek.refresh':
-        return replace(await this.peekReply(session, evt));
+        return replace(await this.redraw(session, evt, 'peek'));
+      case 'term.refresh':
+        return replace(await this.redraw(session, evt, 'term'));
       case 'key': {
         await this.tmux.sendKeys(session.key, [v.k]);
-        if (v.from === 'peek') {
+        if (v.from === 'term' || v.from === 'peek') {
           await sleep(450);
-          return replace(await this.peekReply(session, evt), `已发送 ${v.k}`);
+          return replace(await this.redraw(session, evt, 'term'), `已发送 ${v.k}`);
         }
         return toast(`已发送 ${v.k}`);
       }
@@ -698,11 +741,11 @@ export class Router {
       case 'reply': {
         const text = String(form.text || '').trim();
         if (!text) return toast('内容为空', 'warning');
-        if (v.from === 'peek') {
-          // The key pad talks to the terminal as it is, dialog or not.
+        if (v.from === 'term' || v.from === 'peek') {
+          // The terminal card talks to the terminal as it is, dialog or not.
           await this.tmux.sendText(session.key, text);
           await sleep(600);
-          return replace(await this.peekReply(session, evt), '已发送');
+          return replace(await this.redraw(session, evt, 'term'), '已发送');
         }
         if (!(await this.deliver(session, text))) return toast('会话在等确认，没有发出', 'warning');
         const finished = this.finished.get(evt.messageId);
@@ -711,7 +754,7 @@ export class Router {
       case 'kill':
         this.forget(evt.messageId);
         await this.tmux.killSession(session.tmuxSession);
-        return replace(cards.infoCard({ title: `🗑 ${session.tmuxSession} 已结束`, text: 'tmux 会话已关闭。' }), '已结束');
+        return replace(cards.stubCard(`tmux 会话 ${session.tmuxSession} 已结束。`), '已结束');
       default:
         return toast('未知操作', 'warning');
     }
@@ -746,6 +789,7 @@ export class Router {
       if (!template) throw new Error(`${agent} 不支持「继续最近一次对话」`);
     }
     template ??= spec.command;
+    name = String(name || '').trim() || this.autoName(agent);
     const dir = expandHome(cwd || '~');
     if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) throw new Error(`目录不存在：${cwd}`);
     if (this.registry.list().some((s) => s.tmuxSession === name)) throw new Error(`已有叫 ${name} 的会话`);
@@ -758,6 +802,17 @@ export class Router {
     log('info', 'session.new', { name, agent, cwd: dir, resume, yolo });
     if (spec.autoTrust) this.autoTrust(session.key).catch((err) => log('warn', 'autotrust', { message: err.message }));
     return session;
+  }
+
+  // A name for a session created without one: the agent and the time, made unique.
+  autoName(agent) {
+    const d = new Date();
+    const two = (n) => String(n).padStart(2, '0');
+    const base = `${agent}-${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}`;
+    const taken = new Set(this.registry.list().map((s) => s.tmuxSession));
+    let name = base;
+    for (let i = 2; taken.has(name); i++) name = `${base}-${i}`;
+    return name;
   }
 
   // Claude Code asks whether to trust a folder it has not seen. The owner picked the folder
@@ -784,7 +839,7 @@ export class Router {
 
   async askConcierge(text) {
     if (!this.concierge) {
-      await this.info('没有接入会话', '点「会话」选一个接入，消息才有去处。');
+      await this.info('没有接入会话', '发「面板」选一个会话接入，消息才有去处。');
       return;
     }
     if (!this.piView) {
@@ -880,8 +935,8 @@ export class Router {
       await this.tmux.killSession(session.tmuxSession);
       return { killed: session.tmuxSession };
     },
-    notify: async ({ title = 'fmux', text }) => ({ messageId: await this.post(cards.infoCard({ title, text, template: 'blue' })) }),
+    notify: async ({ title = 'fmux', text }) => ({ messageId: await this.post(cards.infoCard({ title, text })) }),
     dashboard: async () => ({ messageId: await this.sendDashboard() }),
-    show: async ({ ref }) => ({ messageId: await this.sendPeek(this.need(ref)) }),
+    show: async ({ ref, terminal = false }) => ({ messageId: await (terminal ? this.sendTerminal(this.need(ref)) : this.sendPeek(this.need(ref))) }),
   };
 }

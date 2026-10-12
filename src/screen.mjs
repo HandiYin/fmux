@@ -96,7 +96,8 @@ export function compactScreen(screen, maxLines = 34, maxCols = 110) {
   const out = [];
   let blank = 0;
   for (let line of screen.split('\n')) {
-    line = line.replace(/[─━═]{12,}/g, '────────').replace(/\s+$/, '');
+    // Long rules and the padding a terminal UI puts between left and right parts waste a phone line.
+    line = line.replace(/[─━═]{12,}/g, '────────').replace(/(\S) {4,}(?=\S)/g, '$1  ').replace(/\s+$/, '');
     if (!line.trim()) {
       if (++blank > 1) continue;
     } else {
