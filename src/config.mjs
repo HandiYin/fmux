@@ -72,12 +72,20 @@ export function writeRawConfig(config, file = CONFIG_PATH) {
   fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
 }
 
-// Where the hub listens. Linux has a runtime directory for each user. Elsewhere the socket is in
-// the state directory, which the service and a shell both find without an environment variable.
-export function socketPath(stateDir = expandHome(DEFAULTS.stateDir)) {
-  const runtime = process.platform === 'linux' ? process.env.XDG_RUNTIME_DIR : '';
+// Where the hub listens. Linux has a runtime directory for each user. macOS has none, so the
+// socket is in the state directory, which the service and a shell both find without an
+// environment variable. Windows has no socket files: the hub listens on a named pipe.
+export function socketPath(stateDir = expandHome(DEFAULTS.stateDir), { platform = process.platform, env = process.env, user } = {}) {
+  if (platform === 'win32') {
+    // Pipe names are shared by the whole machine, so each user has their own.
+    user ??= env.USERNAME || os.userInfo().username;
+    return `\\\\.\\pipe\\fmux-${String(user).replace(/[^\w.-]/g, '_')}`;
+  }
+  const runtime = platform === 'linux' ? env.XDG_RUNTIME_DIR : '';
   return path.join(runtime && fs.existsSync(runtime) ? runtime : stateDir, 'fmux.sock');
 }
+
+export const isPipe = (socket) => String(socket).startsWith('\\\\.\\pipe\\');
 
 // The app secret is never stored in the config. It is read at start from where it already lives.
 export async function resolveSecret(ref) {

@@ -8,9 +8,9 @@ import test from 'node:test';
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fmux-setup-'));
 process.env.FMUX_CONFIG = path.join(dir, 'config.json');
 process.env.FMUX_SOCK = path.join(dir, 'no-daemon.sock');
-const { loadConfig, readRawConfig, resolveSecret } = await import('../src/config.mjs');
+const { isPipe, loadConfig, readRawConfig, resolveSecret, socketPath } = await import('../src/config.mjs');
 const { NEEDS, createApp, pair, useExistingApp } = await import('../src/setup.mjs');
-const { hubCommand, launchdPlist, serviceCommands, serviceEnv, serviceUnit } = await import('../src/service.mjs');
+const { hubBatch, hubCommand, launchdPlist, serviceCommands, serviceEnv, serviceUnit, startupBatch, startupFile } = await import('../src/service.mjs');
 
 const quiet = () => {};
 
@@ -110,6 +110,33 @@ test('without a service manager the hub runs in a loop that a POSIX shell can re
   const command = hubCommand({ node: '/usr/bin/node', root: "/home/o'neil/fmux", env: { PATH: '/usr/bin:/mnt/c/Program Files' } });
   assert.ok(command.includes(`env 'PATH=/usr/bin:/mnt/c/Program Files' '/usr/bin/node' '/home/o'\\''neil/fmux/bin/fmux.mjs'`));
   assert.match(command, /^while true; do .*; sleep 5 \|\| break; done$/);
+});
+
+test('Windows: the hub session runs a batch file that starts the hub again', () => {
+  const batch = hubBatch({ node: 'C:\\Program Files\\nodejs\\node.exe', root: 'C:\\Users\\me\\fmux', env: { PATH: 'C:\\x', FMUX_CONFIG: 'C:\\Users\\me\\100%.json' } });
+  const lines = batch.split('\r\n');
+  assert.equal(lines[0], '@echo off');
+  assert.ok(lines.includes('set "FMUX_CONFIG=C:\\Users\\me\\100%%.json"'), 'a percent sign is doubled in a batch file');
+  assert.ok(!batch.includes('PATH'), 'the session keeps the PATH it starts with');
+  assert.ok(lines.includes('"C:\\Program Files\\nodejs\\node.exe" "C:\\Users\\me\\fmux\\bin\\fmux.mjs"'));
+  assert.deepEqual(lines.slice(-3), ['ping -n 6 127.0.0.1 >nul', 'goto loop', '']);
+});
+
+test('Windows: a batch file in the Startup folder brings the hub up at logon', () => {
+  const batch = startupBatch({ node: 'C:\\node\\node.exe', root: 'C:\\Users\\me\\fmux', env: { PATH: 'C:\\x' } });
+  assert.ok(batch.includes('start "fmux" /min "C:\\node\\node.exe" "C:\\Users\\me\\fmux\\bin\\fmux.mjs" install-service'));
+  assert.equal(startupFile({ APPDATA: 'C:\\Users\\me\\AppData\\Roaming' }), 'C:\\Users\\me\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\fmux.cmd');
+});
+
+test('the control channel: a runtime directory on Linux, the state directory on macOS, a named pipe on Windows', () => {
+  const runtime = fs.mkdtempSync(path.join(os.tmpdir(), 'fmux-runtime-'));
+  assert.equal(socketPath('/state', { platform: 'linux', env: { XDG_RUNTIME_DIR: runtime } }), path.join(runtime, 'fmux.sock'));
+  assert.equal(socketPath('/state', { platform: 'linux', env: { XDG_RUNTIME_DIR: '/no/such/dir' } }), '/state/fmux.sock');
+  assert.equal(socketPath('/state', { platform: 'darwin', env: { XDG_RUNTIME_DIR: runtime } }), '/state/fmux.sock');
+  const pipe = socketPath('C:\\state', { platform: 'win32', user: 'John Smith' });
+  assert.equal(pipe, '\\\\.\\pipe\\fmux-John_Smith');
+  assert.equal(isPipe(pipe), true);
+  assert.equal(isPipe('/run/user/1000/fmux.sock'), false);
 });
 
 test('each kind of service has its own commands', () => {

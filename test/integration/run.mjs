@@ -22,19 +22,38 @@ const keep = argv.includes('--keep');
 const service = argv.find((a) => a.startsWith('--service='))?.slice('--service='.length) || '';
 const real = argv.filter((a) => a.startsWith('--real=')).map((a) => a.slice('--real='.length));
 
+// On Windows the multiplexer is psmux, and what differs from here on is marked WINDOWS.
+const WINDOWS = process.platform === 'win32';
+
 // /tmp and not os.tmpdir(): a socket path is limited to about 100 bytes, and macOS has a long TMPDIR.
-const tmp = fs.realpathSync(fs.mkdtempSync('/tmp/fmux-it-'));
-const dirs = { home: 'home', tmux: 'tmux', bin: 'bin', native: 'native/bin', versions: 'native/share/claude/versions', work: 'work', state: 'state' };
+const tmp = fs.realpathSync(fs.mkdtempSync(WINDOWS ? path.join(os.tmpdir(), 'fmux-it-') : '/tmp/fmux-it-'));
+const dirs = { home: 'home', tmux: 'tmux', bin: 'bin', native: 'native/bin', versions: 'native/share/claude/versions', work: 'work', state: 'state', appdata: 'appdata', npm: 'npm/node_modules' };
 for (const [name, rel] of Object.entries(dirs)) {
   dirs[name] = path.join(tmp, rel);
   fs.mkdirSync(dirs[name], { recursive: true });
 }
 
-// Script installs: `claude` is a script that a JS runtime runs ("node …/bin/claude").
-for (const name of ['claude', 'codex', 'pi']) fs.symlinkSync(STUB, path.join(dirs.bin, name));
-// Native install of Claude Code: `claude` is a link to a binary named after its version.
-fs.symlinkSync(process.execPath, path.join(dirs.versions, '9.9.9'));
-fs.symlinkSync(path.join(dirs.versions, '9.9.9'), path.join(dirs.native, 'claude'));
+// How each stub agent is started in a pane.
+const start = {};
+if (WINDOWS) {
+  // An npm install: the runtime runs a script inside the package directory.
+  const packaged = { claude: '@anthropic-ai/claude-code/cli.js', codex: '@openai/codex/bin/codex.js', pi: '@earendil-works/pi-coding-agent/dist/cli.js' };
+  for (const [name, rel] of Object.entries(packaged)) {
+    const file = path.join(dirs.npm, rel);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.copyFileSync(STUB, file);
+    start[name] = ['--', process.execPath, file];
+  }
+} else {
+  // Script installs: `claude` is a script that a JS runtime runs ("node …/bin/claude").
+  for (const name of ['claude', 'codex', 'pi']) {
+    fs.symlinkSync(STUB, path.join(dirs.bin, name));
+    start[name] = [name];
+  }
+  // Native install of Claude Code: `claude` is a link to a binary named after its version.
+  fs.symlinkSync(process.execPath, path.join(dirs.versions, '9.9.9'));
+  fs.symlinkSync(path.join(dirs.versions, '9.9.9'), path.join(dirs.native, 'claude'));
+}
 
 const config = path.join(tmp, 'config.json');
 fs.writeFileSync(config, JSON.stringify({
@@ -51,11 +70,16 @@ const env = {
   HOME: dirs.home,
   TMUX_TMPDIR: dirs.tmux,
   SHELL: '/bin/sh',
-  PATH: `${dirs.bin}:${path.dirname(process.execPath)}:${process.env.PATH}`,
+  PATH: [dirs.bin, path.dirname(process.execPath), process.env.PATH].join(path.delimiter),
   FMUX_CONFIG: config,
   FMUX_SOCK: path.join(tmp, 'fmux.sock'),
   LANG: 'en_US.UTF-8',
 };
+if (WINDOWS) {
+  // The home of a Windows user, the directory of psmux's sessions, and the Startup folder: all scratch.
+  Object.assign(env, { USERPROFILE: dirs.home, PSMUX_DATA_DIR: dirs.tmux, APPDATA: dirs.appdata, FMUX_SOCK: `\\\\.\\pipe\\fmux-it-${path.basename(tmp)}` });
+  delete env.SHELL;
+}
 for (const name of ['TMUX', 'TMUX_PANE', 'LC_ALL', 'LC_CTYPE', 'FMUX_FAKE']) delete env[name];
 // The hub runs without a locale, the way launchd starts a service.
 const bare = { ...env };
@@ -69,7 +93,7 @@ function run(cmd, args, { env: runEnv = env, timeout = 30000 } = {}) {
     });
   });
 }
-const tmux = (...args) => run('tmux', ['-u', ...args]);
+const tmux = async (...args) => (await run('tmux', WINDOWS ? args : ['-u', ...args])).replace(/\r\n/g, '\n');
 const ctl = (...args) => run(process.execPath, [path.join(ROOT, 'bin', 'fmuxctl.mjs'), ...args], { env: bare });
 const fmux = (args, runEnv = bare) => run(process.execPath, [path.join(ROOT, 'bin', 'fmux.mjs'), ...args], { env: runEnv, timeout: 90000 });
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -136,7 +160,7 @@ async function serviceCheck(kind) {
   }
   const { serviceCommands, serviceKind } = await import(path.join(ROOT, 'src', 'service.mjs'));
   const used = kind === 'tmux' ? 'tmux' : await serviceKind();
-  const shell = (command) => run('sh', ['-c', command], { env: serviceEnv });
+  const shell = (command) => (WINDOWS ? run('cmd.exe', ['/d', '/c', command], { env: serviceEnv }) : run('sh', ['-c', command], { env: serviceEnv }));
   try {
     await check(`install-service (${used}) starts the hub`, async () => {
       const out = await fmux(['install-service', ...(kind === 'tmux' ? ['--tmux'] : [])], serviceEnv);
@@ -178,14 +202,24 @@ async function main() {
 
   const size = ['-x', '120', '-y', '30', '-c', dirs.work];
   await tmux('new-session', '-d', '-s', 'it_shell', ...size);
-  await tmux('new-session', '-d', '-s', 'it_claude', ...size, 'claude');
-  await tmux('new-session', '-d', '-s', 'it_native', ...size, 'env', `PATH=${dirs.native}:${env.PATH}`, 'STUB_KIND=claude', 'claude', STUB);
-  await tmux('new-session', '-d', '-s', 'it_codex', ...size, 'codex');
-  await tmux('new-session', '-d', '-s', 'it_pi', ...size, 'pi');
-  await tmux('new-session', '-d', '-s', 'it_piped', ...size, 'tail -f /dev/null | claude');
+  await tmux('new-session', '-d', '-s', 'it_claude', ...size, ...start.claude);
+  await tmux('new-session', '-d', '-s', 'it_codex', ...size, ...start.codex);
+  await tmux('new-session', '-d', '-s', 'it_pi', ...size, ...start.pi);
+  if (WINDOWS) {
+    // Windows cannot say what a process reads from. An agent that a program drives is known by its command line.
+    await tmux('new-session', '-d', '-s', 'it_piped', ...size, ...start.claude, '-p', 'summarize');
+  } else {
+    await tmux('new-session', '-d', '-s', 'it_native', ...size, 'env', `PATH=${dirs.native}:${env.PATH}`, 'STUB_KIND=claude', 'claude', STUB);
+    await tmux('new-session', '-d', '-s', 'it_piped', ...size, 'tail -f /dev/null | claude');
+  }
   for (const name of real) {
-    const file = (await run('sh', ['-c', `command -v ${name}`], { env: process.env })).trim();
-    await tmux('new-session', '-d', '-s', `it_real_${name}`, ...size, 'env', `PATH=${path.dirname(file)}:${env.PATH}`, name);
+    if (WINDOWS) {
+      const file = (await run('where.exe', [name], { env: process.env })).split(/\r?\n/)[0].trim();
+      await tmux('new-session', '-d', '-s', `it_real_${name}`, ...size, '--', file);
+    } else {
+      const file = (await run('sh', ['-c', `command -v ${name}`], { env: process.env })).trim();
+      await tmux('new-session', '-d', '-s', `it_real_${name}`, ...size, 'env', `PATH=${path.dirname(file)}:${env.PATH}`, name);
+    }
   }
   startHub();
 
@@ -194,7 +228,7 @@ async function main() {
     return `${status.sessions} sessions`;
   });
 
-  const expected = { it_shell: 'shell', it_claude: 'claude', it_native: 'claude', it_codex: 'codex', it_pi: 'pi', it_piped: 'shell' };
+  const expected = { it_shell: 'shell', it_claude: 'claude', it_codex: 'codex', it_pi: 'pi', it_piped: 'shell', ...(WINDOWS ? {} : { it_native: 'claude' }) };
   await check('each pane is recognized: script agents, a native-style agent, a piped agent, a shell', async () => {
     let seen = {};
     try {
@@ -204,14 +238,16 @@ async function main() {
         return Object.keys(expected).every((name) => seen[name] === expected[name]);
       }, 15000);
     } catch {
-      const table = await run('ps', ['-A', '-ww', '-o', 'pid=,ppid=,tty=,args='], { env: { ...env, LC_ALL: 'C' } });
-      const panes = await tmux('list-panes', '-a', '-F', '#{session_name} #{pane_pid} #{pane_tty} #{pane_current_command}');
-      throw new Error(`expected ${JSON.stringify(expected)}\n    got      ${JSON.stringify(seen)}\n${panes}\n${table.split('\n').filter((l) => /stub-agent|\/bin\/(claude|codex|pi)|tail -f/.test(l)).join('\n')}`);
+      const table = WINDOWS
+        ? await run('powershell.exe', ['-NoProfile', '-Command', 'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $($_.Name) $($_.CommandLine)" }']).catch((err) => err.message)
+        : await run('ps', ['-A', '-ww', '-o', 'pid=,ppid=,tty=,args='], { env: { ...env, LC_ALL: 'C' } });
+      const panes = await tmux('list-panes', '-a', '-F', '#{session_name} #{pane_pid} #{pane_tty} #{pane_current_command}').catch((err) => err.message);
+      throw new Error(`expected ${JSON.stringify(expected)}\n    got      ${JSON.stringify(seen)}\n${panes}\n${table.split(/\r?\n/).filter((l) => /stub-agent|node_modules|\/bin\/(claude|codex|pi)|tail -f|psmux|pwsh|powershell/.test(l)).join('\n')}`);
     }
     return Object.entries(seen).map(([name, kind]) => `${name.slice(3)}=${kind}`).join(' ');
   });
 
-  await check('how the system names a native-style agent process', async () => {
+  if (!WINDOWS) await check('how the system names a native-style agent process', async () => {
     const pid = (await tmux('list-panes', '-t', 'it_native', '-F', '#{pane_pid}')).trim();
     const tree = await run('ps', ['-A', '-ww', '-o', 'pid=,ppid=,ucomm=,args='], { env: { ...env, LC_ALL: 'C' } });
     const line = tree.split('\n').find((l) => l.includes(STUB) && (l.trim().startsWith(`${pid} `) || l.includes(` ${pid} `)));
@@ -222,7 +258,7 @@ async function main() {
     await check(`the real ${name} CLI in a pane is recognized as ${name}`, async () => {
       const session = `it_real_${name}`;
       const pid = (await tmux('list-panes', '-t', session, '-F', '#{pane_pid}')).trim();
-      const tree = (await run('ps', ['-A', '-ww', '-o', 'pid=,ppid=,ucomm=,args='], { env: { ...env, LC_ALL: 'C' } })).split('\n').map((l) => l.trim().replace(/\s+/g, ' '));
+      const tree = WINDOWS ? [] : (await run('ps', ['-A', '-ww', '-o', 'pid=,ppid=,ucomm=,args='], { env: { ...env, LC_ALL: 'C' } })).split('\n').map((l) => l.trim().replace(/\s+/g, ' '));
       const family = tree.filter((l) => l.startsWith(`${pid} `) || l.split(' ')[1] === pid);
       try {
         const s = await until(`${session} is ${name}`, async () => {
@@ -238,25 +274,37 @@ async function main() {
   }
 
   await check('Claude Code: text in, working, reply out (status file and transcript)', () => turn('it_claude', '你好 fmux'));
-  await check('Claude Code, native-style process name: the same', () => turn('it_native', 'second agent; with a semicolon;'));
+  if (WINDOWS) await check('a text that ends with a semicolon arrives whole', () => turn('it_claude', 'second message; with a semicolon;'));
+  else await check('Claude Code, native-style process name: the same', () => turn('it_native', 'second agent; with a semicolon;'));
   await check('Codex: reply found through the rollout file the process holds open', () => turn('it_codex', 'ping codex'));
   await check('pi: reply found through the working directory of the process', () => turn('it_pi', 'ping pi'));
 
   await check('shell: a command goes in and its non-ASCII output is read back from the screen', async () => {
-    await ctl('send', 'it_shell', 'echo 结果-$((6*7))');
+    // The shell of a pane is PowerShell on Windows and sh elsewhere.
+    await ctl('send', 'it_shell', WINDOWS ? 'echo "结果-$(6*7)"' : 'echo 结果-$((6*7))');
     await until('the output is on the screen', async () => (await ctl('peek', 'it_shell')).includes('结果-42'));
   });
 
-  await check('a long multi-line text arrives whole (tmux paste buffer)', async () => {
-    const file = path.join(dirs.work, 'pasted.txt');
-    const body = Array.from({ length: 60 }, (_, i) => `行 ${i + 1} ${'x'.repeat(40)}`).join('\n');
-    await ctl('send', 'it_shell', `cat > ${file} <<'FMUX_EOF'\n${body}\nFMUX_EOF`);
-    await until('the file has the text', () => fs.existsSync(file) && fs.readFileSync(file, 'utf8').trim() === body);
-  });
+  if (WINDOWS) {
+    await check('a multi-line text arrives whole (paste buffer loaded from a file)', async () => {
+      const file = path.join(dirs.work, 'pasted.txt');
+      await ctl('send', 'it_shell', `$a = "行一"\n$b = "行二"\nSet-Content -Encoding utf8 -Path '${file}' -Value "$a-$b-done"`);
+      await until('the file has the text', () => fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes('行一-行二-done'));
+    });
+  } else {
+    await check('a long multi-line text arrives whole (tmux paste buffer)', async () => {
+      const file = path.join(dirs.work, 'pasted.txt');
+      const body = Array.from({ length: 60 }, (_, i) => `行 ${i + 1} ${'x'.repeat(40)}`).join('\n');
+      await ctl('send', 'it_shell', `cat > ${file} <<'FMUX_EOF'\n${body}\nFMUX_EOF`);
+      await until('the file has the text', () => fs.existsSync(file) && fs.readFileSync(file, 'utf8').trim() === body);
+    });
+  }
 
   await check('new session and kill session through the hub', async () => {
-    await ctl('new', 'it_new', '--agent', 'shell', '--cwd', dirs.work, '--no-attach');
+    await ctl('new', 'it_new', '--agent', 'shell', '--cwd', dirs.work, '--no-attach', '--prompt', 'echo created-$(1+1)');
     await until('it_new is listed', async () => (await sessions()).it_new?.kind === 'shell');
+    // The typed line starts with the prompt of the shell, so a line that starts with "created-" is the output.
+    await until('the first command ran in the new pane', async () => /^created-/m.test(await ctl('peek', 'it_new')));
     await ctl('kill', 'it_new', '--yes');
     await until('it_new is gone', async () => !(await sessions()).it_new);
   });

@@ -89,8 +89,8 @@ The owner often wants one session to read what another session said, for example
     restart `systemctl --user restart fmux`.
   - launchd (macOS): logs `tail -n 100 ~/Library/Logs/fmux.log`,
     restart `launchctl kickstart -k gui/$(id -u)/com.primatix.fmux`.
-  - tmux session `fmux-hub`: logs `tmux capture-pane -p -S -200 -t =fmux-hub:`,
-    restart `fmux install-service --tmux`.
+  - tmux session `fmux-hub` (also Windows, where `tmux` is psmux): logs
+    `tmux capture-pane -p -S -200 -t =fmux-hub:`, restart `fmux install-service --tmux`.
 - Tests: `cd "$FMUX_ROOT" && npm test`.
 - You run as a child of the service. A restart ends your own process.
   Restart only when the owner asked for it, and send your reply first.

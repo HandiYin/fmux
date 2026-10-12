@@ -21,14 +21,13 @@ export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export function expandHome(p) {
   if (!p) return p;
   if (p === '~') return os.homedir();
-  if (p.startsWith('~/')) return path.join(os.homedir(), p.slice(2));
+  if (p.startsWith('~/') || p.startsWith('~\\')) return path.join(os.homedir(), p.slice(2));
   return p;
 }
 
-export function shortPath(p) {
-  const home = os.homedir();
+export function shortPath(p, home = os.homedir()) {
   if (!p) return '';
-  return p === home ? '~' : p.startsWith(home + '/') ? '~' + p.slice(home.length) : p;
+  return p === home ? '~' : p.startsWith(home + '/') || p.startsWith(home + '\\') ? '~' + p.slice(home.length) : p;
 }
 
 export function fmtDuration(sec) {
@@ -60,6 +59,12 @@ export function oneLine(s, max = 120) {
 
 export function shellQuote(s) {
   return `'${String(s).replace(/'/g, `'\\''`)}'`;
+}
+
+// One argument for the shell of a pane. On Windows that shell is PowerShell, where a quote
+// inside single quotes is written twice.
+export function quoteArg(s, platform = process.platform) {
+  return platform === 'win32' ? `'${String(s).replace(/'/g, "''")}'` : shellQuote(s);
 }
 
 let logSink = (line) => process.stderr.write(line + '\n');

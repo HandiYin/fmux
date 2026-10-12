@@ -1,4 +1,5 @@
-import { spawn } from 'node:child_process';
+// cross-spawn: on Windows `pi` is a .cmd file, which Node does not start without a shell.
+import spawn from 'cross-spawn';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import { log, oneLine } from './util.mjs';

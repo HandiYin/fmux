@@ -11,26 +11,39 @@ tmux 会话；会话里的 Claude Code、Codex 或 pi 的回复以卡片发回�
 
 | 需要 | 说明 |
 |---|---|
-| Linux、macOS，或 Windows 的 WSL | 见下面「各系统的差别」。Windows 本身没有 tmux，要装在 WSL 里 |
+| Linux、macOS 或 Windows | 见下面「各系统的差别」。Windows 上用 psmux 代替 tmux，或者装在 WSL 里 |
 | Node.js 20.12 以上 | `node --version` |
-| tmux | `tmux -V` |
+| tmux | `tmux -V`。Windows 上装 psmux，它提供 `tmux` 命令 |
 | Claude Code 或 Codex | 命令 `claude`、`codex`，各自先在终端里登录好 |
 | pi（可选） | 管家用。不装就在配置里关掉管家 |
 | 飞书账号 | 能创建企业自建应用 |
 
 ### 各系统的差别
 
-| | Linux | macOS | Windows |
-|---|---|---|---|
-| 装在哪里 | 本机 | 本机 | WSL 2 里。fmux、tmux、`claude`、`codex` 都装在 WSL 里 |
-| 装依赖 | 发行版的包管理器 | `brew install tmux node` | 在 Windows 里运行 `wsl --install`，然后在 WSL 里按 Linux 来 |
-| 服务由谁托管 | systemd 用户服务 | launchd | WSL 开了 systemd 就用 systemd，否则用一个 tmux 会话 |
-| 验证情况 | 日常在用 | 进程识别的代码在 Linux 上通过了端到端测试，还没有在 Mac 上跑过 | 无 systemd 的情况在容器里通过了端到端测试，还没有在 WSL 上跑过 |
+| | Linux | macOS | Windows（psmux） | Windows（WSL 2） |
+|---|---|---|---|---|
+| 装在哪里 | 本机 | 本机 | Windows 本身。Agent 也装在 Windows 上 | WSL 里。fmux、tmux、`claude`、`codex` 都装在 WSL 里 |
+| 装依赖 | 发行版的包管理器 | `brew install tmux node` | `winget install psmux`，再装 Node.js | 在 Windows 里运行 `wsl --install`，然后在 WSL 里按 Linux 来 |
+| 服务由谁托管 | systemd 用户服务 | launchd | 一个 psmux 会话，登录时自动拉起 | WSL 开了 systemd 就用 systemd，否则用一个 tmux 会话 |
+| 验证情况 | 日常在用 | 进程识别的代码在 Linux 上通过了端到端测试，还没有在 Mac 上跑过 | 按 psmux 的文档写的，解析部分有单测，还没有在 Windows 上跑过 | 无 systemd 的情况在容器里通过了端到端测试，还没有在 WSL 上跑过 |
 
-Windows 要注意三点：
+#### Windows（psmux）
+
+tmux 不能在 Windows 上运行。[psmux](https://github.com/psmux/psmux) 是 Windows 上的 tmux：命令相同，安装后就有 `tmux` 命令。
+会话照常用 `tmux new -s 名字` 开。和 Linux 不同的地方：
+
+- 安装时用 `npm link` 代替 `ln -s`，它把 `fmux` 和 `fmuxctl` 放进 PATH。
+- 注销或重启 Windows 后，会话不保留。
+- 「本机有键盘输入时不通知」不起作用：psmux 不报告这个时间，一轮结束总会通知。
+- 多行消息以粘贴方式进入会话。新建会话时填的第一条消息按 PowerShell 的引号规则传入，窗格的 shell 要是 PowerShell。
+- 由别的程序驱动的 Agent（`codex app-server`、`claude -p`、`pi --mode rpc`）按命令行识别，不算会话里的 Agent。
+- 管家要用 pi，pi 在 Windows 上需要 Git Bash。不想装就把 `concierge.enabled` 设为 `false`。
+- 没有 `fmux setup --from-lark-channel-bridge`。已有的机器人走方式 C2。
+
+#### Windows（WSL 2）
 
 - 代码放在 WSL 自己的文件系统里（`~/fmux`），不要放在 `/mnt/c` 下。
-- 装在 Windows 一侧的 `claude`、`codex` 不在 tmux 里，fmux 管不到。在 WSL 里再装一份并登录。
+- 装在 Windows 一侧的 `claude`、`codex` 不在 WSL 的 tmux 里，fmux 管不到。在 WSL 里再装一份并登录。
 - 想用 systemd：在 `/etc/wsl.conf` 里写 `[boot]` 和 `systemd=true` 两行，在 Windows 里运行 `wsl --shutdown`，再打开 WSL。
 
 ## 2. 安装
@@ -39,6 +52,15 @@ Windows 要注意三点：
 git clone https://github.com/Primatix-Intelligence/fmux.git ~/fmux
 cd ~/fmux && npm install
 mkdir -p ~/.local/bin && ln -s ~/fmux/bin/fmux ~/fmux/bin/fmuxctl ~/.local/bin/
+fmux doctor
+```
+
+Windows（psmux）在 PowerShell 里：
+
+```powershell
+winget install psmux
+git clone https://github.com/Primatix-Intelligence/fmux.git $HOME\fmux
+cd $HOME\fmux; npm install; npm link
 fmux doctor
 ```
 
@@ -163,10 +185,10 @@ fmux install-service
 在装好 `tmux`、`claude`、`codex` 的终端里运行它：服务用的是这个终端的 `PATH`。
 它按系统选托管方式，并打印用了哪一种。然后在飞书里给机器人发「面板」。出现会话面板就成功了。
 
-| | Linux（有 systemd） | macOS | 没有 systemd（部分 WSL），或加了 `--tmux` |
+| | Linux（有 systemd） | macOS | Windows（psmux）；没有 systemd 的 WSL；或加了 `--tmux` |
 |---|---|---|---|
 | 托管方式 | systemd 用户服务 | launchd | tmux 会话 `fmux-hub`，不出现在面板里 |
-| 自动启动 | 开机。先运行 `loginctl enable-linger $USER` | 登录后 | 不会。命令会打印一行，加到 `~/.profile` 后登录时拉起 |
+| 自动启动 | 开机。先运行 `loginctl enable-linger $USER` | 登录后 | Windows：登录后，靠启动文件夹里的 `fmux.cmd`，删掉它就不再自启。其他：不会，命令会打印一行，加到 `~/.profile` 后登录时拉起 |
 | 看状态 | `systemctl --user status fmux` | `launchctl print gui/$(id -u)/com.primatix.fmux` | `tmux has-session -t =fmux-hub` |
 | 看日志 | `journalctl --user -u fmux -f` | `tail -f ~/Library/Logs/fmux.log` | `tmux attach -t fmux-hub` |
 | 改配置后重启 | `systemctl --user restart fmux` | `launchctl kickstart -k gui/$(id -u)/com.primatix.fmux` | `fmux install-service --tmux` |

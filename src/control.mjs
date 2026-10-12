@@ -1,15 +1,20 @@
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
+import { isPipe } from './config.mjs';
 import { log } from './util.mjs';
 
 // Local control socket for fmuxctl. One JSON request line in, one JSON reply line out.
 export function startControl({ socket, methods }) {
-  fs.mkdirSync(path.dirname(socket), { recursive: true });
-  try {
-    fs.unlinkSync(socket);
-  } catch {
-    // no stale socket
+  // A Windows named pipe is not a file: nothing to make, remove or chmod. It is gone with the hub.
+  const file = !isPipe(socket);
+  if (file) {
+    fs.mkdirSync(path.dirname(socket), { recursive: true });
+    try {
+      fs.unlinkSync(socket);
+    } catch {
+      // no stale socket
+    }
   }
   const server = net.createServer((conn) => {
     let buffer = '';
@@ -34,7 +39,7 @@ export function startControl({ socket, methods }) {
     conn.on('error', () => {});
   });
   server.listen(socket, () => {
-    fs.chmodSync(socket, 0o600);
+    if (file) fs.chmodSync(socket, 0o600);
     log('info', 'control.listening', { socket });
   });
   return server;

@@ -34,7 +34,8 @@ export async function runDaemon({ fake = false } = {}) {
         promptFile: path.join(ROOT, 'agent', 'CONCIERGE.md'),
         model: cfg.concierge.model,
         thinking: cfg.concierge.thinking,
-        env: { ...process.env, PATH: `${path.join(ROOT, 'bin')}:${process.env.PATH}`, FMUX_SOCK: cfg.socket, FMUX_ROOT: ROOT, FMUX_CONFIG: CONFIG_PATH },
+        // bin/ holds fmuxctl for the concierge. On Windows that file is not runnable; `npm link` puts fmuxctl on the PATH there.
+        env: { ...process.env, ...(process.platform === 'win32' ? {} : { PATH: `${path.join(ROOT, 'bin')}:${process.env.PATH}` }), FMUX_SOCK: cfg.socket, FMUX_ROOT: ROOT, FMUX_CONFIG: CONFIG_PATH },
       })
     : null;
   const router = new Router({ feishu, registry, concierge, store, cfg });

@@ -1,15 +1,18 @@
 #!/usr/bin/env node
 // A stand-in for an agent CLI, for the integration test: it keeps the files the real one keeps
 // (status file, transcript) and answers each line with "echo: <line>". No model, no network.
-// The kind is the name it is started under (claude, codex, pi), or STUB_KIND.
+// The kind is the name it is started under (claude, codex, pi), the package directory it is in
+// (the test on Windows copies it into an npm-style tree), or STUB_KIND.
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const readline = require('node:readline');
 
-const invoked = path.basename(process.argv[1] || '');
-const kind = ['claude', 'codex', 'pi'].includes(invoked) ? invoked : process.env.STUB_KIND || 'claude';
+const script = (process.argv[1] || '').replace(/\\/g, '/');
+const invoked = path.basename(script);
+const packaged = /claude-code/.test(script) ? 'claude' : /@openai\/codex/.test(script) ? 'codex' : /pi-coding-agent/.test(script) ? 'pi' : '';
+const kind = ['claude', 'codex', 'pi'].includes(invoked) ? invoked : packaged || process.env.STUB_KIND || 'claude';
 const home = os.homedir();
 const cwd = process.cwd();
 const id = crypto.randomUUID();
@@ -67,7 +70,7 @@ const agents = {
 
   // pi names the session directory after the working directory.
   pi() {
-    const dir = path.join(home, '.pi', 'agent', 'sessions', `--${cwd.replace(/^\//, '').replace(/\//g, '-')}--`);
+    const dir = path.join(home, '.pi', 'agent', 'sessions', `--${cwd.replace(/^[/\\]/, '').replace(/[/\\:]/g, '-')}--`);
     const transcript = ensure(path.join(dir, `${new Date().toISOString().replace(/[:.]/g, '-')}_${id}.jsonl`));
     const add = (line) => fs.appendFileSync(transcript, `${JSON.stringify(line)}\n`);
     add({ type: 'session', id, cwd });

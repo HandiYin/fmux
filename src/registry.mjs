@@ -10,7 +10,9 @@ import { pick } from './match.mjs';
 import { findDialog, looksWorking } from './screen.mjs';
 import { log } from './util.mjs';
 
-const SHELLS = new Set(['bash', 'zsh', 'fish', 'sh', 'dash']);
+const SHELLS = new Set(['bash', 'zsh', 'fish', 'sh', 'dash', 'pwsh', 'powershell', 'cmd', 'nu']);
+// psmux keeps a spare server under this name to start sessions fast. It is not a session of the user.
+const INTERNAL_SESSION = /^__warm/;
 const CLAUDE_STATUS = { busy: 'working', idle: 'idle', shell: 'idle', waiting: 'blocked' };
 const MAX_TURN_TEXTS = 60;
 
@@ -96,7 +98,7 @@ export class Registry extends EventEmitter {
     const snap = await this.probe.snapshot();
     const seen = new Set();
     for (const pane of panes) {
-      if (this.hide.has(pane.sessionName)) continue;
+      if (this.hide.has(pane.sessionName) || INTERNAL_SESSION.test(pane.sessionName)) continue;
       seen.add(pane.paneId);
       let session = this.sessions.get(pane.paneId);
       const isNew = !session;
@@ -181,7 +183,7 @@ export class Registry extends EventEmitter {
       status = 'shell';
       // A shell with a child is running something, even when tmux still reports the shell (a script).
       const child = (snap.children.get(pane.panePid) || [])[0];
-      note = SHELLS.has(pane.command) ? (child ? snap.procs.get(child)?.comm || '' : '') : pane.command;
+      note = SHELLS.has(pane.command.replace(/\.exe$/i, '').toLowerCase()) ? (child ? snap.procs.get(child)?.comm || '' : '') : pane.command;
     } else if (kind === 'claude' && CLAUDE_STATUS[meta?.status]) {
       status = CLAUDE_STATUS[meta.status];
       if (meta.status === 'shell') note = '后台命令运行中';
@@ -221,7 +223,7 @@ export class Registry extends EventEmitter {
     // Claude's lookup is a cached map, so it runs every poll and catches /clear. The others scan directories.
     const every = kind === 'claude' ? 1 : s.transcript ? 15 : 3;
     if (this.polls % every !== 0) return;
-    const file = await this.probe.locateTranscript(kind, s.agentPid, meta);
+    const file = await this.probe.locateTranscript(kind, s.agentPid, meta, { cwd: s.cwd });
     if (!file || file === s.transcript) return;
     let born = 0;
     try {

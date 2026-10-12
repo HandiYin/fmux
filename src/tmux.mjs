@@ -1,9 +1,19 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { sh, sleep } from './util.mjs';
 
-// -u: tmux writes UTF-8 whatever the locale of this process is. A service started by launchd has none.
-const tmux = (args, options) => sh('tmux', ['-u', ...args], options);
+// On Windows the `tmux` command is psmux, a tmux for Windows that takes the same commands.
+// The few places where it differs are marked WINDOWS below.
+const WINDOWS = process.platform === 'win32';
+export const TMUX_BIN = process.env.FMUX_TMUX || 'tmux';
 
-const SEP = '|#|';
+// -u: tmux writes UTF-8 whatever the locale of this process is. A service started by launchd has
+// none. psmux always writes UTF-8 and does not know the flag.
+const tmux = async (args, options) => (await sh(TMUX_BIN, WINDOWS ? args : ['-u', ...args], options)).replace(/\r\n/g, '\n');
+
+// No "#": that character starts a format, and psmux may not read a lone one the way tmux does.
+const SEP = '|~|';
 const FIELDS = [
   'session_name', 'window_index', 'window_name', 'pane_index', 'pane_id', 'pane_pid',
   'pane_current_command', 'pane_current_path', 'pane_title', 'session_attached',
@@ -21,7 +31,7 @@ export const KEYS = {
 };
 
 function noServer(err) {
-  return /no server running|No such file or directory|error connecting/i.test(`${err.stderr || ''} ${err.message || ''}`);
+  return /no server running|no sessions|No such file or directory|error connecting/i.test(`${err.stderr || ''} ${err.message || ''}`);
 }
 
 export async function listPanes() {
@@ -61,9 +71,11 @@ export async function listPanes() {
 
 // Last time any tmux client received keyboard input, in ms. 0 when no client is attached.
 export async function lastClientActivity() {
+  // psmux drops the format of list-clients, so on Windows nobody counts as "at the keyboard".
+  if (WINDOWS) return 0;
   try {
     const out = await tmux(['list-clients', '-F', '#{client_activity}']);
-    return Math.max(0, ...out.split('\n').filter(Boolean).map((s) => Number(s) * 1000));
+    return Math.max(0, ...out.split('\n').map((s) => Number(s) * 1000).filter(Number.isFinite));
   } catch (err) {
     if (noServer(err)) return 0;
     throw err;
@@ -89,7 +101,9 @@ async function typeLine(paneId, line) {
   await tmux(['send-keys', '-t', paneId, '-l', '--', clean.endsWith(';') ? `${clean.slice(0, -1)}\\;` : clean]);
 }
 
-const MAX_TYPED_LINES = 40;
+// Ctrl+J as "new line" is known to work in the agents on a Unix terminal. On Windows only one
+// line is typed, and several lines are pasted.
+const MAX_TYPED_LINES = WINDOWS ? 1 : 40;
 const MAX_TYPED_CHARS = 4000;
 
 // Can this text go in key by key, with Ctrl+J between lines? "@" opens a file picker in the
@@ -118,10 +132,24 @@ export async function sendText(paneId, text, { enter = true, typed = '', keys = 
       if (i > 0) await tmux(['send-keys', '-t', paneId, newline]);
       await typeLine(paneId, lines[i]);
     }
+  } else if (WINDOWS && text.length > 0 && canType(text)) {
+    // send-keys -l is the command psmux users lean on most. One line goes that way.
+    await typeLine(paneId, text);
   } else if (text.length > 0) {
     // Not argv: tmux would read a trailing ";" as a command separator, and a long text may not fit.
     const buffer = `fmux-${process.pid}`;
-    await tmux(['load-buffer', '-b', buffer, '-'], { input: text });
+    if (WINDOWS) {
+      // psmux loads a buffer from a file. It does not say that it reads "-" as standard input.
+      const file = path.join(os.tmpdir(), `fmux-paste-${process.pid}-${Date.now()}.txt`);
+      fs.writeFileSync(file, text, { mode: 0o600 });
+      try {
+        await tmux(['load-buffer', '-b', buffer, file]);
+      } finally {
+        fs.rmSync(file, { force: true });
+      }
+    } else {
+      await tmux(['load-buffer', '-b', buffer, '-'], { input: text });
+    }
     await tmux(['paste-buffer', '-p', '-d', '-b', buffer, '-t', paneId]);
     pasted = true;
   }
@@ -146,16 +174,32 @@ export async function sendKeys(paneId, keys) {
 
 export const SESSION_NAME_RE = /^[A-Za-z0-9_-]{1,40}$/;
 
+async function hasServer() {
+  try {
+    await tmux(['list-sessions', '-F', '#{session_name}']);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function newSession({ name, cwd, command }) {
   if (!SESSION_NAME_RE.test(name)) throw new Error('会话名只能用字母、数字、_ 和 -（最长 40）');
-  const args = ['new-session', '-d', '-s', name, '-x', '160', '-y', '48', '-c', cwd];
+  // -P -F: print the id of the new pane, which is the surest way to address it afterwards.
+  const args = ['new-session', '-d', '-P', '-F', '#{pane_id}', '-s', name, '-x', '160', '-y', '48', '-c', cwd];
   // Under systemd, a tmux server started from here would live in the hub's control group and
-  // die with every hub restart. A scope of its own keeps the first session alive.
-  if (process.env.INVOCATION_ID) await sh('systemd-run', ['--user', '--scope', '--quiet', '--collect', 'tmux', '-u', ...args]);
-  else await tmux(args);
+  // die with every hub restart. So the session that starts the server gets a scope of its own.
+  // With a server up, tmux only passes the request on and systemd has no part in it. A user
+  // manager that does not answer must not stop a session from being made.
+  let out = null;
+  if (process.env.INVOCATION_ID && !(await hasServer())) {
+    out = await sh('systemd-run', ['--user', '--scope', '--quiet', '--collect', TMUX_BIN, '-u', ...args]).catch(() => null);
+  }
+  out ??= await tmux(args);
   if (command) {
     await sleep(300);
-    await sendText(`=${name}:`, command);
+    const paneId = /^%\d+$/.test(out.trim()) ? out.trim() : `=${name}:`;
+    await sendText(paneId, command);
   }
 }
 

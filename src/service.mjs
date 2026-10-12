@@ -1,9 +1,13 @@
-// Keep the hub running: systemd on Linux, launchd on macOS, and a tmux session where neither is there.
+// Keep the hub running: systemd on Linux, launchd on macOS, and a tmux session where neither is
+// there. Windows has neither, so there the tmux session (psmux) is the way.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { ROOT } from './config.mjs';
+import { ROOT, loadConfig } from './config.mjs';
+import { TMUX_BIN } from './tmux.mjs';
 import { sh, shellQuote, sleep } from './util.mjs';
+
+const WINDOWS = process.platform === 'win32';
 
 export const LAUNCHD_LABEL = 'com.primatix.fmux';
 // The tmux session that holds the hub where there is no service manager. The registry never lists it.
@@ -91,6 +95,41 @@ export function hubCommand({ node = process.execPath, root = ROOT, env = service
   return `while true; do ${run}; echo "fmux stopped, starting again in 5 s (Ctrl+C twice to end)"; sleep 5 || break; done`;
 }
 
+// Windows: the batch file that the hub's session runs. It starts the hub again 5 s after it stops.
+// PATH is not written: the session has the PATH of the shell that installs, or of the logon.
+const batchValue = (s) => String(s).replace(/%/g, '%%');
+function batchEnv(env) {
+  return Object.entries(env).filter(([name]) => name !== 'PATH').map(([name, value]) => `set "${name}=${batchValue(value)}"`);
+}
+export function hubBatch({ node = process.execPath, root = ROOT, env = serviceEnv() } = {}) {
+  return [
+    '@echo off',
+    'rem Written by "fmux install-service". The fmux-hub session runs this file.',
+    ...batchEnv(env),
+    ':loop',
+    `"${batchValue(node)}" "${batchValue(path.win32.join(root, 'bin', 'fmux.mjs'))}"`,
+    'echo fmux stopped, starting again in 5 s',
+    'ping -n 6 127.0.0.1 >nul',
+    'goto loop',
+    '',
+  ].join('\r\n');
+}
+
+// Windows: a batch file in the Startup folder. At logon it brings the hub's session up again.
+export function startupBatch({ node = process.execPath, root = ROOT, env = serviceEnv() } = {}) {
+  return [
+    '@echo off',
+    'rem Written by "fmux install-service". Starts the fmux hub at logon. Delete this file to stop that.',
+    ...batchEnv(env),
+    `start "fmux" /min "${batchValue(node)}" "${batchValue(path.win32.join(root, 'bin', 'fmux.mjs'))}" install-service`,
+    '',
+  ].join('\r\n');
+}
+
+export function startupFile(env = process.env) {
+  return path.win32.join(env.APPDATA || path.win32.join(os.homedir(), 'AppData', 'Roaming'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', 'fmux.cmd');
+}
+
 async function works(cmd, args) {
   try {
     await sh(cmd, args, { timeout: 5000 });
@@ -111,7 +150,7 @@ export async function serviceKind({ platform = process.platform } = {}) {
 export async function installedKind() {
   if (fs.existsSync(LAUNCHD_PLIST)) return 'launchd';
   if (fs.existsSync(SYSTEMD_UNIT)) return 'systemd';
-  if (await works('tmux', ['has-session', '-t', `=${HUB_SESSION}`])) return 'tmux';
+  if (await works(TMUX_BIN, ['has-session', '-t', `=${HUB_SESSION}`])) return 'tmux';
   return serviceKind();
 }
 
@@ -186,14 +225,36 @@ async function installLaunchd({ print }) {
 }
 
 async function installTmux({ print }) {
-  await sh('tmux', ['kill-session', '-t', `=${HUB_SESSION}`]).catch(() => {});
+  await sh(TMUX_BIN, ['kill-session', '-t', `=${HUB_SESSION}`]).catch(() => {});
+  if (WINDOWS) return installPsmux({ print });
   // Not one string: tmux would hand that to the user's shell, which may be fish.
-  await sh('tmux', ['new-session', '-d', '-s', HUB_SESSION, '-c', os.homedir(), 'sh', '-c', hubCommand()]);
+  await sh(TMUX_BIN, ['new-session', '-d', '-s', HUB_SESSION, '-c', os.homedir(), 'sh', '-c', hubCommand()]);
   return () => {
     print(`fmux 已在 tmux 会话 ${HUB_SESSION} 里运行（这个会话不出现在面板里）。`);
     print('它不会开机自启。要在登录时自动拉起，把这一行加到 ~/.profile（zsh 用 ~/.zprofile）：');
     print(`  tmux has-session -t =${HUB_SESSION} 2>/dev/null || fmux install-service --tmux >/dev/null`);
     if (isWsl()) print('WSL 里更好的做法是打开 systemd：在 /etc/wsl.conf 写 [boot] 和 systemd=true 两行，在 Windows 里运行 wsl --shutdown，再运行 fmux install-service。');
+  };
+}
+
+async function installPsmux({ print }) {
+  const { stateDir } = loadConfig();
+  const hubFile = path.join(stateDir, 'hub.cmd');
+  fs.mkdirSync(stateDir, { recursive: true });
+  fs.writeFileSync(hubFile, hubBatch());
+  await sh(TMUX_BIN, ['new-session', '-d', '-s', HUB_SESSION, '-c', os.homedir(), '--', 'cmd.exe', '/d', '/c', hubFile]);
+  const startup = startupFile();
+  let auto = true;
+  try {
+    fs.mkdirSync(path.dirname(startup), { recursive: true });
+    fs.writeFileSync(startup, startupBatch());
+  } catch {
+    auto = false;
+  }
+  return () => {
+    print(`fmux 已在 psmux 会话 ${HUB_SESSION} 里运行（这个会话不出现在面板里）。`);
+    print(auto ? `登录 Windows 后自动启动：${startup}（删掉这个文件就不再自启）` : `没能写入启动文件夹（${startup}）。登录后要手动运行 fmux install-service。`);
+    print('注销或重启后，psmux 里的其他会话不会保留，要重新开。');
   };
 }
 

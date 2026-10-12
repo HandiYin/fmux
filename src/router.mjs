@@ -5,7 +5,7 @@ import * as cards from './cards.mjs';
 import { lookupConversation, recentConversations } from './history.mjs';
 import { compactScreen, findDialog, keysFor } from './screen.mjs';
 import { adapters, lastTurns } from './transcript.mjs';
-import { expandHome, fmtDuration, log, oneLine, shellQuote, sleep } from './util.mjs';
+import { expandHome, fmtDuration, log, oneLine, quoteArg, sleep } from './util.mjs';
 
 const ALIASES = {
   sessions: 'ls', 会话: 'ls', attach: 'a', 接入: 'a', detach: 'd', 断开: 'd',
@@ -799,7 +799,7 @@ export class Router {
     if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) throw new Error(`目录不存在：${cwd}`);
     if (this.registry.list().some((s) => s.tmuxSession === name)) throw new Error(`已有叫 ${name} 的会话`);
     const base = template.replace('{flags}', yolo ? spec.flags || '' : '').replace('{name}', name).replace(/\s+/g, ' ').trim();
-    const command = base ? (prompt ? `${base} ${shellQuote(prompt)}` : base) : prompt;
+    const command = base ? (prompt ? `${base} ${quoteArg(prompt)}` : base) : prompt;
     await this.tmux.newSession({ name, cwd: dir, command });
     await this.registry.poll();
     const session = this.registry.list().find((s) => s.tmuxSession === name);

@@ -8,18 +8,13 @@ const USAGE = `fmux — one Feishu chat for all your tmux sessions
   fmux pair               bind the owner again: the sender of the next direct message to the bot
   fmux install-service [--tmux]
                           keep the hub running: systemd (Linux), launchd (macOS), or with --tmux
-                          (and where neither is there) a tmux session named fmux-hub
+                          (and where neither is there, as on Windows) a tmux session named fmux-hub
   fmux doctor             show what is in place and what is missing
   fmux --fake             run against tmux with Feishu replaced by a recorder (development)
 
 Talk to the running hub with fmuxctl. Guide: docs/setup.zh.md`;
 
 const [command, ...rest] = process.argv.slice(2);
-
-if (process.platform === 'win32') {
-  console.error('fmux: tmux does not run on Windows itself. Install fmux, tmux and the agents inside WSL (docs/setup.zh.md).');
-  process.exit(1);
-}
 
 async function main() {
   switch (command) {

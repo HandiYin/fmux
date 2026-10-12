@@ -6,6 +6,7 @@ import { CONFIG_PATH, loadConfig, readRawConfig, resolveSecret, writeRawConfig }
 import { callControl } from './control.mjs';
 import { BACKEND } from './procs.mjs';
 import { HUB_SESSION, installService as installAs, installedKind, isWsl, serviceCommands, serviceKind } from './service.mjs';
+import { TMUX_BIN } from './tmux.mjs';
 import { sh } from './util.mjs';
 
 // What fmux needs from its Feishu app. The same list is in docs/setup.zh.md for a hand-made app.
@@ -178,14 +179,15 @@ export async function installService({ tmux = false, print = console.log } = {})
 
 async function has(command) {
   try {
-    await sh('sh', ['-c', `command -v ${command}`]);
+    if (process.platform === 'win32') await sh('where.exe', [command]);
+    else await sh('sh', ['-c', `command -v ${command}`]);
     return true;
   } catch {
     return false;
   }
 }
 
-const SYSTEMS = { linux: 'Linux', darwin: 'macOS' };
+const SYSTEMS = { linux: 'Linux', darwin: 'macOS', win32: 'Windows' };
 
 // What is in place and what is missing.
 export async function doctor({ print = console.log } = {}) {
@@ -193,16 +195,19 @@ export async function doctor({ print = console.log } = {}) {
   const lines = [];
   const add = (ok, text) => lines.push(`${ok ? '✓' : '✗'} ${text}`);
   const system = SYSTEMS[process.platform];
-  add(Boolean(system), system ? `系统 ${system}${isWsl() ? '（WSL）' : ''}` : `系统 ${process.platform}：不支持。Windows 上请装在 WSL 里（docs/setup.zh.md）`);
+  const windows = process.platform === 'win32';
+  add(Boolean(system), system ? `系统 ${system}${isWsl() ? '（WSL）' : ''}` : `系统 ${process.platform}：没有适配过`);
   add(Number(process.versions.node.split('.')[0]) >= 20, `Node.js ${process.versions.node}（需要 20.12 以上）`);
-  add(await has('tmux'), 'tmux');
+  const tmuxVersion = (await sh(TMUX_BIN, ['-V']).catch(() => '')).trim();
+  add(Boolean(tmuxVersion), windows ? `psmux${tmuxVersion ? `（${tmuxVersion}）` : '：没有找到 tmux 命令。安装：winget install psmux'}` : `tmux${tmuxVersion ? `（${tmuxVersion}）` : ''}`);
   if (BACKEND === 'ps') add((await has('ps')) && (await has('lsof')), '进程识别用 ps 和 lsof');
+  if (BACKEND === 'win') add(await has('powershell.exe'), '进程识别用 PowerShell（系统自带的 powershell.exe）');
   add(fs.existsSync(CONFIG_PATH), `配置 ${CONFIG_PATH}`);
   add(Boolean(cfg.app.id), `飞书应用 ${cfg.app.id || '（没有，运行 fmux setup）'}`);
   add(Boolean(cfg.owner.openId), `主人 ${cfg.owner.openId || '（没有绑定，运行 fmux pair）'}`);
   for (const agent of ['claude', 'codex', 'pi']) add(await has(agent), `${agent}${agent === 'pi' ? '（管家用；没有的话把 concierge.enabled 设为 false）' : '（可选）'}`);
   const kind = await serviceKind();
-  const manager = { systemd: ' systemd 用户服务', launchd: ' launchd ', tmux: ` tmux 会话 ${HUB_SESSION}（这里没有可用的 systemd）` }[kind];
+  const manager = { systemd: ' systemd 用户服务', launchd: ' launchd ', tmux: windows ? ` psmux 会话 ${HUB_SESSION} ` : ` tmux 会话 ${HUB_SESSION}（这里没有可用的 systemd）` }[kind];
   const running = await daemonRunning();
   add(running, running ? `fmux 服务在运行（${cfg.socket}）` : `fmux 服务没有运行。fmux install-service 会用${manager}托管`);
   print(lines.join('\n'));

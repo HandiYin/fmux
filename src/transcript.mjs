@@ -269,10 +269,27 @@ function newestSince(files, sinceMs) {
   return best?.file || null;
 }
 
-async function codexTranscript(pid) {
+// The working directory inside a JSON line, as Codex writes it. Windows paths differ in case.
+export function cwdNeedle(cwd, platform = process.platform) {
+  const needle = `"cwd":${JSON.stringify(cwd)}`;
+  return platform === 'win32' ? needle.toLowerCase() : needle;
+}
+
+// pi names the session directory of a working directory: "/home/u/proj" gives "--home-u-proj--",
+// "C:\\Users\\u\\proj" gives "--C--Users-u-proj--".
+export function piSessionDir(cwd) {
+  return `--${cwd.replace(/^[/\\]/, '').replace(/[/\\:]/g, '-')}--`;
+}
+
+// `hint.cwd` is the directory tmux reports for the pane. It stands in where the system does not
+// give the working directory of a process (Windows).
+async function codexTranscript(pid, hint) {
   const open = (await openFiles(pid)).find((f) => /\/sessions\/.*rollout-.*\.jsonl$/.test(f));
   if (open) return open;
-  const cwd = await procCwd(pid);
+  const cwd = (await procCwd(pid)) || hint.cwd;
+  if (!cwd) return null;
+  const needle = cwdNeedle(cwd);
+  const fold = process.platform === 'win32' ? (text) => text.toLowerCase() : (text) => text;
   const root = path.join(HOME, '.codex', 'sessions');
   const candidates = [];
   const now = new Date();
@@ -291,7 +308,7 @@ async function codexTranscript(pid) {
       const buf = Buffer.alloc(4096);
       const n = fs.readSync(fd, buf, 0, buf.length, 0);
       fs.closeSync(fd);
-      return buf.toString('utf8', 0, n).includes(`"cwd":"${cwd}"`);
+      return fold(buf.toString('utf8', 0, n)).includes(needle);
     } catch {
       return false;
     }
@@ -299,10 +316,10 @@ async function codexTranscript(pid) {
   return newestSince(sameCwd, (await procStartMs(pid)) - 5000);
 }
 
-async function piTranscript(pid) {
-  const cwd = await procCwd(pid);
+async function piTranscript(pid, hint) {
+  const cwd = (await procCwd(pid)) || hint.cwd;
   if (!cwd) return null;
-  const dir = path.join(HOME, '.pi', 'agent', 'sessions', `--${cwd.replace(/^\//, '').replace(/\//g, '-')}--`);
+  const dir = path.join(HOME, '.pi', 'agent', 'sessions', piSessionDir(cwd));
   try {
     const files = fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl')).map((f) => path.join(dir, f));
     return newestSince(files, (await procStartMs(pid)) - 5000);
@@ -311,9 +328,9 @@ async function piTranscript(pid) {
   }
 }
 
-export async function locateTranscript(kind, pid, meta) {
+export async function locateTranscript(kind, pid, meta, hint = {}) {
   if (kind === 'claude') return claudeTranscript(meta?.sessionId);
-  if (kind === 'codex') return codexTranscript(pid);
-  if (kind === 'pi') return piTranscript(pid);
+  if (kind === 'codex') return codexTranscript(pid, hint);
+  if (kind === 'pi') return piTranscript(pid, hint);
   return null;
 }

@@ -2,7 +2,7 @@
 
 One Feishu chat for every tmux session on your machine: Claude Code, Codex, pi and plain shells.
 fmux connects a Feishu bot to the tmux sessions of the computer it runs on.
-It runs on Linux, on macOS, and on Windows inside WSL.
+It runs on Linux and macOS, and on Windows with psmux or inside WSL.
 
 **Setup guide (中文): [docs/setup.zh.md](docs/setup.zh.md)**
 
@@ -21,7 +21,7 @@ Feishu app  ⇄  @larksuite/channel (WebSocket)  ⇄  Router ──► tmux send
                                                     ▲   └──► pi --mode rpc   (concierge)
                                                     │
                               Registry: polls tmux every 2 s, reads agent state
-                              ├─ processes:   /proc (Linux, WSL) or ps + lsof (macOS)
+                              ├─ processes:   /proc (Linux, WSL), ps + lsof (macOS), PowerShell (Windows)
                               ├─ Claude Code: ~/.claude/sessions/<pid>.json + transcript JSONL
                               ├─ Codex:       screen markers + rollout JSONL
                               ├─ pi:          screen markers + session JSONL
@@ -114,16 +114,17 @@ Needs Node.js 20.12 or newer and tmux. The agents (`claude`, `codex`, `pi`) are 
 
 | System | What fmux uses | Service | Tested |
 |---|---|---|---|
-| Linux | `/proc` | systemd user service | In daily use. Unit tests and the end-to-end test |
-| macOS | `ps` and `lsof`, which macOS has | launchd agent | The `ps` and `lsof` code passes the end-to-end test on Linux. Not run on a Mac yet |
-| Windows | WSL 2. fmux, tmux and the agents all run inside WSL. The code is the Linux code | systemd if WSL has it, else a tmux session | The end-to-end test passes in a container without systemd. Not run on a WSL yet |
+| Linux | tmux, `/proc` | systemd user service | In daily use. Unit tests and the end-to-end test |
+| macOS | tmux, `ps` and `lsof` (macOS has them) | launchd agent | The `ps` and `lsof` code passes the end-to-end test on Linux. Not run on a Mac yet |
+| Windows | [psmux](https://github.com/psmux/psmux) as `tmux`, PowerShell for the process table | A psmux session, started at logon | Written from the psmux documentation. Unit tests for the parsing. Not run on Windows yet |
+| Windows, WSL 2 | The Linux code. fmux, tmux and the agents all run inside WSL | systemd if WSL has it, else a tmux session | The end-to-end test passes in a container without systemd. Not run on a WSL yet |
 
-tmux does not run on Windows itself, so fmux does not either. See [Platforms](#platforms).
+See [Platforms](#platforms) for what differs on each system.
 
 ```bash
 git clone https://github.com/Primatix-Intelligence/fmux.git ~/fmux
 cd ~/fmux && npm install
-ln -s ~/fmux/bin/fmux ~/fmux/bin/fmuxctl ~/.local/bin/
+ln -s ~/fmux/bin/fmux ~/fmux/bin/fmuxctl ~/.local/bin/    # Windows: npm link
 
 fmux doctor             # what is in place, what is missing
 ```
@@ -166,10 +167,32 @@ of the shell that runs it, so run it where `tmux`, `claude` and `codex` are foun
 
 - **macOS.** `brew install tmux node`. A Mac that you use only over SSH has no launchd `gui` domain:
   use `fmux install-service --tmux`. The hub is offline while the Mac sleeps.
-- **Windows.** Install WSL 2 (`wsl --install`), then follow the Linux steps inside WSL. Install
-  `tmux`, Node.js and the agents inside WSL, and keep the checkout in the Linux file system
-  (`~/fmux`), not under `/mnt/c`. A `claude` or `codex` installed on the Windows side is not
-  something fmux can drive. To get systemd, put `[boot]` and `systemd=true` in `/etc/wsl.conf` and run
+- **Windows with psmux.** tmux does not run on Windows. psmux is a tmux for Windows: it takes the
+  same commands and installs a `tmux` command. The agents run on Windows itself.
+
+  ```powershell
+  winget install psmux
+  git clone https://github.com/Primatix-Intelligence/fmux.git $HOME\fmux
+  cd $HOME\fmux; npm install; npm link        # npm link puts fmux and fmuxctl on the PATH
+  fmux doctor
+  ```
+
+  Start your sessions with `tmux new -s name`, as on Linux. What is different:
+  - The hub runs in a psmux session named `fmux-hub`. `fmux install-service` also writes `fmux.cmd`
+    to your Startup folder, which starts the hub at logon. Delete that file to undo it. The control
+    channel is the named pipe `\\.\pipe\fmux-<user>`.
+  - Sessions end when you log off or restart Windows.
+  - Windows does not say what a process reads from. An agent that a program drives is known from
+    its command line (`codex app-server`, `claude -p`, `pi --mode rpc`).
+  - psmux does not report when a client last had input, so `notify.quietIfLocalActiveSec` has no
+    effect: a finished turn always notifies.
+  - Several lines go in as a paste. The first message of a new session is quoted for PowerShell.
+  - The concierge needs `pi`, and pi needs Git Bash on Windows. Set `concierge.enabled` to `false`
+    to do without it. `fmux setup --from-lark-channel-bridge` is not available.
+- **Windows with WSL 2.** Install WSL (`wsl --install`), then follow the Linux steps inside WSL.
+  Install `tmux`, Node.js and the agents inside WSL, and keep the checkout in the Linux file system
+  (`~/fmux`), not under `/mnt/c`. A `claude` or `codex` installed on the Windows side is not in
+  that tmux. To get systemd, put `[boot]` and `systemd=true` in `/etc/wsl.conf` and run
   `wsl --shutdown` in Windows. A systemd service does not keep WSL up: leave a WSL window open.
 
 ### Config
@@ -237,7 +260,7 @@ the state and socket of the service.
 | File | Role |
 |---|---|
 | `src/registry.mjs` | Poll tmux, classify panes, track state and turns, emit events |
-| `src/procs.mjs` | Find the agent process of a pane: `/proc`, or `ps` and `lsof` |
+| `src/procs.mjs`, `src/win/procs.ps1` | Find the agent process of a pane: `/proc`, `ps` and `lsof`, or the Windows process table |
 | `src/transcript.mjs` | Find and follow the transcript of Claude Code, Codex and pi |
 | `src/screen.mjs` | Read dialogs and "working" markers from a captured screen |
 | `src/router.mjs` | Route messages and clicks, turn registry events into cards |
@@ -246,7 +269,7 @@ the state and socket of the service.
 | `src/feishu.mjs` | Feishu channel wrapper, card update throttle, fake channel |
 | `src/control.mjs`, `bin/fmuxctl.mjs` | Control socket and its CLI |
 | `src/setup.mjs`, `bin/fmux.mjs` | `fmux setup`, `pair`, `install-service`, `doctor` |
-| `src/service.mjs` | The service: systemd unit, launchd job, or a tmux session |
+| `src/service.mjs` | The service: systemd unit, launchd job, or a tmux session (psmux on Windows) |
 | `test/integration/` | End-to-end test with stub agents on a tmux server of its own |
 | `src/history.mjs`, `src/match.mjs` | Past conversations to resume; loose name matching |
 | `agent/CONCIERGE.md` | Instructions for the pi concierge |

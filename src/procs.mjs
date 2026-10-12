@@ -1,34 +1,66 @@
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { sh } from './util.mjs';
+import { fileURLToPath } from 'node:url';
+import { log, sh } from './util.mjs';
 
-// How fmux looks at processes. Linux (WSL included) reads /proc. Every other system
-// (macOS, the BSDs) asks ps and lsof. FMUX_PROCS=ps forces the second way, for tests.
-export const BACKEND = process.env.FMUX_PROCS || (process.platform === 'linux' ? 'proc' : 'ps');
+// How fmux looks at processes. Linux (WSL included) reads /proc. Windows asks its process table
+// through PowerShell. Every other system (macOS, the BSDs) asks ps and lsof.
+// FMUX_PROCS=ps forces that last way on Linux, for tests.
+export const BACKEND = process.env.FMUX_PROCS || { linux: 'proc', win32: 'win' }[process.platform] || 'ps';
 
 const JS_RUNTIMES = new Set(['node', 'MainThread', 'bun', 'deno']);
 const AGENTS = new Set(['claude', 'codex', 'pi']);
 
+// The first word of a command line. On Windows it can be a quoted path with spaces.
+function firstWord(args) {
+  const quoted = /^"([^"]*)"/.exec(args);
+  return quoted ? quoted[1] : args.split(/\s+/)[0] || '';
+}
+
+// "claude" from "/usr/bin/claude", "-zsh" (a login shell) or "C:\Users\me\.local\bin\claude.exe".
 function baseName(word) {
-  return path.basename(word || '').replace(/^-/, '');
+  return (word || '').split(/[/\\]/).pop().replace(/^-/, '').replace(/\.(exe|cmd|bat)$/i, '');
 }
 
 // The kind of agent a process is, or null. `comm` is the short process name, `args` the command
 // line as one string. macOS names a process after the file it runs, and for Claude Code that
 // file is named after its version, so the first word of the command line counts too.
 export function classify(comm, args = '') {
-  const first = args.split(/\s+/)[0] || '';
+  const line = args.replace(/\\/g, '/');
+  const first = firstWord(line);
   const name = baseName(first);
+  comm = baseName(comm);
   if (AGENTS.has(comm)) return comm;
   if (AGENTS.has(name)) return name;
   if (first.includes('/claude/versions/')) return 'claude';
   if (JS_RUNTIMES.has(comm) || JS_RUNTIMES.has(name)) {
-    if (/pi-coding-agent|\/bin\/pi(\s|$)/.test(args)) return 'pi';
-    if (/@openai\/codex|\/bin\/codex(\s|$)/.test(args)) return 'codex';
-    if (/claude-code|\/bin\/claude(\s|$)/.test(args)) return 'claude';
+    if (/pi-coding-agent|\/bin\/pi(["\s]|$)/.test(line)) return 'pi';
+    if (/@openai\/codex|\/bin\/codex(["\s]|$)/.test(line)) return 'codex';
+    if (/claude-code|\/bin\/claude(["\s]|$)/.test(line)) return 'claude';
   }
   return null;
+}
+
+// Is this agent run by a program and not by a person at the terminal? Windows cannot tell what
+// a process reads from, so there the command line has to say it: a subcommand such as
+// `codex app-server`, or a flag such as `claude -p`, before the first plain word. Words after
+// that are a prompt and prove nothing.
+const SCRIPT_SUBCOMMANDS = { codex: ['app-server', 'exec', 'mcp-server', 'mcp', 'proto'] };
+const SCRIPT_FLAGS = { claude: ['-p', '--print'], pi: ['-p', '--print'] };
+export function drivenByScript(kind, args = '') {
+  const words = (args.match(/"[^"]*"|\S+/g) || []).map((w) => w.replace(/"/g, ''));
+  let i = 1;
+  if (JS_RUNTIMES.has(baseName(words[0]).toLowerCase())) {
+    while (i < words.length && words[i].startsWith('-')) i++;
+    i++;
+  }
+  const flags = [];
+  for (; i < words.length && words[i].startsWith('-'); i++) flags.push(words[i].split('=')[0]);
+  if (SCRIPT_SUBCOMMANDS[kind]?.includes(words[i])) return true;
+  if (flags.some((flag) => SCRIPT_FLAGS[kind]?.includes(flag))) return true;
+  return kind === 'pi' && /\s--mode[\s=]+(rpc|json)(\s|$)/.test(args);
 }
 
 function index(procs) {
@@ -67,11 +99,11 @@ const proc = {
       return '';
     }
   },
-  stdin(pid) {
+  reads(pid, entry, tty) {
     try {
-      return fs.readlinkSync(`/proc/${pid}/fd/0`);
+      return fs.readlinkSync(`/proc/${pid}/fd/0`) === tty;
     } catch {
-      return '';
+      return false;
     }
   },
   startMs(pid) {
@@ -145,12 +177,14 @@ export function parseLsof(out) {
   return files;
 }
 
+// -b: lsof looks at every mount point when it starts, and without this flag it waits on one
+// that does not answer (a network share that is down). Returns null when lsof fails.
 async function lsof(pid, fds) {
   try {
-    return parseLsof(await sh('lsof', ['-w', '-n', '-P', '-a', '-p', String(pid), ...(fds ? ['-d', fds] : []), '-F', 'fn']));
-  } catch {
+    return parseLsof(await sh('lsof', ['-b', '-w', '-n', '-P', '-a', '-p', String(pid), ...(fds ? ['-d', fds] : []), '-F', 'fn'], { timeout: 4000 }));
+  } catch (err) {
     // lsof exits with 1 when the process is gone or shows nothing
-    return [];
+    return err.killed ? null : [];
   }
 }
 
@@ -168,12 +202,14 @@ const ps = {
   args(pid, entry) {
     return entry?.args || '';
   },
-  async stdin(pid, entry) {
+  async reads(pid, entry, tty) {
     const known = stdins.get(pid);
-    if (same(known, entry)) return known.stdin;
-    const stdin = (await lsof(pid, '0')).find((f) => f.fd === '0')?.name || '';
-    if (entry) stdins.set(pid, { ppid: entry.ppid, args: entry.args, stdin });
-    return stdin;
+    if (same(known, entry)) return known.stdin === tty;
+    const files = await lsof(pid, '0');
+    const stdin = files?.find((f) => f.fd === '0')?.name || '';
+    // An lsof that ran out of time says nothing about the process: ask again at the next poll.
+    if (entry && files) stdins.set(pid, { ppid: entry.ppid, args: entry.args, stdin });
+    return stdin === tty;
   },
   async startMs(pid) {
     try {
@@ -184,14 +220,107 @@ const ps = {
     }
   },
   async cwd(pid) {
-    return (await lsof(pid, 'cwd')).find((f) => f.fd === 'cwd')?.name || null;
+    return (await lsof(pid, 'cwd'))?.find((f) => f.fd === 'cwd')?.name || null;
   },
   async openFiles(pid) {
-    return (await lsof(pid)).map((f) => f.name);
+    return ((await lsof(pid)) || []).map((f) => f.name);
   },
 };
 
-const backend = BACKEND === 'proc' ? proc : ps;
+// ---- Windows: the process table, through PowerShell ----
+
+// Output of src/win/procs.ps1 for one table: "pid<TAB>ppid<TAB>start ms<TAB>name<TAB>command line".
+export function parseWinProcs(text) {
+  const procs = new Map();
+  for (const line of text.split(/\r?\n/)) {
+    const [pid, ppid, started, name, ...rest] = line.split('\t');
+    if (!/^\d+$/.test(pid) || !/^\d+$/.test(ppid || '')) continue;
+    procs.set(Number(pid), { ppid: Number(ppid), comm: baseName(name || '').toLowerCase(), args: rest.join(' ').trim(), startMs: Number(started) || 0 });
+  }
+  return procs;
+}
+
+// Starting PowerShell costs about a second, so one PowerShell stays up and prints the table
+// every two seconds. A snapshot is the newest table it printed.
+const watcher = {
+  child: null,
+  latest: null,
+  waiting: [],
+  buffer: '',
+  startedAt: 0,
+  start() {
+    // A PowerShell that cannot run (a policy forbids it) is not started again at every poll.
+    if (this.child || Date.now() - this.startedAt < 30000) return;
+    this.startedAt = Date.now();
+    const script = path.join(path.dirname(fileURLToPath(import.meta.url)), 'win', 'procs.ps1');
+    const args = ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, '-ParentPid', String(process.pid)];
+    const child = spawn('powershell.exe', args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    this.child = child;
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => this.onData(chunk));
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk) => log('warn', 'procs.powershell', { text: chunk.trim().slice(0, 300) }));
+    const gone = (why) => {
+      if (this.child !== child) return;
+      this.child = null;
+      this.buffer = '';
+      log('warn', 'procs.powershell.exit', { why: String(why) });
+      for (const done of this.waiting.splice(0)) done();
+    };
+    child.on('error', (err) => gone(err.message));
+    child.on('exit', (code) => gone(`exit ${code}`));
+    process.once('exit', () => child.kill());
+  },
+  onData(chunk) {
+    this.buffer += chunk;
+    for (;;) {
+      const end = this.buffer.indexOf('<<end>>');
+      if (end < 0) return;
+      const table = this.buffer.slice(0, end);
+      this.buffer = this.buffer.slice(end + '<<end>>'.length);
+      const failed = /^<<error>>\t(.*)$/m.exec(table);
+      if (failed) log('warn', 'procs.powershell.query', { message: failed[1].trim() });
+      else this.latest = parseWinProcs(table);
+      for (const done of this.waiting.splice(0)) done();
+    }
+  },
+  // The newest table. The first call waits for PowerShell to print one.
+  async table() {
+    this.start();
+    if (!this.latest) {
+      await new Promise((resolve) => {
+        this.waiting.push(resolve);
+        setTimeout(resolve, 15000);
+      });
+    }
+    return this.latest || new Map();
+  },
+};
+
+const win = {
+  async snapshot() {
+    return index(await watcher.table());
+  },
+  args(pid, entry) {
+    return entry?.args || '';
+  },
+  reads(pid, entry, tty, kind) {
+    return !drivenByScript(kind, entry?.args);
+  },
+  startMs(pid) {
+    return watcher.latest?.get(Number(pid))?.startMs || 0;
+  },
+  // Windows gives the working directory and the open files of another process only to a
+  // debugger. The callers fall back to the directory tmux reports for the pane.
+  cwd() {
+    return null;
+  },
+  openFiles() {
+    return [];
+  },
+};
+
+const backend = { proc, ps, win }[BACKEND] || ps;
 
 // One pass over all processes: pid -> { ppid, comm, … } plus a parent -> children index.
 export async function snapshot() {
@@ -228,7 +357,7 @@ export function finder(via) {
         if (entry.tty !== undefined && entry.tty !== tty) continue;
         let kind = classify(entry.comm, await via.args(pid, entry));
         if (!kind && (await hasClaudeSession(pid, () => via.startMs(pid)))) kind = 'claude';
-        if (kind && (await via.stdin(pid, entry)) === tty) return { kind, pid };
+        if (kind && (await via.reads(pid, entry, tty, kind))) return { kind, pid };
       }
       level = next;
     }
