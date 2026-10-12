@@ -20,7 +20,12 @@ export function fakeTmux(panes = []) {
     listPanes: async () => tmux.panes.map((p) => ({ ...p })),
     lastClientActivity: async () => tmux.clientActivity,
     capture: async (id) => tmux.screens.get(id) || '',
-    sendText: async (id, text) => { tmux.sent.push([id, text]); },
+    how: [],
+    canType: (text) => !text.includes('@') && text.split('\n').length <= 40,
+    sendText: async (id, text, options = {}) => {
+      tmux.sent.push([id, text]);
+      tmux.how.push({ typed: options.typed || '', keys: Boolean(options.keys) });
+    },
     sendKeys: async (id, keys) => {
       for (const k of keys) if (!KEYS[String(k).toLowerCase()]) throw new Error(`key not allowed: ${k}`);
       tmux.keys.push([id, keys]);

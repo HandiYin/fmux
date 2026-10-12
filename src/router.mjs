@@ -3,7 +3,8 @@ import path from 'node:path';
 import * as realTmux from './tmux.mjs';
 import * as cards from './cards.mjs';
 import { lookupConversation, recentConversations } from './history.mjs';
-import { findDialog, keysFor } from './screen.mjs';
+import { compactScreen, findDialog, keysFor } from './screen.mjs';
+import { adapters, lastTurns } from './transcript.mjs';
 import { expandHome, fmtDuration, log, oneLine, shellQuote, sleep } from './util.mjs';
 
 const ALIASES = {
@@ -268,14 +269,18 @@ export class Router {
 
   // ---- sending into a session ----
 
-  async deliver(session, text, msg) {
+  // `typed` is a line the session should read as the owner's own words, sent before the text.
+  async deliver(session, text, msg, { typed = '' } = {}) {
     if (session.status === 'blocked') {
       await this.showBlocked(session, '这个会话在等确认，消息**没有发出**。先选一项；要直接输入文字，用「屏幕」卡片里的输入框。');
       return false;
     }
     if (this.attachedKey() !== session.key) this.oneShot.add(session.key);
-    await this.tmux.sendText(session.key, text);
-    log('info', 'deliver', { session: session.name, chars: text.length });
+    // Claude Code takes several lines key by key (Ctrl+J between them) and then reads them as typed.
+    // A pasted block it marks as pasted. Everything else gets the paste, which every program accepts.
+    const keys = !typed && session.kind === 'claude' && text.includes('\n') && this.tmux.canType(text);
+    await this.tmux.sendText(session.key, text, { typed, keys });
+    log('info', 'deliver', { session: session.name, chars: text.length, typed: typed.length, keys });
     if (msg?.messageId) this.feishu.react(msg.messageId, 'OK');
     if (session.kind === 'shell') this.followScreen(session);
     return true;
@@ -835,6 +840,51 @@ export class Router {
     return false;
   }
 
+  // ---- handoff: what one session said goes to another, with the owner's comment on top ----
+
+  // What to hand over from a session: its last finished replies, or the end of its screen.
+  async handoffContent(source, { turns = 1, whole = false, screen = false, lines = 40 }) {
+    if (screen || source.kind === 'shell' || !source.transcript) {
+      const tail = compactScreen(await this.tmux.capture(source.key, { history: 200 }), Math.max(1, lines), 200);
+      return { what: `终端最后 ${tail.split('\n').length} 行`, body: tail, note: '' };
+    }
+    const all = lastTurns(source.transcript, adapters[source.kind]).filter((t) => t.texts.length);
+    const finished = all.filter((t) => t.done);
+    // While the agent works, its newest turn is not a reply yet. Take what it finished before.
+    const pool = finished.length ? finished : all;
+    const note = finished.length < all.length ? `${source.name} 还在运行，转交的是它上一条已完成的回复` : '';
+    const picked = pool.slice(-Math.max(1, turns));
+    const one = (t) => (whole ? t.texts.join('\n\n') : t.texts.at(-1));
+    const body = picked.length > 1
+      ? picked.map((t, i) => `（第 ${i + 1} 条${t.prompt ? `，当时的输入：${oneLine(t.prompt, 80)}` : ''}）\n${one(t)}`).join('\n\n')
+      : picked.length ? one(picked[0]) : source.lastText;
+    return { what: picked.length > 1 ? `最近 ${picked.length} 条回复` : '最后一条回复', body, note };
+  }
+
+  async handoff({ from, to, comment = '', ...options }) {
+    const source = this.need(from);
+    const target = this.need(to);
+    if (source.key === target.key) throw new Error('the source and the target are the same session');
+    const { what, body, note } = await this.handoffContent(source, options);
+    if (!body?.trim()) throw new Error(`${source.name} has no reply to hand over yet`);
+    const limit = 30000;
+    const cut = Array.from(body).length > limit;
+    const text = cut ? `${Array.from(body).slice(0, limit).join('')}\n…（太长，已截断）` : body;
+    const block = `【来自会话 ${source.name} 的${what}】\n\n${text}`;
+    // The comment is typed, so an agent reads it as the owner's instruction. The other session's
+    // reply is pasted, so the agent reads it as material and not as orders. A shell gets one paste.
+    const lead = comment.replace(/\s+/g, ' ').trim() || `下面是会话 ${source.name} 的${what}，供参考。`;
+    const typed = target.kind !== 'shell' && !lead.includes('@') ? lead : '';
+    const sent = await this.deliver(target, typed ? block : `${lead}\n\n${block}`, undefined, { typed });
+    if (!sent) throw new Error(`${target.name} is waiting on a dialog and took nothing. Answer the dialog first.`);
+    log('info', 'handoff', { from: source.name, to: target.name, chars: text.length, what });
+    return {
+      from: source.name, to: target.name, what, chars: Array.from(text).length, truncated: cut,
+      preview: oneLine(text, 160), comment: comment.trim(), note,
+      next: `${target.name}'s reply will arrive in the chat as its own card`,
+    };
+  }
+
   // ---- concierge (pi) ----
 
   async askConcierge(text) {
@@ -937,6 +987,7 @@ export class Router {
     },
     notify: async ({ title = 'fmux', text }) => ({ messageId: await this.post(cards.infoCard({ title, text })) }),
     dashboard: async () => ({ messageId: await this.sendDashboard() }),
+    handoff: async (params) => this.handoff(params),
     show: async ({ ref, terminal = false }) => ({ messageId: await (terminal ? this.sendTerminal(this.need(ref)) : this.sendPeek(this.need(ref))) }),
   };
 }

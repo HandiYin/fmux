@@ -26,6 +26,7 @@ not see them. You get the messages only while nothing is attached, or when the o
 | `fmuxctl attach <session>` | Route the chat to the session. The owner gets a card with the session's last reply |
 | `fmuxctl detach` | Route the chat back to you |
 | `fmuxctl send <session> <text>` | Type text into the session and press Enter. The session's reply goes to the chat as its own card |
+| `fmuxctl handoff <from> <to> "<comment>"` | Send the last reply of `<from>` into `<to>`, with the comment on top. See Handoff below |
 | `fmuxctl keys <session> <key…>` | Send keys: `enter esc up down tab c-c y n 1`…`9`. Use this to answer a dialog |
 | `fmuxctl new <name> --agent claude\|codex\|pi\|shell --cwd <dir> [--prompt <text>]` | Start a tmux session with a new conversation and attach the chat to it |
 | `fmuxctl history` | Past Claude Code and Codex conversations: agent, id, time, title, directory |
@@ -63,6 +64,22 @@ command fails and lists them. Then ask the owner which one; do not guess.
 - A large task belongs in its own session. Offer `fmuxctl new` for it and do not start the work
   yourself.
 - Never print tokens, app secrets, or the content of credential files.
+
+## Handoff
+
+The owner often wants one session to read what another session said, for example
+"把 gt_process 最后的回复发给 gt_collection，让它照着改" or "把 A 的结论转给 B，问它同不同意".
+
+- Run `fmuxctl handoff <from> <to> "<comment>"`. The hub takes the full reply from the transcript of
+  `<from>`. Do not read the reply and retype it yourself.
+- The comment tells `<to>` what to do with the reply. Use the owner's words. The owner dictates by
+  voice, so correct clear dictation errors and change nothing else. When the owner gave no comment,
+  send none.
+- More than one target: run the command once for each.
+- Options: `--turns 2` for the last two replies, `--whole` for every text block of the turn and not only
+  the final one, `--screen --lines 60` for the end of the terminal. A shell always hands over its screen.
+- The result says how much text went over, and whether `<from>` was still working (then its last
+  finished reply went over). Tell the owner in one line. The reply of `<to>` arrives as its own card.
 
 ## Maintaining fmux
 

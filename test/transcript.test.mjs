@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { Tail, adapters, lastExchange } from '../src/transcript.mjs';
+import { Tail, adapters, lastExchange, lastTurns } from '../src/transcript.mjs';
 
 const claudeLines = [
   { type: 'user', message: { role: 'user', content: '跑一下测试' } },
@@ -85,4 +85,26 @@ test('Tail returns only complete new lines, and lastExchange reads the end', () 
 
   fs.writeFileSync(file, line(claudeLines[4]));
   assert.deepEqual(tail.read(), [{ type: 'text', text: '先看一下目录。' }]);
+});
+
+test('lastTurns splits a transcript at the prompts and knows which turn is finished', () => {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'fmux-test-')), 't.jsonl');
+  const user = (t) => ({ type: 'user', message: { role: 'user', content: t } });
+  const say = (t) => ({ type: 'assistant', message: { content: [{ type: 'text', text: t }] } });
+  const end = { type: 'system', subtype: 'turn_duration', durationMs: 1 };
+  const lines = [user('first'), say('thinking aloud'), say('answer one'), end, user('second'), say('answer two'), end, user('third'), say('working on it')];
+  fs.writeFileSync(file, lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+  assert.deepEqual(lastTurns(file, adapters.claude), [
+    { prompt: 'first', texts: ['thinking aloud', 'answer one'], done: true },
+    { prompt: 'second', texts: ['answer two'], done: true },
+    { prompt: 'third', texts: ['working on it'], done: false },
+  ]);
+  assert.deepEqual(lastTurns('/no/such/file', adapters.claude), []);
+});
+
+test('a pasted block in a Claude prompt: the prompt is what was typed around it', () => {
+  const user = (content) => adapters.claude({ type: 'user', message: { role: 'user', content } });
+  assert.deepEqual(user('照着改 <pasted_content id="1">\nA\nB\n</pasted_content id="1">'), [{ type: 'user', text: '照着改' }]);
+  assert.deepEqual(user('\n\n<pasted_content id="2">\nonly pasted\nlines\n</pasted_content id="2">\n'), [{ type: 'user', text: 'only pasted\nlines' }]);
+  assert.deepEqual(user('<local-command-stdout>x</local-command-stdout>'), []);
 });

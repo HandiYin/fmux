@@ -26,7 +26,9 @@ Feishu app  ⇄  @larksuite/channel (WebSocket)  ⇄  Router ──► tmux send
                               └─ shell:       screen only
 ```
 
-- **Input** goes through a tmux paste buffer followed by Enter. Nothing is installed in the sessions.
+- **Input** goes through a tmux paste buffer followed by Enter. Several lines for Claude Code are
+  sent key by key with Ctrl+J between them, so it reads them as typed and not as a paste. Nothing is
+  installed in the sessions.
 - **Output** comes from the agent's transcript file, not from scraping the screen. A shell has no
   transcript, so a shell gets a screen snapshot when the screen stops changing.
 - **State** (`working`, `idle`, `blocked`, `shell`) comes from Claude Code's status file where there is
@@ -42,6 +44,7 @@ Feishu app  ⇄  @larksuite/channel (WebSocket)  ⇄  Router ──► tmux send
 | Send text while attached | The text is typed into the session. One card streams the work and then holds the reply |
 | Send an image or file | It is saved under `~/.local/state/fmux/inbox/` and its path is sent to the session |
 | Quote-reply a card of some session | The reply goes to that session without switching |
+| Tell the concierge "把 A 的最后一条回复发给 B，让它照着改" | Handoff: B gets your comment as typed text and A's last reply as a pasted block. B's reply comes back as a card |
 | Type in the box of a "finished" card | Same: a reply without switching |
 | Tap **查看** | The session's card: state, last prompt, last reply. A shell shows its terminal |
 | Tap **终端** | The terminal, cut for a phone: the last 18 lines, four keys, more keys behind a fold, an input box |
@@ -168,6 +171,7 @@ The concierge uses it, and so can any script or agent on this machine:
 fmuxctl ls                       # sessions and state
 fmuxctl peek gt_process -n 60    # screen
 fmuxctl send gt_process "继续"    # type into a session
+fmuxctl handoff proc coll "照这个结论改"   # gt_process's last reply into gt_collection, under your comment
 fmuxctl attach proc               # loose names work: this finds gt_process
 fmuxctl history                  # past Claude Code and Codex conversations
 fmuxctl new fig --resume 魔方     # new tmux session that resumes the conversation with that title

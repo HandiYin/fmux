@@ -79,16 +79,51 @@ async function leaveCopyMode(paneId) {
   if (inMode === '1') await sh('tmux', ['send-keys', '-t', paneId, '-X', 'cancel']);
 }
 
-// Text goes through a tmux buffer: argv would let tmux read a trailing ";" as a command separator.
-export async function sendText(paneId, text, { enter = true } = {}) {
+// One line sent key by key. tmux reads a trailing ";" in an argument as a command separator, so it is escaped.
+async function typeLine(paneId, line) {
+  const clean = line.replace(/\t/g, '  ').replace(/[\u0000-\u001f\u007f]/g, '');
+  if (!clean) return;
+  await sh('tmux', ['send-keys', '-t', paneId, '-l', '--', clean.endsWith(';') ? `${clean.slice(0, -1)}\\;` : clean]);
+}
+
+const MAX_TYPED_LINES = 40;
+const MAX_TYPED_CHARS = 4000;
+
+// Can this text go in key by key, with Ctrl+J between lines? "@" opens a file picker in the
+// agents' input box, where Enter would pick a file and not send the message.
+export function canType(text) {
+  return !text.includes('@') && text.length <= MAX_TYPED_CHARS && text.split('\n').length <= MAX_TYPED_LINES;
+}
+
+// Put text into a pane and press Enter.
+//
+// Pasted text (the default) goes through a tmux buffer and arrives as one block. An agent marks a
+// multi-line paste as "pasted from somewhere else". `typed` is one line sent key by key before
+// the paste: what the agent reads as written by its user. `keys: true` sends the whole text key
+// by key, with `newline` (a tmux key name) between lines.
+export async function sendText(paneId, text, { enter = true, typed = '', keys = false, newline = 'C-j' } = {}) {
   await leaveCopyMode(paneId);
-  if (text.length > 0) {
+  const lead = typed.replace(/\s+/g, ' ').trim();
+  if (lead) {
+    await typeLine(paneId, lead);
+    if (text.length) await sh('tmux', ['send-keys', '-t', paneId, keys ? newline : 'Space']);
+  }
+  let pasted = false;
+  if (keys && canType(text)) {
+    const lines = text.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      if (i > 0) await sh('tmux', ['send-keys', '-t', paneId, newline]);
+      await typeLine(paneId, lines[i]);
+    }
+  } else if (text.length > 0) {
+    // Not argv: tmux would read a trailing ";" as a command separator, and a long text may not fit.
     const buffer = `fmux-${process.pid}`;
     await sh('tmux', ['load-buffer', '-b', buffer, '-'], { input: text });
     await sh('tmux', ['paste-buffer', '-p', '-d', '-b', buffer, '-t', paneId]);
+    pasted = true;
   }
   if (enter) {
-    await sleep(text.includes('\n') || text.length > 300 ? 450 : 150);
+    await sleep(pasted && (text.includes('\n') || text.length > 300) ? 450 : 150);
     await sh('tmux', ['send-keys', '-t', paneId, 'Enter']);
   }
 }

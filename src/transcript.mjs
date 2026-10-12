@@ -43,7 +43,14 @@ export const adapters = {
       return out;
     }
     if (d.type === 'user' && !d.isMeta && typeof d.message?.content === 'string') {
-      const text = d.message.content.trim();
+      // A multi-line paste is wrapped in <pasted_content>. The prompt is what was typed around it,
+      // or the paste itself when nothing was typed.
+      const pasted = [];
+      let text = d.message.content.replace(/<pasted_content[^>]*>([\s\S]*?)<\/pasted_content[^>]*>/g, (_, inner) => {
+        pasted.push(inner.trim());
+        return ' ';
+      }).trim();
+      if (!text) text = pasted.join('\n');
       // Slash-command echoes and injected notices are wrapped in tags; a typed prompt is not.
       return text && !text.startsWith('<') ? [{ type: 'user', text }] : [];
     }
@@ -174,6 +181,46 @@ export function lastExchange(file, adapter, maxBytes = 768 * 1024) {
     else if (ev.type === 'user') result.prompt = ev.text;
   }
   return result;
+}
+
+// The turns near the end of a transcript, oldest first: { prompt, texts, done }.
+// A turn starts at a prompt typed by the user. `done` is false for a turn the agent is still working on.
+export function lastTurns(file, adapter, maxBytes = 2 * 1024 * 1024) {
+  let size;
+  try {
+    size = fs.statSync(file).size;
+  } catch {
+    return [];
+  }
+  const start = Math.max(0, size - maxBytes);
+  const fd = fs.openSync(file, 'r');
+  let text;
+  try {
+    const buf = Buffer.alloc(size - start);
+    fs.readSync(fd, buf, 0, buf.length, start);
+    text = buf.toString('utf8');
+  } finally {
+    fs.closeSync(fd);
+  }
+  if (start > 0) text = text.slice(text.indexOf('\n') + 1);
+  const turns = [];
+  let current = null;
+  for (const ev of parseLines(text, adapter)) {
+    if (ev.type === 'user') {
+      if (current) current.done = true;
+      current = { prompt: ev.text, texts: [], done: false };
+      turns.push(current);
+    } else if (ev.type === 'text') {
+      if (!current || current.done) {
+        current = { prompt: '', texts: [], done: false };
+        turns.push(current);
+      }
+      current.texts.push(ev.text);
+    } else if (ev.type === 'turn_end' && current) {
+      current.done = true;
+    }
+  }
+  return turns;
 }
 
 // ---- locating the transcript of a running agent process ----

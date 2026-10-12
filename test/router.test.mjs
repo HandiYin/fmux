@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import { CHAT, harness, session } from './helpers.mjs';
 
@@ -459,4 +462,71 @@ test('sessions are found by a loose name; a name that fits several asks which on
   await assert.rejects(h.router.api.attach({ ref: 'gt' }), /fits several sessions: gt_collection, gt_process/);
   await assert.rejects(h.router.api.peek({ ref: 'zzz' }), /no session fits "zzz". Sessions: gt_collection, gt_process, handibot/);
   assert.equal((await h.router.api.peek({ ref: 'proc' })).name, 'gt_process');
+});
+
+function transcriptOf(lines) {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'fmux-handoff-')), 't.jsonl');
+  fs.writeFileSync(file, lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+  return file;
+}
+
+test('handoff: the last finished reply of one session goes into another, under the comment', async () => {
+  const user = (t) => ({ type: 'user', message: { role: 'user', content: t } });
+  const say = (t) => ({ type: 'assistant', message: { content: [{ type: 'text', text: t }] } });
+  const end = { type: 'system', subtype: 'turn_duration', durationMs: 1 };
+  const transcript = transcriptOf([user('q1'), say('step'), say('ANSWER ONE\nline two'), end, user('q2'), say('ANSWER TWO'), end, user('q3'), say('half way')]);
+  const alpha = session({ key: '%1', name: 'alpha', tmuxSession: 'alpha', status: 'working', transcript, lastText: 'half way' });
+  const beta = session({ key: '%2', name: 'beta', tmuxSession: 'beta' });
+  const h = harness({ sessions: [alpha, beta] });
+
+  const result = await h.router.api.handoff({ from: 'alp', to: 'bet', comment: ' 照这个结论改\n别动别的 ' });
+  assert.deepEqual(h.tmux.sent.at(-1), ['%2', '【来自会话 alpha 的最后一条回复】\n\nANSWER TWO']);
+  assert.deepEqual(h.tmux.how.at(-1), { typed: '照这个结论改 别动别的', keys: false }, 'the comment is typed, the reply is pasted');
+  assert.equal(result.from, 'alpha');
+  assert.equal(result.to, 'beta');
+  assert.match(result.note, /alpha 还在运行/);
+  assert.equal(h.router.isFollowed(beta), true, "beta's reply will come to the chat");
+
+  await h.router.api.handoff({ from: 'alpha', to: 'beta', turns: 2, whole: true });
+  const text = h.tmux.sent.at(-1)[1];
+  assert.equal(h.tmux.how.at(-1).typed, '下面是会话 alpha 的最近 2 条回复，供参考。');
+  assert.match(text, /^【来自会话 alpha 的最近 2 条回复】/);
+  assert.match(text, /（第 1 条，当时的输入：q1）\nstep\n\nANSWER ONE\nline two\n\n（第 2 条，当时的输入：q2）\nANSWER TWO$/);
+
+  await assert.rejects(h.router.api.handoff({ from: 'alpha', to: 'alpha' }), /same session/);
+  beta.status = 'blocked';
+  const sent = h.tmux.sent.length;
+  await assert.rejects(h.router.api.handoff({ from: 'alpha', to: 'beta', comment: 'x' }), /waiting on a dialog/);
+  assert.equal(h.tmux.sent.length, sent);
+});
+
+test('handoff from a shell hands over the end of its screen', async () => {
+  const shell = session({ key: '%1', name: 'build', tmuxSession: 'build', kind: 'shell', status: 'shell', transcript: null });
+  const agent = session({ key: '%2', name: 'fixer', tmuxSession: 'fixer' });
+  const h = harness({ sessions: [shell, agent] });
+  h.tmux.screens.set('%1', Array.from({ length: 80 }, (_, i) => `out ${i}`).join('\n'));
+  const result = await h.router.api.handoff({ from: 'build', to: 'fixer', comment: '修这个报错', lines: 3 });
+  assert.equal(result.what, '终端最后 3 行');
+  assert.deepEqual(h.tmux.sent.at(-1), ['%2', '【来自会话 build 的终端最后 3 行】\n\nout 77\nout 78\nout 79']);
+  assert.equal(h.tmux.how.at(-1).typed, '修这个报错');
+
+  await h.router.api.handoff({ from: 'fixer', to: 'build', comment: 'ls' }).catch(() => {});
+  h.registry.sessions.get('%2').lastText = 'a reply';
+  h.registry.sessions.get('%2').transcript = null;
+});
+
+test('a multi-line message is typed into Claude Code and pasted everywhere else', async () => {
+  const claude = session();
+  const codex = session({ key: '%2', name: 'cx', tmuxSession: 'cx', kind: 'codex' });
+  const h = harness({ sessions: [claude, codex] });
+  h.store.set('attached', { key: '%1', name: 'work' });
+  await h.say('第一行\n第二行');
+  assert.deepEqual(h.tmux.how.at(-1), { typed: '', keys: true });
+  await h.say('一行');
+  assert.deepEqual(h.tmux.how.at(-1), { typed: '', keys: false });
+  await h.say('看 @README.md\n第二行');
+  assert.deepEqual(h.tmux.how.at(-1), { typed: '', keys: false }, '"@" would open the file picker');
+  h.store.set('attached', { key: '%2', name: 'cx' });
+  await h.say('第一行\n第二行');
+  assert.deepEqual(h.tmux.how.at(-1), { typed: '', keys: false });
 });

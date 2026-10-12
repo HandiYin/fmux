@@ -9,6 +9,10 @@ const USAGE = `fmuxctl — control the running fmux
   fmuxctl peek <session> [-n LINES]       print the session's screen
   fmuxctl send <session> <text…>          type text into the session and press Enter
   fmuxctl keys <session> <key…>           send keys: enter esc up down tab c-c y n 1..9
+  fmuxctl handoff <from> <to> [comment…]  send <from>'s last reply into <to>, with your comment on top
+               [--turns N]                 the last N replies instead of one
+               [--whole]                   every text block of the turn, not only the final one
+               [--screen] [--lines N]      the end of <from>'s terminal instead (a shell always uses this)
   fmuxctl attach <session>                route the Feishu chat to the session
   fmuxctl detach                          route the Feishu chat back to the concierge
   fmuxctl new <name> [--agent claude|codex|pi|shell] [--cwd DIR] [--prompt TEXT] [--no-attach]
@@ -81,6 +85,12 @@ async function main() {
       return console.log(JSON.stringify(await call('send', { ref: args[0], text: args.slice(1).join(' ') })));
     case 'keys':
       return console.log(JSON.stringify(await call('keys', { ref: args[0], keys: args.slice(1) })));
+    case 'handoff': {
+      const params = { turns: Number(take(args, '--turns') || 1), lines: Number(take(args, '--lines') || 40), whole: has(args, '--whole'), screen: has(args, '--screen') };
+      const [from, to, ...comment] = args;
+      if (!from || !to) throw new Error('usage: fmuxctl handoff <from> <to> [comment…]');
+      return console.log(JSON.stringify(await call('handoff', { from, to, comment: comment.join(' '), ...params }), null, 2));
+    }
     case 'attach':
       return console.log(JSON.stringify(await call('attach', { ref: args[0] })));
     case 'show':
