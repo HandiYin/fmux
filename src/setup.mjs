@@ -69,6 +69,67 @@ export async function createApp({ force = false, registerApp, renderQr, print = 
   return config;
 }
 
+// Use a bot app that exists already. Its secret is typed in, or stays where lark-channel-bridge keeps it.
+export async function useExistingApp({ appId, secret, fromBridge = false, tenant = 'feishu', force = false, print = console.log } = {}) {
+  if (!/^cli_[A-Za-z0-9]+$/.test(appId || '')) throw new Error('App ID 的样子是 cli_xxxxxxxx，在开发者后台的「凭证与基础信息」里。');
+  const existing = readRawConfig();
+  if (existing.app?.id && existing.app.id !== appId && !force) {
+    throw new Error(`${CONFIG_PATH} already has the app ${existing.app.id}. Add --force to replace it.`);
+  }
+  let secretRef;
+  if (fromBridge) {
+    const getter = path.join(os.homedir(), '.lark-channel', 'secrets-getter');
+    if (!fs.existsSync(getter)) throw new Error(`找不到 ${getter}：这台机器上没有 lark-channel-bridge 的密钥库。`);
+    secretRef = { source: 'exec', command: getter, id: `app-${appId}` };
+    await resolveSecret(secretRef);
+  } else {
+    if (!secret) throw new Error('没有收到 App Secret。');
+    const secretFile = path.join(path.dirname(CONFIG_PATH), 'app-secret');
+    fs.mkdirSync(path.dirname(secretFile), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(secretFile, `${secret.trim()}\n`, { mode: 0o600 });
+    secretRef = { source: 'file', path: secretFile };
+  }
+  const config = { ...existing, app: { id: appId, tenant, secret: secretRef }, owner: { openId: '', chatId: '' } };
+  writeRawConfig(config);
+  print(`已写入配置：应用 ${appId}。`);
+  return config;
+}
+
+// Read one line from the terminal without showing it.
+export function promptHidden(question) {
+  return new Promise((resolve) => {
+    const { stdin, stdout } = process;
+    stdout.write(question);
+    if (!stdin.isTTY) {
+      let data = '';
+      stdin.setEncoding('utf8');
+      stdin.on('data', (chunk) => { data += chunk; });
+      stdin.on('end', () => resolve(data.split('\n')[0].trim()));
+      return;
+    }
+    let value = '';
+    stdin.setRawMode(true);
+    stdin.resume();
+    stdin.setEncoding('utf8');
+    const onData = (chunk) => {
+      for (const ch of chunk) {
+        if (ch === '\r' || ch === '\n') {
+          stdin.setRawMode(false);
+          stdin.pause();
+          stdin.off('data', onData);
+          stdout.write('\n');
+          resolve(value.trim());
+          return;
+        }
+        if (ch === '\u0003') process.exit(130);
+        if (ch === '\u007f') value = value.slice(0, -1);
+        else value += ch;
+      }
+    };
+    stdin.on('data', onData);
+  });
+}
+
 // Bind the owner: the sender of the first direct message to the bot. This also proves that
 // messages reach this machine, and it keeps a connection open while a hand-made app is configured.
 export async function pair({ timeoutMs = 10 * 60 * 1000, createChannel, print = console.log } = {}) {

@@ -5,6 +5,8 @@ tmux 会话；会话里的 Claude Code、Codex 或 pi 的回复以卡片发回�
 
 这份指引讲四件事：安装、配置飞书机器人、配置 Agent、排错。
 
+配置飞书机器人有三种方式，选一种：扫码新建（A）、在开发者后台手工新建（B）、用已有的机器人（C）。
+
 ## 1. 准备
 
 | 需要 | 说明 |
@@ -81,6 +83,32 @@ fmux setup
    （`card.action.trigger`）。
 8. 「版本管理与发布」里创建版本，可用范围选你自己，发布。
 9. 在飞书里给机器人发一条消息。`fmux pair` 显示「已绑定」后退出。
+
+### 方式 C：用已有的机器人
+
+已经有一个飞书机器人应用，就不用再申请。把它直接接到 fmux。
+
+1. 停掉现在连着这个应用的程序。一个应用只能有一个连接，两个程序同时连会各收到一部分消息。
+   用 lark-channel-bridge 的话：`lark-channel-bridge stop --profile <你的 profile>`。
+2. 把应用交给 fmux：
+
+   ```bash
+   fmux setup --app-id cli_xxxxxxxx
+   ```
+
+   按提示粘贴 App Secret（在开发者后台的「凭证与基础信息」里）。
+   这个应用是 lark-channel-bridge 创建的、密钥还在它的密钥库里时，不用粘贴：
+
+   ```bash
+   fmux setup --app-id cli_xxxxxxxx --from-lark-channel-bridge
+   ```
+
+3. 终端显示「已连上飞书」后，在飞书里给机器人发一条消息。终端显示「已绑定」。
+
+这个应用要具备方式 B 第 3、6、7 步的权限、事件和回调。lark-channel-bridge 扫码创建的应用已经具备。
+自己建的应用缺哪项，就在开发者后台补哪项，然后发布新版本。
+
+换回原来的程序：`systemctl --user disable --now fmux`，再启动原来的程序。应用本身没有被改动。
 
 ## 4. 启动
 

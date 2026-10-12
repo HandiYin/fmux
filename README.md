@@ -109,6 +109,7 @@ cd ~/fmux && npm install
 ln -s ~/fmux/bin/fmux ~/fmux/bin/fmuxctl ~/.local/bin/
 
 fmux setup              # scan a QR code to create the bot, then send it one message to bind yourself
+                        # with a bot you already have: fmux setup --app-id cli_xxx
 fmux install-service    # systemd user service
 fmux doctor             # what is in place, what is missing
 ```

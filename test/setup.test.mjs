@@ -9,7 +9,7 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fmux-setup-'));
 process.env.FMUX_CONFIG = path.join(dir, 'config.json');
 process.env.FMUX_SOCK = path.join(dir, 'no-daemon.sock');
 const { loadConfig, readRawConfig, resolveSecret } = await import('../src/config.mjs');
-const { NEEDS, createApp, pair, serviceUnit } = await import('../src/setup.mjs');
+const { NEEDS, createApp, pair, serviceUnit, useExistingApp } = await import('../src/setup.mjs');
 
 const quiet = () => {};
 
@@ -79,4 +79,18 @@ test('the service unit runs this checkout with the given node and PATH', () => {
   assert.match(unit, /^Environment=PATH=\/usr\/bin:\/bin$/m);
   assert.doesNotMatch(unit, /FMUX_CONFIG/);
   assert.match(serviceUnit({ configPath: '/etc/fmux.json' }), /^Environment=FMUX_CONFIG=\/etc\/fmux\.json$/m);
+});
+
+test('an existing app is taken over with its id and secret; the owner is bound again', async () => {
+  await assert.rejects(useExistingApp({ appId: 'not-an-id', secret: 'x', print: quiet }), /cli_/);
+  await assert.rejects(useExistingApp({ appId: 'cli_other', secret: 'x', print: quiet }), /already has the app cli_test/);
+  await assert.rejects(useExistingApp({ appId: 'cli_other', force: true, print: quiet }), /App Secret/);
+
+  await useExistingApp({ appId: 'cli_other', secret: ' other-secret \n', tenant: 'lark', force: true, print: quiet });
+  const raw = readRawConfig();
+  assert.equal(raw.app.id, 'cli_other');
+  assert.equal(raw.app.tenant, 'lark');
+  assert.deepEqual(raw.owner, { openId: '', chatId: '' }, 'open_ids belong to one app, so the old owner id is dropped');
+  assert.equal(await resolveSecret(raw.app.secret), 'other-secret');
+  assert.ok(!JSON.stringify(raw).includes('other-secret'));
 });
