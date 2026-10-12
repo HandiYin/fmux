@@ -269,10 +269,10 @@ function newestSince(files, sinceMs) {
   return best?.file || null;
 }
 
-function codexTranscript(pid) {
-  const open = openFiles(pid).find((f) => /\/sessions\/.*rollout-.*\.jsonl$/.test(f));
+async function codexTranscript(pid) {
+  const open = (await openFiles(pid)).find((f) => /\/sessions\/.*rollout-.*\.jsonl$/.test(f));
   if (open) return open;
-  const cwd = procCwd(pid);
+  const cwd = await procCwd(pid);
   const root = path.join(HOME, '.codex', 'sessions');
   const candidates = [];
   const now = new Date();
@@ -296,22 +296,22 @@ function codexTranscript(pid) {
       return false;
     }
   });
-  return newestSince(sameCwd, procStartMs(pid) - 5000);
+  return newestSince(sameCwd, (await procStartMs(pid)) - 5000);
 }
 
-function piTranscript(pid) {
-  const cwd = procCwd(pid);
+async function piTranscript(pid) {
+  const cwd = await procCwd(pid);
   if (!cwd) return null;
   const dir = path.join(HOME, '.pi', 'agent', 'sessions', `--${cwd.replace(/^\//, '').replace(/\//g, '-')}--`);
   try {
     const files = fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl')).map((f) => path.join(dir, f));
-    return newestSince(files, procStartMs(pid) - 5000);
+    return newestSince(files, (await procStartMs(pid)) - 5000);
   } catch {
     return null;
   }
 }
 
-export function locateTranscript(kind, pid, meta) {
+export async function locateTranscript(kind, pid, meta) {
   if (kind === 'claude') return claudeTranscript(meta?.sessionId);
   if (kind === 'codex') return codexTranscript(pid);
   if (kind === 'pi') return piTranscript(pid);

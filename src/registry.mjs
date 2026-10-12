@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import * as realTmux from './tmux.mjs';
 import { findAgent, snapshot } from './procs.mjs';
+import { HUB_SESSION } from './service.mjs';
 import { Tail, adapters, lastExchange, locateTranscript, readClaudeMeta } from './transcript.mjs';
 import { pick } from './match.mjs';
 import { findDialog, looksWorking } from './screen.mjs';
@@ -36,7 +37,7 @@ export class Registry extends EventEmitter {
     this.tmux = tmux;
     this.probe = { snapshot, findAgent, readClaudeMeta, locateTranscript, ...probe };
     this.intervalMs = intervalMs;
-    this.hide = new Set(hide);
+    this.hide = new Set([...hide, HUB_SESSION]);
     this.sessions = new Map();
     this.localActiveAt = 0;
     this.polls = 0;
@@ -92,7 +93,7 @@ export class Registry extends EventEmitter {
     this.polls++;
     const panes = await this.tmux.listPanes();
     this.localActiveAt = await this.tmux.lastClientActivity();
-    const snap = this.probe.snapshot();
+    const snap = await this.probe.snapshot();
     const seen = new Set();
     for (const pane of panes) {
       if (this.hide.has(pane.sessionName)) continue;
@@ -136,7 +137,7 @@ export class Registry extends EventEmitter {
     s.activityAt = pane.activityAt;
     s.title = cleanTitle(pane.title, pane.sessionName);
 
-    const agent = this.probe.findAgent(snap, pane.panePid, pane.tty);
+    const agent = await this.probe.findAgent(snap, pane.panePid, pane.tty);
     const kind = agent?.kind || 'shell';
     if (kind !== s.kind || (agent?.pid ?? null) !== s.agentPid) {
       s.kind = kind;
@@ -149,7 +150,7 @@ export class Registry extends EventEmitter {
     }
     const meta = kind === 'claude' ? this.probe.readClaudeMeta(s.agentPid) : null;
 
-    this.followTranscript(s, kind, meta);
+    await this.followTranscript(s, kind, meta);
     const events = s.tail ? s.tail.read() : [];
     let sawTurnEnd = false;
     for (const ev of events) {
@@ -215,12 +216,12 @@ export class Registry extends EventEmitter {
     }
   }
 
-  followTranscript(s, kind, meta) {
+  async followTranscript(s, kind, meta) {
     if (kind === 'shell') return;
     // Claude's lookup is a cached map, so it runs every poll and catches /clear. The others scan directories.
     const every = kind === 'claude' ? 1 : s.transcript ? 15 : 3;
     if (this.polls % every !== 0) return;
-    const file = this.probe.locateTranscript(kind, s.agentPid, meta);
+    const file = await this.probe.locateTranscript(kind, s.agentPid, meta);
     if (!file || file === s.transcript) return;
     let born = 0;
     try {

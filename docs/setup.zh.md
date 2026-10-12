@@ -11,12 +11,27 @@ tmux 会话；会话里的 Claude Code、Codex 或 pi 的回复以卡片发回�
 
 | 需要 | 说明 |
 |---|---|
-| Linux | fmux 读 `/proc` 和 tmux，只支持 Linux |
+| Linux、macOS，或 Windows 的 WSL | 见下面「各系统的差别」。Windows 本身没有 tmux，要装在 WSL 里 |
 | Node.js 20.12 以上 | `node --version` |
 | tmux | `tmux -V` |
 | Claude Code 或 Codex | 命令 `claude`、`codex`，各自先在终端里登录好 |
 | pi（可选） | 管家用。不装就在配置里关掉管家 |
 | 飞书账号 | 能创建企业自建应用 |
+
+### 各系统的差别
+
+| | Linux | macOS | Windows |
+|---|---|---|---|
+| 装在哪里 | 本机 | 本机 | WSL 2 里。fmux、tmux、`claude`、`codex` 都装在 WSL 里 |
+| 装依赖 | 发行版的包管理器 | `brew install tmux node` | 在 Windows 里运行 `wsl --install`，然后在 WSL 里按 Linux 来 |
+| 服务由谁托管 | systemd 用户服务 | launchd | WSL 开了 systemd 就用 systemd，否则用一个 tmux 会话 |
+| 验证情况 | 日常在用 | 进程识别的代码在 Linux 上通过了端到端测试，还没有在 Mac 上跑过 | 无 systemd 的情况在容器里通过了端到端测试，还没有在 WSL 上跑过 |
+
+Windows 要注意三点：
+
+- 代码放在 WSL 自己的文件系统里（`~/fmux`），不要放在 `/mnt/c` 下。
+- 装在 Windows 一侧的 `claude`、`codex` 不在 tmux 里，fmux 管不到。在 WSL 里再装一份并登录。
+- 想用 systemd：在 `/etc/wsl.conf` 里写 `[boot]` 和 `systemd=true` 两行，在 Windows 里运行 `wsl --shutdown`，再打开 WSL。
 
 ## 2. 安装
 
@@ -137,27 +152,32 @@ fmux setup
 
 #### 换回原来的程序
 
-```bash
-systemctl --user disable --now fmux
-```
-
-然后启动原来的程序。C2 里改过订阅方式的，在开发者后台把事件和回调的订阅方式改回去。
+先停掉 fmux（命令见第 4 节的表，Linux 上是 `systemctl --user disable --now fmux`），然后启动原来的程序。C2 里改过订阅方式的，在开发者后台把事件和回调的订阅方式改回去。
 
 ## 4. 启动
 
 ```bash
 fmux install-service
-loginctl enable-linger $USER    # 注销后继续运行，开机自启
 ```
 
-在飞书里给机器人发「面板」。出现会话面板就成功了。
+在装好 `tmux`、`claude`、`codex` 的终端里运行它：服务用的是这个终端的 `PATH`。
+它按系统选托管方式，并打印用了哪一种。然后在飞书里给机器人发「面板」。出现会话面板就成功了。
 
-| 操作 | 命令 |
-|---|---|
-| 看状态 | `systemctl --user status fmux` |
-| 看日志 | `journalctl --user -u fmux -f` |
-| 改配置后重启 | `systemctl --user restart fmux` |
-| 换主人 | `systemctl --user stop fmux`，`fmux pair`，`systemctl --user start fmux` |
+| | Linux（有 systemd） | macOS | 没有 systemd（部分 WSL），或加了 `--tmux` |
+|---|---|---|---|
+| 托管方式 | systemd 用户服务 | launchd | tmux 会话 `fmux-hub`，不出现在面板里 |
+| 自动启动 | 开机。先运行 `loginctl enable-linger $USER` | 登录后 | 不会。命令会打印一行，加到 `~/.profile` 后登录时拉起 |
+| 看状态 | `systemctl --user status fmux` | `launchctl print gui/$(id -u)/com.primatix.fmux` | `tmux has-session -t =fmux-hub` |
+| 看日志 | `journalctl --user -u fmux -f` | `tail -f ~/Library/Logs/fmux.log` | `tmux attach -t fmux-hub` |
+| 改配置后重启 | `systemctl --user restart fmux` | `launchctl kickstart -k gui/$(id -u)/com.primatix.fmux` | `fmux install-service --tmux` |
+| 停止 | `systemctl --user stop fmux` | `launchctl bootout gui/$(id -u)/com.primatix.fmux` | `tmux kill-session -t =fmux-hub` |
+
+换主人：先停止，运行 `fmux pair`，再运行 `fmux install-service`。
+
+- macOS：只通过 SSH 使用、没有登录桌面的 Mac，用 `fmux install-service --tmux`。Mac 睡眠时机器人不在线。
+  项目在「文稿」「桌面」「下载」目录下时，macOS 可能弹窗问是否允许 `node` 访问，选允许。
+- WSL：systemd 服务不能让 WSL 保持运行。关掉最后一个 WSL 窗口后 WSL 可能停止，fmux 和 tmux 会话随之停止。
+  要长期运行，留一个 WSL 窗口开着，并且不要让 Windows 睡眠。
 
 ## 5. 怎么用
 
@@ -237,7 +257,7 @@ loginctl enable-linger $USER    # 注销后继续运行，开机自启
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| 发消息没有任何反应 | 服务没在运行 | `systemctl --user status fmux`，看日志 |
+| 发消息没有任何反应 | 服务没在运行 | `fmux doctor`。看日志的命令见第 4 节 |
 | 发消息没有任何反应 | 你不是主人 | 日志里有 `feishu.reject`。重新 `fmux pair` |
 | 消息时灵时不灵 | 另一个程序连着同一个应用 | 一个应用只留一个连接。停掉另一个程序 |
 | 点按钮提示出错 | 没有配置卡片回调 | 方式 B 第 7 步 |
@@ -246,10 +266,12 @@ loginctl enable-linger $USER    # 注销后继续运行，开机自启
 | 管家不回话 | pi 没装或没登录 | 在终端运行 `pi` 检查。或关掉管家 |
 | 新建会话后没有 Agent | 命令不在服务的 PATH 里 | 在装好 `claude`、`codex` 的终端里重新运行 `fmux install-service` |
 | 会话在面板上是 shell | Agent 不是直接在这个 tmux 窗格的终端里运行 | 在窗格里直接运行 `claude` 或 `codex` |
+| macOS 上所有会话都是 shell | 找不到 `lsof`，或服务的 `PATH` 里没有它 | `fmux doctor` 会报。`lsof` 在 `/usr/sbin`，重新运行 `fmux install-service` |
+| `fmux install-service` 报 launchctl bootstrap 失败 | 这台 Mac 没有登录桌面 | `fmux install-service --tmux` |
 
 ## 8. 安全
 
-- 机器人以你的 Linux 用户身份操作终端。谁能用你的飞书账号给机器人发消息，谁就能在你的电脑上执行命令。
+- 机器人以你的系统用户身份操作终端。谁能用你的飞书账号给机器人发消息，谁就能在你的电脑上执行命令。
 - 只有主人的 open_id 被接受。群聊一律不响应。
 - App Secret 只存在 `~/.config/fmux/app-secret`，不要提交到仓库。
 - 默认的启动参数让 Agent 不逐条询问权限。不想这样，把 `agents.<类型>.flags` 设为空。

@@ -940,6 +940,7 @@ export class Router {
   api = {
     ls: async () => this.registry.list().map((s) => this.summary(s)),
     status: async () => ({
+      pid: process.pid,
       uptimeSec: Math.round((Date.now() - this.startedAt) / 1000),
       sessions: this.registry.sessions.size,
       attached: this.store.get('attached')?.name || null,

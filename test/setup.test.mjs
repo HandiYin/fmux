@@ -9,7 +9,8 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fmux-setup-'));
 process.env.FMUX_CONFIG = path.join(dir, 'config.json');
 process.env.FMUX_SOCK = path.join(dir, 'no-daemon.sock');
 const { loadConfig, readRawConfig, resolveSecret } = await import('../src/config.mjs');
-const { NEEDS, createApp, pair, serviceUnit, useExistingApp } = await import('../src/setup.mjs');
+const { NEEDS, createApp, pair, useExistingApp } = await import('../src/setup.mjs');
+const { hubCommand, launchdPlist, serviceCommands, serviceEnv, serviceUnit } = await import('../src/service.mjs');
 
 const quiet = () => {};
 
@@ -74,11 +75,47 @@ test('pair gives up with a hint when no message arrives', async () => {
 });
 
 test('the service unit runs this checkout with the given node and PATH', () => {
-  const unit = serviceUnit({ node: '/opt/node/bin/node', root: '/srv/fmux', pathEnv: '/usr/bin:/bin', configPath: '' });
+  const unit = serviceUnit({ node: '/opt/node/bin/node', root: '/srv/fmux', env: { PATH: '/usr/bin:/bin' } });
   assert.match(unit, /^ExecStart=\/opt\/node\/bin\/node \/srv\/fmux\/bin\/fmux\.mjs$/m);
   assert.match(unit, /^Environment=PATH=\/usr\/bin:\/bin$/m);
   assert.doesNotMatch(unit, /FMUX_CONFIG/);
-  assert.match(serviceUnit({ configPath: '/etc/fmux.json' }), /^Environment=FMUX_CONFIG=\/etc\/fmux\.json$/m);
+  assert.match(serviceUnit({ env: { PATH: '/bin', FMUX_CONFIG: '/etc/fmux.json' } }), /^Environment=FMUX_CONFIG=\/etc\/fmux\.json$/m);
+});
+
+test('a unit value with spaces is quoted: a WSL PATH carries Windows directories', () => {
+  const unit = serviceUnit({ node: '/opt/my node/node', root: '/srv/fmux', env: { PATH: '/usr/bin:/mnt/c/Program Files (x86)/Git/cmd:/mnt/c/100%' } });
+  assert.match(unit, /^ExecStart="\/opt\/my node\/node" \/srv\/fmux\/bin\/fmux\.mjs$/m);
+  assert.ok(unit.includes('Environment="PATH=/usr/bin:/mnt/c/Program Files (x86)/Git/cmd:/mnt/c/100%%"'));
+});
+
+test('the service takes PATH and the FMUX_ variables from the shell that installs it', () => {
+  const env = serviceEnv({ PATH: '/usr/bin', FMUX_CONFIG: '/c.json', FMUX_SOCK: '/s.sock', HOME: '/home/x' });
+  assert.equal(env.PATH, '/usr/bin');
+  assert.equal(env.FMUX_CONFIG, '/c.json');
+  assert.equal(env.FMUX_SOCK, '/s.sock');
+  assert.equal(env.HOME, undefined);
+});
+
+test('the launchd job runs this checkout, restarts, and has a PATH and a UTF-8 locale', () => {
+  const plist = launchdPlist({ node: '/opt/homebrew/bin/node', root: '/Users/me/fmux', env: { PATH: '/opt/homebrew/bin:/usr/bin', LANG: 'en_US.UTF-8', FMUX_CONFIG: '/Users/me/a&b.json' }, logFile: '/Users/me/Library/Logs/fmux.log', home: '/Users/me' });
+  assert.ok(plist.includes('<key>Label</key><string>com.primatix.fmux</string>'));
+  assert.ok(plist.includes('<array><string>/opt/homebrew/bin/node</string><string>/Users/me/fmux/bin/fmux.mjs</string></array>'));
+  assert.ok(plist.includes('<key>KeepAlive</key><true/>'));
+  assert.ok(plist.includes('<key>PATH</key><string>/opt/homebrew/bin:/usr/bin</string>'));
+  assert.ok(plist.includes('<key>LANG</key><string>en_US.UTF-8</string>'));
+  assert.ok(plist.includes('<string>/Users/me/a&amp;b.json</string>'), 'XML special characters are escaped');
+});
+
+test('without a service manager the hub runs in a loop that a POSIX shell can read', () => {
+  const command = hubCommand({ node: '/usr/bin/node', root: "/home/o'neil/fmux", env: { PATH: '/usr/bin:/mnt/c/Program Files' } });
+  assert.ok(command.includes(`env 'PATH=/usr/bin:/mnt/c/Program Files' '/usr/bin/node' '/home/o'\\''neil/fmux/bin/fmux.mjs'`));
+  assert.match(command, /^while true; do .*; sleep 5 \|\| break; done$/);
+});
+
+test('each kind of service has its own commands', () => {
+  assert.match(serviceCommands('systemd').stop, /^systemctl --user stop fmux$/);
+  assert.match(serviceCommands('launchd').stop, /^launchctl bootout gui\/\$\(id -u\)\/com\.primatix\.fmux$/);
+  assert.match(serviceCommands('tmux').stop, /^tmux kill-session -t =fmux-hub$/);
 });
 
 test('an existing app is taken over with its id and secret; the owner is bound again', async () => {

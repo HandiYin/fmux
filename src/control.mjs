@@ -1,9 +1,11 @@
 import fs from 'node:fs';
 import net from 'node:net';
+import path from 'node:path';
 import { log } from './util.mjs';
 
 // Local control socket for fmuxctl. One JSON request line in, one JSON reply line out.
 export function startControl({ socket, methods }) {
+  fs.mkdirSync(path.dirname(socket), { recursive: true });
   try {
     fs.unlinkSync(socket);
   } catch {

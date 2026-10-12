@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { socketPath } from '../src/config.mjs';
+import { loadConfig } from '../src/config.mjs';
 import { callControl } from '../src/control.mjs';
 
 const USAGE = `fmuxctl — control the running fmux
@@ -48,7 +48,8 @@ const STATUS = { working: 'working', idle: 'idle', blocked: 'BLOCKED', shell: 's
 async function main() {
   const args = process.argv.slice(2);
   const cmd = args.shift();
-  const call = (method, params) => callControl(socketPath(), method, params);
+  const { socket } = loadConfig();
+  const call = (method, params) => callControl(socket, method, params);
   switch (cmd) {
     case 'ls': {
       const json = has(args, '--json');

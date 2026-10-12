@@ -1,5 +1,8 @@
 import { sh, sleep } from './util.mjs';
 
+// -u: tmux writes UTF-8 whatever the locale of this process is. A service started by launchd has none.
+const tmux = (args, options) => sh('tmux', ['-u', ...args], options);
+
 const SEP = '|#|';
 const FIELDS = [
   'session_name', 'window_index', 'window_name', 'pane_index', 'pane_id', 'pane_pid',
@@ -24,7 +27,7 @@ function noServer(err) {
 export async function listPanes() {
   let out;
   try {
-    out = await sh('tmux', ['list-panes', '-a', '-F', FIELDS.map((f) => `#{${f}}`).join(SEP)]);
+    out = await tmux(['list-panes', '-a', '-F', FIELDS.map((f) => `#{${f}}`).join(SEP)]);
   } catch (err) {
     if (noServer(err)) return [];
     throw err;
@@ -59,7 +62,7 @@ export async function listPanes() {
 // Last time any tmux client received keyboard input, in ms. 0 when no client is attached.
 export async function lastClientActivity() {
   try {
-    const out = await sh('tmux', ['list-clients', '-F', '#{client_activity}']);
+    const out = await tmux(['list-clients', '-F', '#{client_activity}']);
     return Math.max(0, ...out.split('\n').filter(Boolean).map((s) => Number(s) * 1000));
   } catch (err) {
     if (noServer(err)) return 0;
@@ -70,20 +73,20 @@ export async function lastClientActivity() {
 export async function capture(paneId, { history = 0 } = {}) {
   const args = ['capture-pane', '-p', '-J', '-t', paneId];
   if (history > 0) args.push('-S', `-${history}`);
-  const out = await sh('tmux', args);
+  const out = await tmux(args);
   return out.replace(/[ \t]+$/gm, '').replace(/\n+$/, '');
 }
 
 async function leaveCopyMode(paneId) {
-  const inMode = (await sh('tmux', ['display-message', '-p', '-t', paneId, '#{pane_in_mode}'])).trim();
-  if (inMode === '1') await sh('tmux', ['send-keys', '-t', paneId, '-X', 'cancel']);
+  const inMode = (await tmux(['display-message', '-p', '-t', paneId, '#{pane_in_mode}'])).trim();
+  if (inMode === '1') await tmux(['send-keys', '-t', paneId, '-X', 'cancel']);
 }
 
 // One line sent key by key. tmux reads a trailing ";" in an argument as a command separator, so it is escaped.
 async function typeLine(paneId, line) {
   const clean = line.replace(/\t/g, '  ').replace(/[\u0000-\u001f\u007f]/g, '');
   if (!clean) return;
-  await sh('tmux', ['send-keys', '-t', paneId, '-l', '--', clean.endsWith(';') ? `${clean.slice(0, -1)}\\;` : clean]);
+  await tmux(['send-keys', '-t', paneId, '-l', '--', clean.endsWith(';') ? `${clean.slice(0, -1)}\\;` : clean]);
 }
 
 const MAX_TYPED_LINES = 40;
@@ -106,25 +109,25 @@ export async function sendText(paneId, text, { enter = true, typed = '', keys = 
   const lead = typed.replace(/\s+/g, ' ').trim();
   if (lead) {
     await typeLine(paneId, lead);
-    if (text.length) await sh('tmux', ['send-keys', '-t', paneId, keys ? newline : 'Space']);
+    if (text.length) await tmux(['send-keys', '-t', paneId, keys ? newline : 'Space']);
   }
   let pasted = false;
   if (keys && canType(text)) {
     const lines = text.split('\n');
     for (let i = 0; i < lines.length; i++) {
-      if (i > 0) await sh('tmux', ['send-keys', '-t', paneId, newline]);
+      if (i > 0) await tmux(['send-keys', '-t', paneId, newline]);
       await typeLine(paneId, lines[i]);
     }
   } else if (text.length > 0) {
     // Not argv: tmux would read a trailing ";" as a command separator, and a long text may not fit.
     const buffer = `fmux-${process.pid}`;
-    await sh('tmux', ['load-buffer', '-b', buffer, '-'], { input: text });
-    await sh('tmux', ['paste-buffer', '-p', '-d', '-b', buffer, '-t', paneId]);
+    await tmux(['load-buffer', '-b', buffer, '-'], { input: text });
+    await tmux(['paste-buffer', '-p', '-d', '-b', buffer, '-t', paneId]);
     pasted = true;
   }
   if (enter) {
     await sleep(pasted && (text.includes('\n') || text.length > 300) ? 450 : 150);
-    await sh('tmux', ['send-keys', '-t', paneId, 'Enter']);
+    await tmux(['send-keys', '-t', paneId, 'Enter']);
   }
 }
 
@@ -136,7 +139,7 @@ export async function sendKeys(paneId, keys) {
   });
   await leaveCopyMode(paneId);
   for (const key of mapped) {
-    await sh('tmux', ['send-keys', '-t', paneId, key]);
+    await tmux(['send-keys', '-t', paneId, key]);
     if (mapped.length > 1) await sleep(60);
   }
 }
@@ -148,8 +151,8 @@ export async function newSession({ name, cwd, command }) {
   const args = ['new-session', '-d', '-s', name, '-x', '160', '-y', '48', '-c', cwd];
   // Under systemd, a tmux server started from here would live in the hub's control group and
   // die with every hub restart. A scope of its own keeps the first session alive.
-  if (process.env.INVOCATION_ID) await sh('systemd-run', ['--user', '--scope', '--quiet', '--collect', 'tmux', ...args]);
-  else await sh('tmux', args);
+  if (process.env.INVOCATION_ID) await sh('systemd-run', ['--user', '--scope', '--quiet', '--collect', 'tmux', '-u', ...args]);
+  else await tmux(args);
   if (command) {
     await sleep(300);
     await sendText(`=${name}:`, command);
@@ -157,5 +160,5 @@ export async function newSession({ name, cwd, command }) {
 }
 
 export async function killSession(name) {
-  await sh('tmux', ['kill-session', '-t', `=${name}`]);
+  await tmux(['kill-session', '-t', `=${name}`]);
 }

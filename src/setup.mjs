@@ -2,8 +2,10 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { CONFIG_PATH, ROOT, loadConfig, readRawConfig, resolveSecret, socketPath, writeRawConfig } from './config.mjs';
+import { CONFIG_PATH, loadConfig, readRawConfig, resolveSecret, writeRawConfig } from './config.mjs';
 import { callControl } from './control.mjs';
+import { BACKEND } from './procs.mjs';
+import { HUB_SESSION, installService as installAs, installedKind, isWsl, serviceCommands, serviceKind } from './service.mjs';
 import { sh } from './util.mjs';
 
 // What fmux needs from its Feishu app. The same list is in docs/setup.zh.md for a hand-made app.
@@ -23,7 +25,7 @@ const domainOf = (tenant) => (tenant === 'lark' ? { domain: 'https://open.larksu
 
 async function daemonRunning() {
   try {
-    await callControl(socketPath(), 'status', {}, 2000);
+    await callControl(loadConfig().socket, 'status', {}, 2000);
     return true;
   } catch {
     return false;
@@ -135,7 +137,7 @@ export function promptHidden(question) {
 export async function pair({ timeoutMs = 10 * 60 * 1000, createChannel, print = console.log } = {}) {
   const cfg = loadConfig();
   if (!cfg.app.id) throw new Error(`${CONFIG_PATH} has no app.id. Run "fmux setup", or write the config by hand (docs/setup.zh.md).`);
-  if (await daemonRunning()) throw new Error('fmux 服务正在运行。同一个应用只能有一个连接，先停掉它：systemctl --user stop fmux');
+  if (await daemonRunning()) throw new Error(`fmux 服务正在运行。同一个应用只能有一个连接，先停掉它：${serviceCommands(await installedKind()).stop}`);
   createChannel ??= (await import('@larksuite/channel')).createLarkChannel;
   const channel = createChannel({
     appId: cfg.app.id,
@@ -167,42 +169,11 @@ export async function pair({ timeoutMs = 10 * 60 * 1000, createChannel, print = 
   }
 }
 
-export function serviceUnit({ node = process.execPath, root = ROOT, pathEnv = process.env.PATH, configPath = process.env.FMUX_CONFIG } = {}) {
-  return [
-    '[Unit]',
-    'Description=fmux: Feishu cards for tmux sessions',
-    'After=network-online.target',
-    'Wants=network-online.target',
-    '',
-    '[Service]',
-    'Type=simple',
-    `ExecStart=${node} ${path.join(root, 'bin', 'fmux.mjs')}`,
-    'Restart=always',
-    'RestartSec=5',
-    '# tmux and the agent CLIs (claude, codex, pi) must be on this PATH.',
-    `Environment=PATH=${pathEnv}`,
-    ...(configPath ? [`Environment=FMUX_CONFIG=${configPath}`] : []),
-    '',
-    '[Install]',
-    'WantedBy=default.target',
-    '',
-  ].join('\n');
-}
-
-// Install and start the systemd user service, with the node binary and PATH of this shell.
-export async function installService({ print = console.log } = {}) {
+// Install and start the service: systemd, launchd, or a tmux session (`tmux: true`, or where neither is there).
+export async function installService({ tmux = false, print = console.log } = {}) {
   const cfg = loadConfig();
   if (!cfg.app.id || !cfg.owner.openId) throw new Error(`${CONFIG_PATH} is not complete. Run "fmux setup" first.`);
-  const file = path.join(os.homedir(), '.config', 'systemd', 'user', 'fmux.service');
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, serviceUnit());
-  await sh('systemctl', ['--user', 'daemon-reload']);
-  await sh('systemctl', ['--user', 'enable', 'fmux.service']);
-  await sh('systemctl', ['--user', 'restart', 'fmux.service']);
-  for (let i = 0; i < 30 && !(await daemonRunning()); i++) await new Promise((r) => setTimeout(r, 1000));
-  if (!(await daemonRunning())) throw new Error('服务没有起来。看日志：journalctl --user -u fmux -n 30 --no-pager');
-  print(`服务已启动：${file}`);
-  print('要让它在注销后继续运行、开机自启：loginctl enable-linger $USER');
+  return installAs({ kind: tmux ? 'tmux' : undefined, running: daemonRunning, print });
 }
 
 async function has(command) {
@@ -214,18 +185,26 @@ async function has(command) {
   }
 }
 
+const SYSTEMS = { linux: 'Linux', darwin: 'macOS' };
+
 // What is in place and what is missing.
 export async function doctor({ print = console.log } = {}) {
   const cfg = loadConfig();
   const lines = [];
   const add = (ok, text) => lines.push(`${ok ? '✓' : '✗'} ${text}`);
+  const system = SYSTEMS[process.platform];
+  add(Boolean(system), system ? `系统 ${system}${isWsl() ? '（WSL）' : ''}` : `系统 ${process.platform}：不支持。Windows 上请装在 WSL 里（docs/setup.zh.md）`);
   add(Number(process.versions.node.split('.')[0]) >= 20, `Node.js ${process.versions.node}（需要 20.12 以上）`);
   add(await has('tmux'), 'tmux');
+  if (BACKEND === 'ps') add((await has('ps')) && (await has('lsof')), '进程识别用 ps 和 lsof');
   add(fs.existsSync(CONFIG_PATH), `配置 ${CONFIG_PATH}`);
   add(Boolean(cfg.app.id), `飞书应用 ${cfg.app.id || '（没有，运行 fmux setup）'}`);
   add(Boolean(cfg.owner.openId), `主人 ${cfg.owner.openId || '（没有绑定，运行 fmux pair）'}`);
   for (const agent of ['claude', 'codex', 'pi']) add(await has(agent), `${agent}${agent === 'pi' ? '（管家用；没有的话把 concierge.enabled 设为 false）' : '（可选）'}`);
-  add(await daemonRunning(), 'fmux 服务在运行');
+  const kind = await serviceKind();
+  const manager = { systemd: ' systemd 用户服务', launchd: ' launchd ', tmux: ` tmux 会话 ${HUB_SESSION}（这里没有可用的 systemd）` }[kind];
+  const running = await daemonRunning();
+  add(running, running ? `fmux 服务在运行（${cfg.socket}）` : `fmux 服务没有运行。fmux install-service 会用${manager}托管`);
   print(lines.join('\n'));
   return lines;
 }

@@ -1,0 +1,101 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { alive, classify, finder, parseLsof, parsePs } from '../src/procs.mjs';
+
+// `ps -A -ww -o pid=,ppid=,tty=,lstart=,args=` on macOS, in the C locale.
+const MAC_PS = `
+    1     0 ??       Mon Oct  5 09:00:01 2026 /sbin/launchd
+  610     1 ??       Mon Oct  5 09:01:10 2026 tmux new -s work
+  700   610 ttys003  Mon Oct 12 14:35:02 2026 -zsh
+  720   700 ttys003  Mon Oct 12 14:36:40 2026 claude -d --permission-mode auto
+  800   610 ttys004  Mon Oct 12 15:00:00 2026 -zsh
+  810   800 ttys004  Mon Oct 12 15:00:05 2026 node /Users/me/handibot/main.js
+  811   810 ttys004  Mon Oct 12 15:00:06 2026 /opt/homebrew/lib/node_modules/@openai/codex/vendor/aarch64-apple-darwin/codex/codex app-server
+  900   610 ttys005  Mon Oct 12 15:10:00 2026 -zsh
+  910   900 ttys005  Mon Oct 12 15:10:02 2026 node /opt/homebrew/bin/codex --yolo
+  911   910 ttys005  Mon Oct 12 15:10:03 2026 /opt/homebrew/lib/node_modules/@openai/codex/vendor/aarch64-apple-darwin/codex/codex --yolo
+  950   610 ttys006  Mon Oct 12 15:20:00 2026 -zsh
+  960   950 ttys006  Mon Oct 12 15:20:02 2026 vim /Users/me/notes/claude-code tips.md
+`;
+
+// The same columns from procps on Linux.
+const LINUX_PS = `
+      1       0 ?        Mon Oct 12 10:35:00 2026 /sbin/init splash
+   8696    8601 pts/3    Mon Oct 12 11:02:13 2026 claude -d -r
+   9001    8601 pts/9    Mon Oct 12 11:05:00 2026 node /home/u/.npm-global/bin/pi
+`;
+
+test('ps output is read into processes with a terminal, a start time and a name', () => {
+  const procs = parsePs(MAC_PS);
+  assert.equal(procs.size, 12);
+  assert.deepEqual(procs.get(720), {
+    ppid: 700, comm: 'claude', args: 'claude -d --permission-mode auto', tty: '/dev/ttys003',
+    startMs: new Date(2026, 9, 12, 14, 36, 40).getTime(),
+  });
+  assert.equal(procs.get(1).tty, '', 'no terminal');
+  assert.equal(procs.get(1).startMs, new Date(2026, 9, 5, 9, 0, 1).getTime(), 'a one-digit day is padded with a space');
+  assert.equal(procs.get(700).comm, 'zsh', 'a login shell');
+  const linux = parsePs(LINUX_PS);
+  assert.equal(linux.get(8696).tty, '/dev/pts/3');
+  assert.equal(linux.get(1).tty, '');
+  assert.equal(linux.get(9001).comm, 'node');
+});
+
+test('lsof output is read into descriptor and name pairs', () => {
+  assert.deepEqual(parseLsof('p720\nfcwd\nn/Users/me/proj\nf0\nn/dev/ttys003\nf12\nn/Users/me/.codex/sessions/2026/10/12/rollout-a.jsonl\n'), [
+    { fd: 'cwd', name: '/Users/me/proj' },
+    { fd: '0', name: '/dev/ttys003' },
+    { fd: '12', name: '/Users/me/.codex/sessions/2026/10/12/rollout-a.jsonl' },
+  ]);
+  assert.deepEqual(parseLsof(''), []);
+});
+
+test('an agent is known by its process name or by the first word of its command line', () => {
+  assert.equal(classify('claude', ''), 'claude');
+  assert.equal(classify('2.1.296', 'claude -d'), 'claude', 'macOS names the process after the version file');
+  assert.equal(classify('2.1.296', '/Users/me/.local/share/claude/versions/2.1.296 --resume'), 'claude');
+  assert.equal(classify('node', 'node /usr/lib/node_modules/@anthropic-ai/claude-code/cli.js'), 'claude');
+  assert.equal(classify('codex', '/x/vendor/codex/codex --yolo'), 'codex');
+  assert.equal(classify('node', 'node /opt/homebrew/bin/codex --yolo'), 'codex');
+  assert.equal(classify('MainThread', 'node /home/u/.npm-global/bin/pi'), 'pi');
+  assert.equal(classify('node', 'node /home/u/.npm-global/lib/node_modules/@mariozechner/pi-coding-agent/dist/cli.js'), 'pi');
+  assert.equal(classify('zsh', '-zsh'), null);
+  assert.equal(classify('vim', 'vim /Users/me/notes/claude-code tips.md'), null, 'a path that only mentions an agent');
+  assert.equal(classify('node', 'node server.js'), null);
+});
+
+function macFinder(stdin) {
+  const procs = parsePs(MAC_PS);
+  const children = new Map();
+  for (const [pid, p] of procs) children.set(p.ppid, [...(children.get(p.ppid) || []), pid]);
+  const asked = [];
+  const find = finder({
+    args: (pid, entry) => entry.args,
+    startMs: () => 0,
+    stdin: (pid) => {
+      asked.push(pid);
+      return stdin[pid] || '';
+    },
+  });
+  return { find: (pid, tty) => find({ procs, children }, pid, tty), asked };
+}
+
+test('the agent of a pane is the nearest agent process that reads from the pane terminal', async () => {
+  const { find, asked } = macFinder({ 720: '/dev/ttys003', 811: 'pipe', 910: '/dev/ttys005', 911: '/dev/ttys005' });
+  assert.deepEqual(await find(700, '/dev/ttys003'), { kind: 'claude', pid: 720 });
+  assert.equal(await find(800, '/dev/ttys004'), null, 'codex app-server is driven over a pipe');
+  assert.deepEqual(await find(900, '/dev/ttys005'), { kind: 'codex', pid: 910 });
+  assert.equal(await find(950, '/dev/ttys006'), null, 'an editor is a plain shell session');
+  assert.deepEqual(asked, [720, 811, 910], 'only agent processes are asked for their stdin');
+});
+
+test('a process on another terminal is skipped without asking for its stdin', async () => {
+  const { find, asked } = macFinder({ 720: '/dev/ttys003' });
+  assert.equal(await find(700, '/dev/ttys099'), null);
+  assert.deepEqual(asked, []);
+});
+
+test('alive tells a running process from a missing one', () => {
+  assert.equal(alive(process.pid), true);
+  assert.equal(alive(2 ** 22 + 12345), false);
+});

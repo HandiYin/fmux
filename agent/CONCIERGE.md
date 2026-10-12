@@ -84,8 +84,14 @@ The owner often wants one session to read what another session said, for example
 ## Maintaining fmux
 
 - Code: the directory in `$FMUX_ROOT` (`README.md` explains the layout). Config: the file in `$FMUX_CONFIG`.
-- Service: `systemctl --user status fmux`. Logs: `journalctl --user -u fmux -n 100 --no-pager`.
+- Service: `fmux doctor` says what keeps the hub running. The commands differ:
+  - systemd (Linux): `systemctl --user status fmux`, logs `journalctl --user -u fmux -n 100 --no-pager`,
+    restart `systemctl --user restart fmux`.
+  - launchd (macOS): logs `tail -n 100 ~/Library/Logs/fmux.log`,
+    restart `launchctl kickstart -k gui/$(id -u)/com.primatix.fmux`.
+  - tmux session `fmux-hub`: logs `tmux capture-pane -p -S -200 -t =fmux-hub:`,
+    restart `fmux install-service --tmux`.
 - Tests: `cd "$FMUX_ROOT" && npm test`.
-- You run as a child of the service. `systemctl --user restart fmux` ends your own process.
+- You run as a child of the service. A restart ends your own process.
   Restart only when the owner asked for it, and send your reply first.
 - After a code change, run the tests before you restart the service.

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pick } from './match.mjs';
+import { alive } from './procs.mjs';
 
 // Past conversations of Claude Code and Codex that a new tmux session can resume.
 // Each item: { agent, id, title, cwd, updatedAt, lastPrompt }.
@@ -39,7 +40,7 @@ function openClaudeSessions() {
   try {
     for (const name of fs.readdirSync(dir)) {
       if (!name.endsWith('.json')) continue;
-      if (!fs.existsSync(`/proc/${name.slice(0, -5)}`)) continue;
+      if (!alive(name.slice(0, -5))) continue;
       try {
         open.add(JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')).sessionId);
       } catch {

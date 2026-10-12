@@ -58,7 +58,7 @@ export function loadConfig(file = CONFIG_PATH) {
   const raw = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
   const cfg = merge(DEFAULTS, raw);
   cfg.stateDir = expandHome(cfg.stateDir);
-  cfg.socket = cfg.socket || socketPath();
+  cfg.socket = process.env.FMUX_SOCK || cfg.socket || socketPath(cfg.stateDir);
   return cfg;
 }
 
@@ -72,8 +72,11 @@ export function writeRawConfig(config, file = CONFIG_PATH) {
   fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
 }
 
-export function socketPath() {
-  return process.env.FMUX_SOCK || path.join(process.env.XDG_RUNTIME_DIR || os.tmpdir(), 'fmux.sock');
+// Where the hub listens. Linux has a runtime directory for each user. Elsewhere the socket is in
+// the state directory, which the service and a shell both find without an environment variable.
+export function socketPath(stateDir = expandHome(DEFAULTS.stateDir)) {
+  const runtime = process.platform === 'linux' ? process.env.XDG_RUNTIME_DIR : '';
+  return path.join(runtime && fs.existsSync(runtime) ? runtime : stateDir, 'fmux.sock');
 }
 
 // The app secret is never stored in the config. It is read at start from where it already lives.
