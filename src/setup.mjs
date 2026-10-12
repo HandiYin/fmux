@@ -153,6 +153,7 @@ export async function pair({ timeoutMs = 10 * 60 * 1000, createChannel, print = 
   });
   await channel.connect();
   print('已连上飞书。现在在飞书里找到这个机器人，给它发一条消息（内容随意）。');
+  print('这个应用以前接在别的程序上时，先在开发者后台确认事件和回调都用长连接（docs/setup.zh.md 方式 C2 第 3 步），再发消息。');
   try {
     const msg = await first;
     const raw = readRawConfig();

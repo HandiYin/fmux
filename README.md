@@ -117,7 +117,8 @@ Connect a Feishu bot. Pick the row that fits you:
 |---|---|---|
 | No bot yet | `fmux setup`. Scan the QR code with the Feishu app. It creates the bot with the permissions fmux needs | 方式 A |
 | No bot yet, and you want to make the app by hand | Create the app in the developer console, write the config, run `fmux pair` | 方式 B |
-| A bot that exists already, for example one used with `lark-channel-bridge` | Stop the program that uses it, then `fmux setup --app-id cli_xxx`. No new app is needed | 方式 C |
+| A bot used with `lark-channel-bridge` | Stop the bridge, then `fmux setup --app-id cli_xxx --from-lark-channel-bridge`. No new app is needed | 方式 C1 |
+| A bot used with another program, or one you made earlier | Stop that program, then `fmux setup --app-id cli_xxx` and paste the App Secret. While it waits, set events and callbacks to long connection in the developer console and add the missing permissions | 方式 C2 |
 
 Each way ends the same: send the bot one message, and its sender becomes the owner.
 
