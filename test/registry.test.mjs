@@ -7,7 +7,7 @@ import { Registry } from '../src/registry.mjs';
 import { fakeTmux, pane } from './helpers.mjs';
 
 function setup({ kind = 'claude' } = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'robin-hub-reg-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fmux-reg-'));
   const file = path.join(dir, 't.jsonl');
   fs.writeFileSync(file, '');
   const tmux = fakeTmux([pane()]);

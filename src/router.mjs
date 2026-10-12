@@ -92,7 +92,7 @@ export class Router {
   }
 
   async post(card, sessionKey, opts) {
-    if (!this.chatId) throw new Error('owner chat is unknown: send Robin a message first');
+    if (!this.chatId) throw new Error('owner chat is unknown: send the bot a message first');
     const messageId = await this.feishu.sendCard(this.chatId, card, opts);
     if (sessionKey) this.store.rememberMessage(messageId, sessionKey);
     return messageId;
@@ -439,7 +439,7 @@ export class Router {
     const pending = [];
     for (const [key, view] of this.views) {
       const session = this.registry.sessions.get(key);
-      if (view.messageId) pending.push(this.feishu.updater.flush(view.messageId, cards.infoCard({ title: session?.name || '会话', text: 'Robin 重启了。这一轮的回复会出现在新的卡片里。' })));
+      if (view.messageId) pending.push(this.feishu.updater.flush(view.messageId, cards.infoCard({ title: session?.name || '会话', text: 'fmux 重启了。这一轮的回复会出现在新的卡片里。' })));
     }
     this.views.clear();
     await Promise.race([Promise.allSettled(pending), sleep(2000)]);
@@ -816,7 +816,7 @@ export class Router {
     else await this.post(done);
   }
 
-  // ---- control API (robinctl, and through it the concierge) ----
+  // ---- control API (fmuxctl, and through it the concierge) ----
 
   summary(s) {
     return {
@@ -850,7 +850,7 @@ export class Router {
     },
     send: async ({ ref, text }) => {
       const session = this.need(ref);
-      if (session.status === 'blocked') throw new Error(`${session.name} is waiting on a dialog; answer it with "robinctl keys" first`);
+      if (session.status === 'blocked') throw new Error(`${session.name} is waiting on a dialog; answer it with "fmuxctl keys" first`);
       await this.deliver(session, text);
       return { sent: session.name, note: 'the reply will show up in the chat as a card' };
     },
@@ -880,7 +880,7 @@ export class Router {
       await this.tmux.killSession(session.tmuxSession);
       return { killed: session.tmuxSession };
     },
-    notify: async ({ title = 'Robin', text }) => ({ messageId: await this.post(cards.infoCard({ title, text, template: 'blue' })) }),
+    notify: async ({ title = 'fmux', text }) => ({ messageId: await this.post(cards.infoCard({ title, text, template: 'blue' })) }),
     dashboard: async () => ({ messageId: await this.sendDashboard() }),
     show: async ({ ref }) => ({ messageId: await this.sendPeek(this.need(ref)) }),
   };

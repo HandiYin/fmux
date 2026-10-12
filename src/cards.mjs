@@ -174,7 +174,7 @@ export function dashboardCard({ sessions, attachedKey, quiet = false, now = Date
   const busy = sessions.filter((s) => light(s, now).color === 'green').length;
   const blocked = sessions.filter((s) => s.status === 'blocked').length;
   return card({
-    title: 'Robin 会话面板',
+    title: '会话面板',
     subtitle: `${sessions.length} 个会话 · ${busy} 个运行中${blocked ? ` · ${blocked} 个等待确认` : ''}`,
     template: stale ? 'grey' : blocked ? 'orange' : 'blue',
     summary: `会话面板：${busy} 个运行中${blocked ? `，${blocked} 个等待确认` : ''}`,
@@ -436,7 +436,7 @@ export function infoCard({ title, text, template = 'grey', buttons = [] }) {
 
 export function helpCard() {
   return card({
-    title: 'Robin 用法',
+    title: 'fmux 用法',
     template: 'grey',
     icon: ICON.help,
     elements: [

@@ -29,7 +29,7 @@ test('attached: text goes to the session, its slash commands too, // stays with 
   const h = harness();
   const reply = await h.click({ a: 'attach', from: 'dash', ...ref });
   assert.equal(reply.toast.content, '已接入 work');
-  assert.equal(reply.card.data.header.title.content, 'Robin 会话面板');
+  assert.equal(reply.card.data.header.title.content, '会话面板');
   await h.say('跑测试');
   await h.say('/compact');
   assert.deepEqual(h.tmux.sent, [['%1', '跑测试'], ['%1', '/compact']]);
@@ -50,7 +50,7 @@ test('text commands resolve a session by number or prefix', async () => {
   await h.say('//a wo');
   assert.equal(h.store.get('attached').name, 'work');
   await h.say('//nonsense');
-  assert.equal(h.titles().at(-1), 'Robin 用法');
+  assert.equal(h.titles().at(-1), 'fmux 用法');
 });
 
 test('a blocked session holds the message back and shows the dialog', async () => {
@@ -196,7 +196,7 @@ test('the word 面板 brings up the dashboard, attached or not', async () => {
   h.store.set('attached', { key: '%1', name: 'work' });
   await h.say('面板');
   await h.say('看一下面板的代码');
-  assert.deepEqual(h.titles().filter((t) => t === 'Robin 会话面板').length, 2);
+  assert.deepEqual(h.titles().filter((t) => t === '会话面板').length, 2);
   assert.deepEqual(h.tmux.sent, [['%1', '看一下面板的代码']]);
 });
 
@@ -293,7 +293,7 @@ test('live cards survive a restart', async () => {
   assert.deepEqual([...again.router.live.keys()], [id]);
   await again.router.tick();
   await again.feishu.updater.flush(id);
-  assert.equal(again.latest(id).card.header.title.content, 'Robin 会话面板');
+  assert.equal(again.latest(id).card.header.title.content, '会话面板');
   clearInterval(again.router.ticker);
 });
 

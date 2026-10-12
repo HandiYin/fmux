@@ -5,12 +5,12 @@ import { fileURLToPath } from 'node:url';
 import { expandHome, sh } from './util.mjs';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-export const CONFIG_PATH = process.env.ROBIN_HUB_CONFIG || path.join(os.homedir(), '.config', 'robin-hub', 'config.json');
+export const CONFIG_PATH = process.env.FMUX_CONFIG || path.join(os.homedir(), '.config', 'fmux', 'config.json');
 
 const DEFAULTS = {
   app: { id: '', tenant: 'feishu', secret: null },
   owner: { openId: '', chatId: '' },
-  stateDir: '~/.local/state/robin-hub',
+  stateDir: '~/.local/state/fmux',
   socket: '',
   poll: { intervalMs: 2000 },
   tmux: { hide: [] },
@@ -62,8 +62,18 @@ export function loadConfig(file = CONFIG_PATH) {
   return cfg;
 }
 
+// The config file as written, without defaults: what setup reads and rewrites.
+export function readRawConfig(file = CONFIG_PATH) {
+  return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
+}
+
+export function writeRawConfig(config, file = CONFIG_PATH) {
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+}
+
 export function socketPath() {
-  return process.env.ROBIN_HUB_SOCK || path.join(process.env.XDG_RUNTIME_DIR || os.tmpdir(), 'robin-hub.sock');
+  return process.env.FMUX_SOCK || path.join(process.env.XDG_RUNTIME_DIR || os.tmpdir(), 'fmux.sock');
 }
 
 // The app secret is never stored in the config. It is read at start from where it already lives.

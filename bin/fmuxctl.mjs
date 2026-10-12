@@ -2,25 +2,25 @@
 import { socketPath } from '../src/config.mjs';
 import { callControl } from '../src/control.mjs';
 
-const USAGE = `robinctl — control the running robin-hub
+const USAGE = `fmuxctl — control the running fmux
 
-  robinctl ls [--json]                     list tmux sessions and their state
-  robinctl status                          hub health
-  robinctl peek <session> [-n LINES]       print the session's screen
-  robinctl send <session> <text…>          type text into the session and press Enter
-  robinctl keys <session> <key…>           send keys: enter esc up down tab c-c y n 1..9
-  robinctl attach <session>                route the Feishu chat to the session
-  robinctl detach                          route the Feishu chat back to the concierge
-  robinctl new <name> [--agent claude|codex|pi|shell] [--cwd DIR] [--prompt TEXT] [--no-attach]
+  fmuxctl ls [--json]                     list tmux sessions and their state
+  fmuxctl status                          hub health
+  fmuxctl peek <session> [-n LINES]       print the session's screen
+  fmuxctl send <session> <text…>          type text into the session and press Enter
+  fmuxctl keys <session> <key…>           send keys: enter esc up down tab c-c y n 1..9
+  fmuxctl attach <session>                route the Feishu chat to the session
+  fmuxctl detach                          route the Feishu chat back to the concierge
+  fmuxctl new <name> [--agent claude|codex|pi|shell] [--cwd DIR] [--prompt TEXT] [--no-attach]
                [--continue]                resume the latest conversation of that agent in DIR
                [--resume ID|TITLE]         resume a past conversation (agent and DIR come from it)
                [--no-yolo]                 start without "claude -d" / "codex --yolo"
-  robinctl new                             post the new-session form to the chat, for the owner to fill in
-  robinctl history [--json]                past Claude Code and Codex conversations that can be resumed
-  robinctl kill <session> --yes            end the tmux session
-  robinctl notify <text…> [--title T]      send a card to the owner's chat
-  robinctl dashboard                       post a fresh session dashboard card
-  robinctl show <session>                  post the session's screen card (it refreshes itself for 10 minutes)
+  fmuxctl new                             post the new-session form to the chat, for the owner to fill in
+  fmuxctl history [--json]                past Claude Code and Codex conversations that can be resumed
+  fmuxctl kill <session> --yes            end the tmux session
+  fmuxctl notify <text…> [--title T]      send a card to the owner's chat
+  fmuxctl dashboard                       post a fresh session dashboard card
+  fmuxctl show <session>                  post the session's screen card (it refreshes itself for 10 minutes)
 
 <session> is the number shown by "ls", or a loose name: part of the tmux name, of the
 agent's title or of the directory. A name that fits several sessions is refused with the list.`;
@@ -104,7 +104,7 @@ async function main() {
       if (sub === 'say') return console.log(JSON.stringify(await call('dev.say', { replyTo: take(args, '--reply-to'), text: args.join(' ') })));
       if (sub === 'click') return console.log(JSON.stringify(await call('dev.click', { messageId: take(args, '--message'), formValue: JSON.parse(take(args, '--form') || '{}'), value: JSON.parse(args[0]) }), null, 1));
       if (sub === 'outbox') return console.log(JSON.stringify(await call('dev.outbox', { last: Number(args[0] || 5) }), null, 1));
-      throw new Error('dev say|click|outbox (only with robin-hub --fake)');
+      throw new Error('dev say|click|outbox (only with fmux --fake)');
     }
     default:
       console.log(USAGE);
@@ -113,6 +113,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(`robinctl: ${err.message}`);
+  console.error(`fmuxctl: ${err.message}`);
   process.exit(1);
 });

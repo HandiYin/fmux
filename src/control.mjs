@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import { log } from './util.mjs';
 
-// Local control socket for robinctl. One JSON request line in, one JSON reply line out.
+// Local control socket for fmuxctl. One JSON request line in, one JSON reply line out.
 export function startControl({ socket, methods }) {
   try {
     fs.unlinkSync(socket);
@@ -42,7 +42,7 @@ export function callControl(socket, method, params = {}, timeoutMs = 30000) {
   return new Promise((resolve, reject) => {
     const conn = net.createConnection(socket);
     let buffer = '';
-    const timer = setTimeout(() => conn.destroy(new Error('timed out waiting for robin-hub')), timeoutMs);
+    const timer = setTimeout(() => conn.destroy(new Error('timed out waiting for fmux')), timeoutMs);
     conn.setEncoding('utf8');
     conn.on('connect', () => conn.write(JSON.stringify({ method, params }) + '\n'));
     conn.on('data', (chunk) => { buffer += chunk; });
@@ -53,12 +53,12 @@ export function callControl(socket, method, params = {}, timeoutMs = 30000) {
         if (reply.ok) resolve(reply.result);
         else reject(new Error(reply.error));
       } catch {
-        reject(new Error('bad reply from robin-hub'));
+        reject(new Error('bad reply from fmux'));
       }
     });
     conn.on('error', (err) => {
       clearTimeout(timer);
-      reject(err.code === 'ENOENT' || err.code === 'ECONNREFUSED' ? new Error('robin-hub is not running') : err);
+      reject(err.code === 'ENOENT' || err.code === 'ECONNREFUSED' ? new Error('fmux is not running') : err);
     });
   });
 }

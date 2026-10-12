@@ -7,7 +7,7 @@ const FIELDS = [
   'window_activity', 'pane_in_mode', 'pane_dead', 'session_windows', 'window_panes', 'pane_tty',
 ];
 
-// Keys a card button or robinctl may send. Anything else is rejected.
+// Keys a card button or fmuxctl may send. Anything else is rejected.
 export const KEYS = {
   enter: 'Enter', esc: 'Escape', up: 'Up', down: 'Down', left: 'Left', right: 'Right',
   tab: 'Tab', btab: 'BTab', space: 'Space', bs: 'BSpace',
@@ -83,7 +83,7 @@ async function leaveCopyMode(paneId) {
 export async function sendText(paneId, text, { enter = true } = {}) {
   await leaveCopyMode(paneId);
   if (text.length > 0) {
-    const buffer = `robin-hub-${process.pid}`;
+    const buffer = `fmux-${process.pid}`;
     await sh('tmux', ['load-buffer', '-b', buffer, '-'], { input: text });
     await sh('tmux', ['paste-buffer', '-p', '-d', '-b', buffer, '-t', paneId]);
   }

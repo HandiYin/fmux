@@ -1,9 +1,9 @@
-# YOFO: You Only Feishu Once
+# fmux
 
 One Feishu chat for every tmux session on your machine: Claude Code, Codex, pi and plain shells.
-The daemon in this repository is `robin-hub`, named after the bot it was built for.
+fmux connects a Feishu bot to the tmux sessions of the computer it runs on.
 
-robin-hub connects the Feishu bot **Robin** to the tmux sessions on this machine.
+**Setup guide (中文): [docs/setup.zh.md](docs/setup.zh.md)**
 
 - The chat **attaches** to one tmux session at a time, like `tmux attach`. Your messages go into
   that session. The session's replies come back as cards.
@@ -12,8 +12,6 @@ robin-hub connects the Feishu bot **Robin** to the tmux sessions on this machine
 - Sessions you are not attached to send a card when a turn finishes or when a dialog waits for you.
 - While nothing is attached, a **pi agent** (the concierge) answers. It can switch, inspect and
   start sessions for you in plain language.
-
-It replaces `lark-channel-bridge`, which bound the chat to a single Codex thread.
 
 ## How it works
 
@@ -42,7 +40,7 @@ Feishu app  ⇄  @larksuite/channel (WebSocket)  ⇄  Router ──► tmux send
 | Send `面板`, or tap **会话** on any card | A new dashboard card |
 | Tap **接入** on the dashboard | The chat is attached. Messages now go to that session |
 | Send text while attached | The text is typed into the session. A live card shows tool calls and the reply |
-| Send an image or file | It is saved under `~/.local/state/robin-hub/inbox/` and its path is sent to the session |
+| Send an image or file | It is saved under `~/.local/state/fmux/inbox/` and its path is sent to the session |
 | Quote-reply a card of some session | The reply goes to that session without switching |
 | Type in the box of a "finished" card | Same: a reply without switching |
 | Tap **查看 / 屏幕** | A screen snapshot with keys (Enter, Esc, arrows, Tab, Ctrl-C, 1 2 3, y n) and an input box |
@@ -90,9 +88,9 @@ Text commands. Use `//` while attached, because a single `/` belongs to the sess
 mode. The form lists the 10 newest Claude Code and 5 newest Codex conversations that are not open
 in a running Claude Code and whose directory still exists.
 
-Session names are matched loosely everywhere (`//a proc`, `robinctl peek "gt proc"`): by part of
+Session names are matched loosely everywhere (`//a proc`, `fmuxctl peek "gt proc"`): by part of
 the tmux name, of the agent's title, of the directory, or by kind. A name that fits several
-sessions gets a card with one button for each (in chat) or an error that lists them (`robinctl`).
+sessions gets a card with one button for each (in chat) or an error that lists them (`fmuxctl`).
 
 ### Notifications
 
@@ -101,26 +99,39 @@ A session that is not attached sends a card when a turn that ran for at least `n
 input in the last `notify.quietIfLocalActiveSec` (180 s): at your desk the phone stays quiet.
 Set that value to `0` to always notify.
 
-## Run
+## Install and run
+
+Needs Linux, Node.js 20.12 or newer, and tmux. The agents (`claude`, `codex`, `pi`) are optional.
 
 ```bash
-~/robin-hub/scripts/cutover.sh     # stop the old bridge, install and start the service, post the dashboard
-~/robin-hub/scripts/rollback.sh    # put the old bridge back
+git clone https://github.com/Primatix-Intelligence/fmux.git ~/fmux
+cd ~/fmux && npm install
+ln -s ~/fmux/bin/fmux ~/fmux/bin/fmuxctl ~/.local/bin/
 
-systemctl --user status robin-hub
-journalctl --user -u robin-hub -f
+fmux setup              # scan a QR code to create the bot, then send it one message to bind yourself
+fmux install-service    # systemd user service
+fmux doctor             # what is in place, what is missing
 ```
 
-One Feishu app delivers each event to one connection only. Do not run robin-hub and
-`lark-channel-bridge --profile codex-second` at the same time.
+Then send `面板` to the bot. The guide covers the manual way to create the Feishu app, the agent
+settings and troubleshooting.
+
+```bash
+systemctl --user status fmux
+journalctl --user -u fmux -f
+```
+
+One Feishu app delivers each event to one connection only. Do not connect another program
+(`lark-channel-bridge`, another fmux) to the same app.
 
 ### Config
 
-`~/.config/robin-hub/config.json` (defaults are in `src/config.mjs`):
+`~/.config/fmux/config.json` (defaults are in `src/config.mjs`):
 
 | Key | Meaning |
 |---|---|
-| `app.id`, `app.secret` | The Feishu app. The secret is a reference (`exec`, `env` or `file`), never the value. The default reads it from the lark-channel-bridge keystore |
+| `app.id`, `app.secret` | The Feishu app. The secret is a reference, never the value: `{"source":"file","path":…}`, `{"source":"env","name":…}`, or `{"source":"exec","command":…,"id":…}` for a secret provider |
+| `app.tenant` | `feishu` (default) or `lark` |
 | `owner.openId` | The only user whose messages and clicks are accepted |
 | `owner.chatId` | The chat that receives the cards |
 | `notify.*` | See Notifications |
@@ -132,42 +143,44 @@ One Feishu app delivers each event to one connection only. Do not run robin-hub 
 
 Restart the service after a change.
 
-### `robinctl`
+### `fmuxctl`
 
-`bin/robinctl` talks to the running hub over a Unix socket (`$XDG_RUNTIME_DIR/robin-hub.sock`).
+`bin/fmuxctl` talks to the running hub over a Unix socket (`$XDG_RUNTIME_DIR/fmux.sock`).
 The concierge uses it, and so can any script or agent on this machine:
 
 ```bash
-robinctl ls                       # sessions and state
-robinctl peek gt_process -n 60    # screen
-robinctl send gt_process "继续"    # type into a session
-robinctl attach proc               # loose names work: this finds gt_process
-robinctl history                  # past Claude Code and Codex conversations
-robinctl new fig --resume 魔方     # new tmux session that resumes the conversation with that title
-robinctl new fix --agent codex --cwd ~/proj --no-yolo
-robinctl show gt_process          # post the session's screen card to the chat
-robinctl notify "渲染跑完了"        # push a card to the phone
+fmuxctl ls                       # sessions and state
+fmuxctl peek gt_process -n 60    # screen
+fmuxctl send gt_process "继续"    # type into a session
+fmuxctl attach proc               # loose names work: this finds gt_process
+fmuxctl history                  # past Claude Code and Codex conversations
+fmuxctl new fig --resume 魔方     # new tmux session that resumes the conversation with that title
+fmuxctl new fix --agent codex --cwd ~/proj --no-yolo
+fmuxctl show gt_process          # post the session's screen card to the chat
+fmuxctl notify "渲染跑完了"        # push a card to the phone
 ```
 
 ## Security
 
 - Only `owner.openId` can send messages or click cards. Group chats are closed.
 - A click can send only the keys in `KEYS` (`src/tmux.mjs`). Text is pasted as data.
-- The hub runs as your user. Anyone who controls the Robin chat on your Feishu account can type
-  into your terminals. That is the purpose of the tool, and the same trust the old bridge had.
+- The hub runs as your user. Anyone who controls your Feishu account can type into your terminals
+  through the bot. That is the purpose of the tool. Protect the Feishu account accordingly.
+- New Claude Code sessions start in the auto permission mode and new Codex sessions with `--yolo`,
+  unless you choose otherwise in the form. Change the defaults in `agents.<type>.flags`.
 - The control socket has mode 600.
 
 ## Develop
 
 ```bash
 npm test                                   # unit tests, no network, no tmux
-node bin/robin-hub.mjs --fake              # real tmux, Feishu replaced by a recorder
-robinctl dev say "//ls"                    # act as the owner
-robinctl dev click '{"a":"attach","n":"gt_process"}'
-robinctl dev outbox 3                      # cards the hub would have sent
+fmux --fake                                # real tmux, Feishu replaced by a recorder
+fmuxctl dev say "//ls"                    # act as the owner
+fmuxctl dev click '{"a":"attach","n":"gt_process"}'
+fmuxctl dev outbox 3                      # cards the hub would have sent
 ```
 
-Point `ROBIN_HUB_CONFIG` and `ROBIN_HUB_SOCK` at scratch paths for a fake run, so it does not share
+Point `FMUX_CONFIG` and `FMUX_SOCK` at scratch paths for a fake run, so it does not share
 the state and socket of the service.
 
 | File | Role |
@@ -179,7 +192,9 @@ the state and socket of the service.
 | `src/cards.mjs` | Card JSON 2.0 builders |
 | `src/concierge.mjs` | The pi RPC client |
 | `src/feishu.mjs` | Feishu channel wrapper, card update throttle, fake channel |
-| `src/control.mjs`, `bin/robinctl.mjs` | Control socket and its CLI |
+| `src/control.mjs`, `bin/fmuxctl.mjs` | Control socket and its CLI |
+| `src/setup.mjs`, `bin/fmux.mjs` | `fmux setup`, `pair`, `install-service`, `doctor` |
+| `src/history.mjs`, `src/match.mjs` | Past conversations to resume; loose name matching |
 | `agent/CONCIERGE.md` | Instructions for the pi concierge |
 
 ## Limits

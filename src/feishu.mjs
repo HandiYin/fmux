@@ -54,13 +54,14 @@ export class CardUpdater {
   }
 }
 
-export async function createFeishu({ appId, appSecret, ownerOpenId }) {
+export async function createFeishu({ appId, appSecret, ownerOpenId, tenant = 'feishu' }) {
   const { createLarkChannel } = await import('@larksuite/channel');
   const channel = createLarkChannel({
     appId,
     appSecret,
+    ...(tenant === 'lark' ? { domain: 'https://open.larksuite.com' } : {}),
     // Only the owner's direct chat reaches the handlers. Groups are closed with a chat id that cannot exist.
-    policy: { dmMode: 'allowlist', dmAllowlist: [ownerOpenId], groupAllowlist: ['oc_robin_hub_groups_closed'], requireMention: true },
+    policy: { dmMode: 'allowlist', dmAllowlist: [ownerOpenId], groupAllowlist: ['oc_fmux_groups_closed'], requireMention: true },
     safety: { staleMessageWindowMs: 5 * 60 * 1000 },
     keepalive: {
       enabled: true,
@@ -70,12 +71,12 @@ export async function createFeishu({ appId, appSecret, ownerOpenId }) {
       },
     },
     httpTimeoutMs: 20000,
-    source: 'robin-hub',
+    source: 'fmux',
   });
   channel.on('error', (err) => log('error', 'feishu.error', { code: err?.code, message: err?.message }));
   channel.on('reconnecting', () => log('warn', 'feishu.reconnecting'));
   channel.on('reconnected', () => log('info', 'feishu.reconnected'));
-  channel.on('reject', (evt) => log('info', 'feishu.reject', { reason: evt.reason, sender: evt.senderId }));
+  channel.on('reject', (evt) => log('info', 'feishu.reject', { reason: evt.reason, sender: evt.senderId, chat: evt.chatId }));
 
   const api = {
     onMessage: (fn) => channel.on('message', fn),
@@ -140,7 +141,7 @@ export function createFakeFeishu({ dir } = {}) {
     },
     react: async (messageId, emoji) => api.record('reaction', messageId, { emoji }),
     download: async () => Buffer.from('fake'),
-    botName: () => 'Robin (fake)',
+    botName: () => 'fmux (fake)',
     // test drivers
     async say(message) {
       for (const fn of handlers.message) await fn(message);

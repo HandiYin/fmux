@@ -67,7 +67,7 @@ test('pi adapter', () => {
 });
 
 test('Tail returns only complete new lines, and lastExchange reads the end', () => {
-  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'robin-hub-test-')), 't.jsonl');
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'fmux-test-')), 't.jsonl');
   const line = (o) => JSON.stringify(o) + '\n';
   fs.writeFileSync(file, line(claudeLines[0]) + line(claudeLines[4]));
   const tail = new Tail(file, adapters.claude);

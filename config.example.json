@@ -1,0 +1,10 @@
+{
+  "app": {
+    "id": "cli_xxxxxxxxxxxxxxxx",
+    "tenant": "feishu",
+    "secret": { "source": "file", "path": "~/.config/fmux/app-secret" }
+  },
+  "owner": { "openId": "", "chatId": "" },
+  "notify": { "minWorkSec": 20, "quietIfLocalActiveSec": 180 },
+  "concierge": { "enabled": true }
+}

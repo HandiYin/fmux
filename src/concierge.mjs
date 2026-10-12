@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import { log, oneLine } from './util.mjs';
 
 // The pi agent that answers when the chat is not attached to a session.
-// It runs as `pi --mode rpc` and manages sessions through the robinctl CLI.
+// It runs as `pi --mode rpc` and manages sessions through the fmuxctl CLI.
 // Emits: start, text(delta), tool({name, summary}), end({error}).
 export class Concierge extends EventEmitter {
   constructor({ bin, cwd, sessionDir, promptFile, model, thinking, env }) {
@@ -20,7 +20,7 @@ export class Concierge extends EventEmitter {
     if (this.child) return;
     const { bin, cwd, sessionDir, promptFile, model, thinking, env } = this.opts;
     fs.mkdirSync(sessionDir, { recursive: true });
-    const args = ['--mode', 'rpc', '--name', 'Robin 管家', '--session-dir', sessionDir, '--continue', '--no-context-files', '--append-system-prompt', promptFile];
+    const args = ['--mode', 'rpc', '--name', 'fmux 管家', '--session-dir', sessionDir, '--continue', '--no-context-files', '--append-system-prompt', promptFile];
     if (model) args.push('--model', model);
     if (thinking) args.push('--thinking', thinking);
     const child = spawn(bin, args, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] });

@@ -1,20 +1,25 @@
 {
-  "name": "robin-hub",
+  "name": "fmux",
   "version": "0.1.0",
   "private": true,
-  "description": "Feishu card front end for tmux agent sessions: attach, peek, notify, with a pi concierge",
+  "description": "One Feishu chat for all your tmux agent sessions: attach, peek, notify, with a pi concierge",
   "type": "module",
   "bin": {
-    "robin-hub": "bin/robin-hub.mjs",
-    "robinctl": "bin/robinctl.mjs"
+    "fmux": "bin/fmux.mjs",
+    "fmuxctl": "bin/fmuxctl.mjs"
   },
   "scripts": {
     "test": "node --test \"test/*.test.mjs\""
   },
   "dependencies": {
-    "@larksuite/channel": "0.4.1"
+    "@larksuite/channel": "0.4.1",
+    "qrcode-terminal": "^0.12.0"
   },
   "engines": {
     "node": ">=20.12"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Primatix-Intelligence/fmux.git"
   }
 }
