@@ -108,14 +108,24 @@ git clone https://github.com/Primatix-Intelligence/fmux.git ~/fmux
 cd ~/fmux && npm install
 ln -s ~/fmux/bin/fmux ~/fmux/bin/fmuxctl ~/.local/bin/
 
-fmux setup              # scan a QR code to create the bot, then send it one message to bind yourself
-                        # with a bot you already have: fmux setup --app-id cli_xxx
-fmux install-service    # systemd user service
 fmux doctor             # what is in place, what is missing
 ```
 
-Then send `面板` to the bot. The guide covers the manual way to create the Feishu app, the agent
-settings and troubleshooting.
+Connect a Feishu bot. Pick the row that fits you:
+
+| You have | Do this | Guide |
+|---|---|---|
+| No bot yet | `fmux setup`. Scan the QR code with the Feishu app. It creates the bot with the permissions fmux needs | 方式 A |
+| No bot yet, and you want to make the app by hand | Create the app in the developer console, write the config, run `fmux pair` | 方式 B |
+| A bot that exists already, for example one used with `lark-channel-bridge` | Stop the program that uses it, then `fmux setup --app-id cli_xxx`. No new app is needed | 方式 C |
+
+Each way ends the same: send the bot one message, and its sender becomes the owner.
+
+```bash
+fmux install-service    # systemd user service
+```
+
+Then send `面板` to the bot. The guide also covers the agent settings and troubleshooting.
 
 ```bash
 systemctl --user status fmux
