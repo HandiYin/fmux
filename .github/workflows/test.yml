@@ -1,0 +1,66 @@
+name: test
+
+# Started by hand or by a pull request. macOS minutes cost ten times the Linux ones, Windows minutes twice.
+on:
+  workflow_dispatch:
+    inputs:
+      real_agents:
+        description: Also install the real Claude Code and Codex CLIs and check that fmux recognizes them in a pane
+        type: boolean
+        default: false
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install tmux
+        if: runner.os != 'Windows'
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            brew install tmux
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq tmux lsof
+          fi
+      - name: Install psmux, the tmux of Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download --repo psmux/psmux --pattern 'psmux-*-windows-x64.zip' --dir psmux
+          Expand-Archive (Get-ChildItem psmux\*.zip).FullName -DestinationPath psmux\bin
+          Add-Content $env:GITHUB_PATH "$PWD\psmux\bin"
+      - run: npm ci
+      - name: Unit tests
+        # Some expectations are written with POSIX paths. On Windows this step shows which.
+        continue-on-error: ${{ runner.os == 'Windows' }}
+        run: npm test
+      - name: End to end, with the service manager of this system
+        if: runner.os != 'Windows'
+        run: node test/integration/run.mjs --service=native
+      - name: End to end, with the hub kept running in a tmux session
+        run: node test/integration/run.mjs --service=tmux
+      - name: End to end on Linux with ps and lsof, the way macOS is read
+        if: runner.os == 'Linux'
+        run: FMUX_PROCS=ps node test/integration/run.mjs
+      - name: Real Claude Code and Codex in a pane
+        if: inputs.real_agents && runner.os != 'Windows'
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash
+          npm install -g @openai/codex
+          export PATH="$HOME/.local/bin:$PATH"
+          node test/integration/run.mjs --real=claude --real=codex
