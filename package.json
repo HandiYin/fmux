@@ -1,0 +1,20 @@
+{
+  "name": "robin-hub",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Feishu card front end for tmux agent sessions: attach, peek, notify, with a pi concierge",
+  "type": "module",
+  "bin": {
+    "robin-hub": "bin/robin-hub.mjs",
+    "robinctl": "bin/robinctl.mjs"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\""
+  },
+  "dependencies": {
+    "@larksuite/channel": "0.4.1"
+  },
+  "engines": {
+    "node": ">=20.12"
+  }
+}
