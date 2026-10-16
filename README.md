@@ -210,7 +210,7 @@ of the shell that runs it, so run it where `tmux`, `claude` and `codex` are foun
 | `tmux.hide` | tmux session names to leave out |
 | `agents.<type>` | How `新建` starts each type: `command` (new conversation), `continue` (latest one of the directory), `resume` (a chosen one), and `flags`, which fill `{flags}` unless the session is created without `-d` / `--yolo` |
 | `agents.claude.autoTrust` | Answer Claude Code's "trust this folder" prompt for a session the hub created (default on) |
-| `concierge.enabled`, `.model`, `.thinking` | The pi concierge. Empty model means pi's default |
+| `concierge.enabled`, `.model`, `.thinking` | The pi concierge. Default model: `openai-codex/gpt-6.1-sol` (ChatGPT sign-in in pi). Set another `provider/model-id` to override it; an explicit empty string uses pi's default or the resumed session's model |
 
 Restart the service after a change.
 

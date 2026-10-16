@@ -41,7 +41,7 @@ const DEFAULTS = {
   concierge: {
     enabled: true,
     bin: 'pi',
-    model: '',
+    model: 'openai-codex/gpt-6.1-sol',
     thinking: '',
   },
 };

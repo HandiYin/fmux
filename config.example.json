@@ -6,5 +6,5 @@
   },
   "owner": { "openId": "", "chatId": "" },
   "notify": { "minWorkSec": 20, "quietIfLocalActiveSec": 180 },
-  "concierge": { "enabled": true }
+  "concierge": { "enabled": true, "model": "openai-codex/gpt-6.1-sol" }
 }

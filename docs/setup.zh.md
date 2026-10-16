@@ -257,12 +257,15 @@ fmux install-service
 
 管家是一个 pi 进程。没接入会话时，你发的话由它处理：列会话、切换、新建、恢复历史对话、转发你的话。
 
-1. 先在终端里运行一次 `pi`，登录好模型。
-2. 管家用 pi 的默认模型。要指定模型，在配置里写：
+1. 先在终端里运行一次 `pi`，登录 OpenAI Codex（ChatGPT 账号）。用 `pi --list-models gpt-6.1` 确认能看到 `gpt-6.1-sol`。
+2. 管家默认使用 `openai-codex/gpt-6.1-sol`，恢复旧管家会话时也会指定这个模型。要指定其他模型，在配置里写：
 
    ```json
-   { "concierge": { "model": "provider/model-id", "thinking": "low" } }
+   { "concierge": { "model": "openai-codex/gpt-6.1-sol", "thinking": "low" } }
    ```
+
+   把 `model` 换成其他 `provider/model-id`，并在 pi 中登录对应服务即可。显式设为 `""` 会使用 pi 的默认模型或旧会话保存的模型。
+   修改配置后重启 fmux 服务。
 
 3. 不要管家：`{ "concierge": { "enabled": false } }`。这时用面板上的按钮操作。
 
