@@ -42,6 +42,9 @@ Feishu app  ⇄  @larksuite/channel (WebSocket)  ⇄  Router ──► tmux send
 | You do | Result |
 |---|---|
 | Send `面板` | A dashboard card: every tmux session with its light |
+| Tap **会话面板** in the bot menu | A new dashboard at the end of the chat, keeping the current attachment |
+| Tap **回到管家** in the bot menu | Detach and show the dashboard; tmux keeps running |
+| Tap **新建会话** in the bot menu | Open the new-session form |
 | Tap **接入** | The chat is attached. Messages now go to that session. One card shows where the session is |
 | Send text while attached | The text is typed into the session. One card streams the work and then holds the reply |
 | Send an image or file | It is saved under `~/.local/state/fmux/inbox/` and its path is sent to the session |
@@ -55,6 +58,10 @@ Feishu app  ⇄  @larksuite/channel (WebSocket)  ⇄  Router ──► tmux send
 | Tap **新建会话** | A form: new or past conversation, agent type, with or without `-d` / `--yolo`, directory, name (optional), first message |
 
 Voice messages are not forwarded. Dictate with the phone keyboard and send the text.
+
+The bot menu is configured in Feishu, outside the message history. Enable it with the
+[menu setup steps](docs/setup.zh.md#机器人底部菜单). Menu clicks are handled directly by fmux,
+including while the attached agent is busy or waiting for confirmation.
 
 ### What the cards look like
 

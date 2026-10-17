@@ -13,7 +13,7 @@
     "test:integration": "node test/integration/run.mjs --service=tmux"
   },
   "dependencies": {
-    "@larksuite/channel": "0.4.1",
+    "@larksuite/channel": "0.7.1",
     "cross-spawn": "^7.0.6",
     "qrcode-terminal": "^0.12.0"
   },

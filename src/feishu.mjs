@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { BOT_MENU_EVENT, createBotMenuHandler } from './bot-menu.mjs';
 import { log } from './util.mjs';
 
 // Feishu allows about five updates a second per message; one a second is plenty for a phone.
@@ -54,9 +55,9 @@ export class CardUpdater {
   }
 }
 
-export async function createFeishu({ appId, appSecret, ownerOpenId, tenant = 'feishu' }) {
-  const { createLarkChannel } = await import('@larksuite/channel');
-  const channel = createLarkChannel({
+export async function createFeishu({ appId, appSecret, ownerOpenId, tenant = 'feishu', createChannel }) {
+  createChannel ??= (await import('@larksuite/channel')).createLarkChannel;
+  const channel = createChannel({
     appId,
     appSecret,
     ...(tenant === 'lark' ? { domain: 'https://open.larksuite.com' } : {}),
@@ -78,9 +79,21 @@ export async function createFeishu({ appId, appSecret, ownerOpenId, tenant = 'fe
   channel.on('reconnected', () => log('info', 'feishu.reconnected'));
   channel.on('reject', (evt) => log('info', 'feishu.reject', { reason: evt.reason, sender: evt.senderId, chat: evt.chatId }));
 
+  let onMenu = () => {};
+  const dispatchMenu = createBotMenuHandler({
+    ownerOpenId,
+    onMenu: (event) => onMenu(event),
+    onError: (err, key) => log('error', 'feishu.menu', { key, message: err.message }),
+  });
+  channel.onRawEvent(BOT_MENU_EVENT, (raw) => {
+    // Acknowledge promptly; card delivery runs in the menu's own ordered queue.
+    void dispatchMenu(raw);
+  });
+
   const api = {
     onMessage: (fn) => channel.on('message', fn),
     onCardAction: (fn) => channel.on('cardAction', fn),
+    onBotMenu: (fn) => { onMenu = fn; },
     connect: () => channel.connect(),
     disconnect: () => channel.disconnect(),
     async sendCard(chatId, card, { replyTo } = {}) {
@@ -113,12 +126,13 @@ export async function createFeishu({ appId, appSecret, ownerOpenId, tenant = 'fe
 // Stands in for Feishu in tests and local runs: records every card instead of sending it.
 export function createFakeFeishu({ dir } = {}) {
   let seq = Date.now() % 100000 * 100;
-  const handlers = { message: [], cardAction: [] };
+  const handlers = { message: [], cardAction: [], botMenu: [] };
   const api = {
     sent: [],
     cards: new Map(),
     onMessage: (fn) => handlers.message.push(fn),
     onCardAction: (fn) => handlers.cardAction.push(fn),
+    onBotMenu: (fn) => handlers.botMenu.push(fn),
     connect: async () => {},
     disconnect: async () => {},
     record(kind, messageId, payload) {
@@ -152,6 +166,9 @@ export function createFakeFeishu({ dir } = {}) {
     // test drivers
     async say(message) {
       for (const fn of handlers.message) await fn(message);
+    },
+    async menu(event) {
+      for (const fn of handlers.botMenu) await fn(event);
     },
     async click(event) {
       let reply;

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { CONFIG_PATH, loadConfig, readRawConfig, resolveSecret, writeRawConfig } from './config.mjs';
+import { BOT_MENU_EVENT } from './bot-menu.mjs';
 import { callControl } from './control.mjs';
 import { BACKEND } from './procs.mjs';
 import { HUB_SESSION, installService as installAs, installedKind, isWsl, serviceCommands, serviceKind } from './service.mjs';
@@ -17,7 +18,7 @@ export const NEEDS = {
     'im:message:readonly', // download images and files the owner sends
     'im:message.reactions:write_only', // the "OK" reaction on a delivered message
   ],
-  events: ['im.message.receive_v1'],
+  events: ['im.message.receive_v1', BOT_MENU_EVENT],
   callbacks: ['card.action.trigger'],
 };
 

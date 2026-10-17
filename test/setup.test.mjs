@@ -24,7 +24,7 @@ test('setup writes the app id, keeps the secret in its own file, and leaves the 
   const shown = [];
   await createApp({ registerApp, renderQr: (url, _opts, done) => done(`QR(${url})`), print: (line) => shown.push(line) });
 
-  assert.deepEqual(options.addons, { scopes: { tenant: NEEDS.scopes }, events: { items: { tenant: ['im.message.receive_v1'] } }, callbacks: { items: ['card.action.trigger'] } });
+  assert.deepEqual(options.addons, { scopes: { tenant: NEEDS.scopes }, events: { items: { tenant: ['im.message.receive_v1', 'application.bot.menu_v6'] } }, callbacks: { items: ['card.action.trigger'] } });
   assert.equal(options.createOnly, true);
   assert.ok(shown.some((line) => line.includes('QR(https://example.invalid/qr)')));
   assert.ok(!shown.join('\n').includes('s3cret'), 'the secret is never printed');

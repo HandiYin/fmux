@@ -62,6 +62,7 @@ export class Router {
     }
     this.feishu.onMessage((msg) => this.onMessage(msg));
     this.feishu.onCardAction((evt) => this.onCardAction(evt));
+    this.feishu.onBotMenu((evt) => this.onBotMenu(evt));
   }
 
   // ---- small helpers ----
@@ -648,6 +649,27 @@ export class Router {
   }
 
   // ---- card clicks ----
+
+  // Bot menus remain available when the chat has scrolled past the last panel.
+  // They operate on the hub directly, even when an agent is busy or blocked.
+  async onBotMenu(evt) {
+    if (evt.operator?.openId !== this.cfg.owner.openId) return;
+    switch (evt.key) {
+      case 'fmux.dashboard':
+        await this.sendDashboard();
+        break;
+      case 'fmux.concierge':
+        await this.detach();
+        await this.sendDashboard();
+        break;
+      case 'fmux.new':
+        await this.post(this.newSessionForm());
+        break;
+      default:
+        return;
+    }
+    log('info', 'menu.action', { key: evt.key });
+  }
 
   async onCardAction(evt) {
     try {
