@@ -67,6 +67,17 @@ test('pi adapter', () => {
   ]);
 });
 
+test('Codex paginated history reads real user prompts once and ignores injected context', () => {
+  const events = [
+    { type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '<environment_context>context</environment_context>' }] } },
+    { type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '怎么样了' }] } },
+    { type: 'event_msg', payload: { type: 'item_completed', item: { type: 'UserMessage', content: [{ type: 'text', text: '怎么样了' }] } } },
+    { type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '正在运行。' }] } },
+    { type: 'event_msg', payload: { type: 'item_completed', item: { type: 'AgentMessage', text: '正在运行。' } } },
+  ].flatMap(adapters.codex);
+  assert.deepEqual(events, [{ type: 'user', text: '怎么样了' }, { type: 'text', text: '正在运行。' }]);
+});
+
 test('Tail returns only complete new lines, and lastExchange reads the end', () => {
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'fmux-test-')), 't.jsonl');
   const line = (o) => JSON.stringify(o) + '\n';

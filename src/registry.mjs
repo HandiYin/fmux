@@ -138,6 +138,7 @@ export class Registry extends EventEmitter {
     s.fgCommand = pane.command;
     s.activityAt = pane.activityAt;
     s.title = cleanTitle(pane.title, pane.sessionName);
+    s.paneTitle = pane.title;
 
     const agent = await this.probe.findAgent(snap, pane.panePid, pane.tty);
     const kind = agent?.kind || 'shell';
@@ -198,7 +199,7 @@ export class Registry extends EventEmitter {
       dialog = findDialog(screen);
       status = dialog ? 'blocked' : looksWorking(screen) ? 'working' : 'idle';
     }
-    s.note = note;
+    s.note = note || (kind === 'codex' && !s.transcript ? '未定位到回复记录，请用 /rename 设置唯一会话名；可点「终端」查看回复。' : '');
     s.dialog = dialog;
 
     if (status === s.status) {
@@ -220,11 +221,19 @@ export class Registry extends EventEmitter {
 
   async followTranscript(s, kind, meta) {
     if (kind === 'shell') return;
-    // Claude's lookup is a cached map, so it runs every poll and catches /clear. The others scan directories.
-    const every = kind === 'claude' ? 1 : s.transcript ? 15 : 3;
+    // Recheck Codex's displayed identity before every read, including /resume inside one TUI.
+    const every = kind === 'claude' || kind === 'codex' ? 1 : s.transcript ? 15 : 3;
     if (this.polls % every !== 0) return;
-    const file = await this.probe.locateTranscript(kind, s.agentPid, meta, { cwd: s.cwd });
-    if (!file || file === s.transcript) return;
+    const file = await this.probe.locateTranscript(kind, s.agentPid, meta, { cwd: s.cwd, title: s.paneTitle });
+    if (file === s.transcript) return;
+    if (kind === 'codex') {
+      s.transcript = null;
+      s.tail = null;
+      s.lastText = '';
+      s.lastPrompt = '';
+      s.turn = null;
+    }
+    if (!file) return;
     let born = 0;
     try {
       born = fs.statSync(file).birthtimeMs;

@@ -104,6 +104,31 @@ test('agents without a status file are read from the screen', async () => {
   assert.deepEqual(events.at(-1), ['status', 'working']);
 });
 
+test('Codex drops the previous transcript before reading when its identity becomes unknown', async () => {
+  const { registry, append } = setup({ kind: 'codex' });
+  const output = [];
+  registry.on('output', (_, events) => output.push(...events));
+  await registry.poll();
+  const s = registry.resolve('work');
+  const say = (text) => ({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] } });
+  append(say('correct reply'));
+  await registry.poll();
+  assert.equal(s.lastText, 'correct reply');
+  registry.probe.locateTranscript = (_, __, ___, hint) => {
+    assert.equal(hint.title, 'different conversation');
+    return null;
+  };
+  registry.tmux.panes[0].title = 'different conversation';
+  append(say('must not be forwarded'));
+  await registry.poll();
+  assert.equal(s.transcript, null);
+  assert.equal(s.lastText, '');
+  assert.equal(s.lastPrompt, '');
+  assert.equal(s.turn, null);
+  assert.match(s.note, /未定位到回复记录/);
+  assert.deepEqual(output.filter((ev) => ev.type === 'text').map((ev) => ev.text), ['correct reply']);
+});
+
 test('a pane that goes away is removed; names follow the pane layout', async () => {
   const { tmux, registry, events } = setup({ kind: 'shell' });
   tmux.panes = [pane(), pane({ paneId: '%2', paneIndex: 1, single: false, sessionName: 'multi' })];
