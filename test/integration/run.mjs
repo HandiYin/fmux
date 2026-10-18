@@ -204,6 +204,7 @@ async function main() {
   await tmux('new-session', '-d', '-s', 'it_shell', ...size);
   await tmux('new-session', '-d', '-s', 'it_claude', ...size, ...start.claude);
   await tmux('new-session', '-d', '-s', 'it_codex', ...size, ...start.codex);
+  await tmux('new-session', '-d', '-s', 'it_codex_shared', ...size, ...start.codex, '--shared');
   await tmux('new-session', '-d', '-s', 'it_pi', ...size, ...start.pi);
   if (WINDOWS) {
     // Windows cannot say what a process reads from. An agent that a program drives is known by its command line.
@@ -228,7 +229,7 @@ async function main() {
     return `${status.sessions} sessions`;
   });
 
-  const expected = { it_shell: 'shell', it_claude: 'claude', it_codex: 'codex', it_pi: 'pi', it_piped: 'shell', ...(WINDOWS ? {} : { it_native: 'claude' }) };
+  const expected = { it_shell: 'shell', it_claude: 'claude', it_codex: 'codex', it_codex_shared: 'codex', it_pi: 'pi', it_piped: 'shell', ...(WINDOWS ? {} : { it_native: 'claude' }) };
   await check('each pane is recognized: script agents, a native-style agent, a piped agent, a shell', async () => {
     let seen = {};
     try {
@@ -313,6 +314,23 @@ async function main() {
     await ctl('dev', 'say', '//a it_claude');
     await ctl('dev', 'say', '第二句');
     await until('a card holds the reply', async () => (await ctl('dev', 'outbox', '12')).includes('echo: 第二句'));
+    await ctl('dev', 'say', '//d');
+  });
+
+  await check('shared Codex: animated title stays bound and the finished chat card contains the actual reply', async () => {
+    await ctl('dev', 'say', '//a it_codex_shared');
+    await ctl('dev', 'say', 'shared-title-regression');
+    const working = await until('working reply reaches the chat', async () => {
+      const out = JSON.parse(await ctl('dev', 'outbox', '12'));
+      return out.find((entry) => entry.card?.header?.template === 'green' && JSON.stringify(entry.card).includes('working: shared-title-regression'));
+    }, 10000);
+    await until('the same reply card finishes with the answer, not just the dashboard preview', async () => {
+      const out = JSON.parse(await ctl('dev', 'outbox', '12'));
+      return out.some((entry) => entry.messageId === working.messageId
+        && entry.card?.header?.subtitle?.content?.startsWith('用时 ')
+        && JSON.stringify(entry.card).includes('echo: shared-title-regression')
+        && !JSON.stringify(entry.card).includes('未定位到此会话'));
+    }, 10000);
     await ctl('dev', 'say', '//d');
   });
 
