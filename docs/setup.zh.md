@@ -312,6 +312,7 @@ fmux install-service
 | `fmux pair` 等不到消息 | 应用没发布，或没订阅「接收消息」，或订阅方式不是长连接 | 方式 B 第 6、8 步；已有的机器人看方式 C2 第 3 步 |
 | 卡片发不出来，日志里有 `99991672` | 缺权限。这条报错会列出缺的权限名 | 在「权限管理」里开通，发布新版本 |
 | 管家不回话 | pi 没装或没登录 | 在终端运行 `pi` 检查。或关掉管家 |
+| Codex 提示「未定位到回复记录」 | 共享 app-server 下会话没有唯一名称，或 tmux 标题没有跟随更新 | 在 Codex 中用 `/rename` 设置唯一会话名，保留 tmux 的自动窗格标题；暂时可点「终端」看回复。fmux 按名称核对会话 ID 和目录，不再读取同目录最近更新的其他对话 |
 | 新建会话后没有 Agent | 命令不在服务的 PATH 里 | 在装好 `claude`、`codex` 的终端里重新运行 `fmux install-service` |
 | 会话在面板上是 shell | Agent 不是直接在这个 tmux 窗格的终端里运行 | 在窗格里直接运行 `claude` 或 `codex` |
 | macOS 上所有会话都是 shell | 找不到 `lsof`，或服务的 `PATH` 里没有它 | `fmux doctor` 会报。`lsof` 在 `/usr/sbin`，重新运行 `fmux install-service` |

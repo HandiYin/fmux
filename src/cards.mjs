@@ -274,10 +274,16 @@ function turnBody(texts, done) {
   ];
 }
 
+function missingReply(session) {
+  return session.kind === 'codex' && !session.transcript
+    ? '未定位到此会话的回复，请点「终端」查看；在 Codex 中用 /rename 设置唯一会话名后可恢复转发。'
+    : '这一轮没有文字回复。';
+}
+
 // One turn of a followed session: streams while the agent works, then holds the reply.
 export function turnCard({ session, state, texts, tools, lastTool, startedAt, endedAt, now = Date.now() }) {
   const done = state === 'done';
-  const elements = turnBody(texts, done);
+  const elements = done && !texts.length ? [note(missingReply(session))] : turnBody(texts, done);
   if (done) {
     if (!texts.length) elements.push(row([terminalButton(session)]));
     return card({
@@ -311,10 +317,10 @@ export function finishedCard({ session, turn, replied }) {
     summary: `${session.name} 已结束：${oneLine(text, 50)}`,
     icon: ICON.done,
     elements: [
-      text ? md(truncate(text, 2200, '\n\n…（已截断）')) : note('这一轮没有文字回复。'),
+      text ? md(truncate(text, 2200, '\n\n…（已截断）')) : note(missingReply(session)),
       replied ? note(`已回复：${plainPreview(replied, 90)}`) : null,
       replyForm(session, `回复 ${session.name}`),
-      row([attachButton(session)]),
+      row([attachButton(session), ...(!text ? [terminalButton(session)] : [])]),
     ],
   });
 }

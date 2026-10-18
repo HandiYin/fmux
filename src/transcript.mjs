@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { oneLine } from './util.mjs';
-import { openFiles, procCwd, procStartMs } from './procs.mjs';
+import { procCwd, procStartMs } from './procs.mjs';
+import { createCodexLocator } from './codex-transcript.mjs';
 
 // Each adapter turns one transcript line (parsed JSON) into zero or more events:
 //   { type: 'text', text }           assistant prose
@@ -74,6 +75,11 @@ export const adapters = {
     if (d.type === 'event_msg') {
       if (p.type === 'task_complete') return [{ type: 'turn_end', durationMs: Number(p.duration_ms) || undefined }];
       if (p.type === 'user_message' && p.message?.trim()) return [{ type: 'user', text: p.message.trim() }];
+      // Paginated-history Codex writes UserMessage items instead of user_message events.
+      if (p.type === 'item_completed' && p.item?.type === 'UserMessage') {
+        const text = (p.item.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('\n').trim();
+        return text ? [{ type: 'user', text }] : [];
+      }
     }
     return [];
   },
@@ -283,38 +289,7 @@ export function piSessionDir(cwd) {
 
 // `hint.cwd` is the directory tmux reports for the pane. It stands in where the system does not
 // give the working directory of a process (Windows).
-async function codexTranscript(pid, hint) {
-  const open = (await openFiles(pid)).find((f) => /\/sessions\/.*rollout-.*\.jsonl$/.test(f));
-  if (open) return open;
-  const cwd = (await procCwd(pid)) || hint.cwd;
-  if (!cwd) return null;
-  const needle = cwdNeedle(cwd);
-  const fold = process.platform === 'win32' ? (text) => text.toLowerCase() : (text) => text;
-  const root = path.join(HOME, '.codex', 'sessions');
-  const candidates = [];
-  const now = new Date();
-  for (let back = 0; back < 3; back++) {
-    const d = new Date(now.getTime() - back * 86400000);
-    const dir = path.join(root, String(d.getFullYear()), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0'));
-    try {
-      for (const f of fs.readdirSync(dir)) if (f.startsWith('rollout-') && f.endsWith('.jsonl')) candidates.push(path.join(dir, f));
-    } catch {
-      // no sessions that day
-    }
-  }
-  const sameCwd = candidates.filter((file) => {
-    try {
-      const fd = fs.openSync(file, 'r');
-      const buf = Buffer.alloc(4096);
-      const n = fs.readSync(fd, buf, 0, buf.length, 0);
-      fs.closeSync(fd);
-      return fold(buf.toString('utf8', 0, n)).includes(needle);
-    } catch {
-      return false;
-    }
-  });
-  return newestSince(sameCwd, (await procStartMs(pid)) - 5000);
-}
+const codexTranscript = createCodexLocator();
 
 async function piTranscript(pid, hint) {
   const cwd = (await procCwd(pid)) || hint.cwd;

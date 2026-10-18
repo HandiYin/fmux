@@ -37,6 +37,13 @@ Feishu app  ⇄  @larksuite/channel (WebSocket)  ⇄  Router ──► tmux send
   one, and from screen markers for the other agents.
 - A session already running in tmux needs no change. Start sessions the way you do today.
 
+For Codex using a shared app-server, give each conversation a unique name with `/rename`
+and keep tmux's automatic pane title updates enabled. fmux resolves the displayed name through
+Codex's session index, checks the thread ID and directory, and follows that exact rollout even
+when the conversation is old. It never selects a Codex transcript just because it was the most
+recently updated in the same directory. If identity is missing or ambiguous, the card explains
+that replies are unavailable and offers the terminal view.
+
 ## Use it from the phone
 
 | You do | Result |

@@ -34,6 +34,17 @@ const buttonsOf = (card) => {
 
 const long = '长文本 with `code` and **bold** '.repeat(2000);
 
+test('an unbound Codex reply explains the missing identity instead of claiming there was no answer', () => {
+  const s = session({ kind: 'codex', transcript: null, lastText: '' });
+  const turn = { texts: [], tools: 0, startedAt: 0, endedAt: 1000 };
+  for (const card of [cards.turnCard({ session: s, state: 'done', ...turn }), cards.finishedCard({ session: s, turn })]) {
+    const json = check(card);
+    assert.match(json, /未定位到此会话的回复/);
+    assert.doesNotMatch(json, /这一轮没有文字回复/);
+    assert.ok(buttonsOf(card).some((label) => label.includes('终端')));
+  }
+});
+
 test('every card is valid and stays under the size limit with very long content', () => {
   const s = session({ lastText: long, lastPrompt: long, title: 'x'.repeat(500) });
   const sessions = Array.from({ length: 30 }, (_, i) => session({ key: `%${i}`, name: `session_${i}`, lastText: long }));
