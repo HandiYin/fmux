@@ -50,20 +50,41 @@ const agents = {
     };
   },
 
-  // Codex keeps its rollout file open. That is how fmux finds it.
+  // Legacy Codex holds the rollout open; shared-server TUIs expose only an animated title.
   codex() {
+    const shared = process.argv.includes('--shared');
     const now = new Date();
-    const day = [String(now.getFullYear()), String(now.getMonth() + 1).padStart(2, '0'), String(now.getDate()).padStart(2, '0')];
-    const fd = fs.openSync(ensure(path.join(home, '.codex', 'sessions', ...day, `rollout-${now.toISOString().replace(/[:.]/g, '-')}-${id}.jsonl`)), 'a');
-    const add = (line) => fs.writeSync(fd, `${JSON.stringify(line)}\n`);
+    const day = shared ? ['2020', '01', '01'] : [String(now.getFullYear()), String(now.getMonth() + 1).padStart(2, '0'), String(now.getDate()).padStart(2, '0')];
+    const file = ensure(path.join(home, '.codex', 'sessions', ...day, `rollout-${now.toISOString().replace(/[:.]/g, '-')}-${id}.jsonl`));
+    const fd = shared ? null : fs.openSync(file, 'a');
+    const add = (line) => shared ? fs.appendFileSync(file, `${JSON.stringify(line)}\n`) : fs.writeSync(fd, `${JSON.stringify(line)}\n`);
     add({ type: 'session_meta', payload: { id, cwd, originator: 'codex-tui' } });
+    const name = '共享 Codex 会话';
+    const title = (marker = '') => { if (shared) process.stdout.write(`\x1b]0;${marker}${name} | ${path.basename(cwd)}\x07`); };
+    let animation;
+    if (shared) {
+      fs.appendFileSync(ensure(path.join(home, '.codex', 'session_index.jsonl')), `${JSON.stringify({ id, thread_name: name })}\n`);
+      title();
+    }
     return {
       begin(text) {
-        add({ type: 'event_msg', payload: { type: 'user_message', message: text } });
+        if (shared) {
+          const frames = [...'⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'];
+          let i = 0;
+          title(`${frames[i]} `);
+          animation = setInterval(() => title(`${frames[++i % frames.length]} `), 100);
+          add({ type: 'event_msg', payload: { type: 'item_completed', item: { type: 'UserMessage', content: [{ type: 'text', text }] } } });
+          add({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: `working: ${text}` }] } });
+        } else add({ type: 'event_msg', payload: { type: 'user_message', message: text } });
       },
       end(reply) {
         add({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: reply }] } });
         add({ type: 'event_msg', payload: { type: 'task_complete', duration_ms: BUSY_MS } });
+        if (shared) {
+          clearInterval(animation);
+          title('● ');
+          setTimeout(() => title(), 3000);
+        }
       },
     };
   },

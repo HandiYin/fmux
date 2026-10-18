@@ -74,3 +74,21 @@ test('legacy Codex uses its own open rollout and refuses multiple open rollouts'
   f.open([a, b]);
   assert.equal(await f.locate(1), null);
 });
+
+test('Codex activity decorations keep the same identity through working and completion', async (t) => {
+  const f = fixture(t);
+  const a = f.rollout(A, '2020-01-01');
+  f.index(A, '训练');
+  for (const marker of '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏●') {
+    assert.equal(await f.locate(1, { title: `${marker} 训练 | user` }), a, marker);
+    assert.equal(await f.locate(1, { title: `${marker} | 训练 | user` }), a, marker);
+  }
+});
+
+test('activity normalization does not choose between a decorated name and a literal name', async (t) => {
+  const f = fixture(t);
+  f.rollout(A, '2020-01-01'); f.index(A, '训练');
+  f.rollout(B, '2020-01-02'); f.index(B, '⠋ 训练');
+  assert.equal(await f.locate(1, { title: '⠋ 训练 | user' }), null);
+  assert.equal(await f.locate(1, { title: '??? 训练 | user' }), null);
+});

@@ -78,11 +78,15 @@ export function createCodexLocator({ home = process.env.CODEX_HOME || path.join(
     const title = String(hint.title || '').trim();
     const cwd = (await cwdOf(pid)) || hint.cwd;
     if (!title || !cwd) return null;
+    // Codex decorates the same title with a spinner while working and a dot on completion.
+    // Keep the literal form too: a real name starting with a marker must not silently resolve
+    // to a different thread. If both interpretations match, the ambiguity check below wins.
+    const titles = new Set([title, title.replace(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏●]\s+(?:\|\s+)?/u, '')]);
     const logDb = opened.find((f) => /^logs_\d+\.sqlite$/.test(path.basename(f)));
     const root = logDb ? path.dirname(logDb) : home;
     const directory = path.basename(cwd.replaceAll('\\', '/'));
-    const ids = [...names(root)].filter(([, name]) => title === name
-      || title === `${name} | ${directory}` || title === `${name} | ${hostname}`);
+    const ids = [...names(root)].filter(([, name]) => titles.has(name)
+      || titles.has(`${name} | ${directory}`) || titles.has(`${name} | ${hostname}`));
     if (ids.length !== 1) return null;
     const id = ids[0][0];
     const file = rollout(root, id);

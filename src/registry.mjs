@@ -227,6 +227,7 @@ export class Registry extends EventEmitter {
     const file = await this.probe.locateTranscript(kind, s.agentPid, meta, { cwd: s.cwd, title: s.paneTitle });
     if (file === s.transcript) return;
     if (kind === 'codex') {
+      log('info', file ? 'transcript.bound' : 'transcript.unbound', { session: s.name, title: s.paneTitle, file: file ? path.basename(file) : null });
       s.transcript = null;
       s.tail = null;
       s.lastText = '';
