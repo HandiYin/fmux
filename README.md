@@ -1,291 +1,265 @@
 # fmux
 
-One Feishu chat for every tmux session on your machine: Claude Code, Codex, pi and plain shells.
-fmux connects a Feishu bot to the tmux sessions of the computer it runs on.
-It runs on Linux and macOS, and on Windows with psmux or inside WSL.
+用一个飞书聊天窗口管理本机所有 tmux 会话，包括 Claude Code、Codex、pi 和普通 Shell。
+fmux 将飞书机器人连接到它所在电脑的 tmux 会话，支持 Linux、macOS，以及通过 psmux 或 WSL 运行的 Windows 环境。
 
-**Setup guide (中文): [docs/setup.zh.md](docs/setup.zh.md)**
+**详细安装指南：[docs/setup.zh.md](docs/setup.zh.md)**
 
-- The chat **attaches** to one tmux session at a time, like `tmux attach`. Your messages go into
-  that session. The session's replies come back as cards.
-- A **dashboard card** lists every session with a status light (🟢 running, ⚪ ended, 🟠 waiting for you).
-  One tap attaches, another shows the screen.
-- Sessions you are not attached to send a card when a turn finishes or when a dialog waits for you.
-- While nothing is attached, a **pi agent** (the concierge) answers. It can switch, inspect and
-  start sessions for you in plain language.
+- 聊天窗口每次**接入**一个 tmux 会话，类似 `tmux attach`。你发出的消息进入该会话，会话回复以飞书卡片返回。
+- **会话面板**列出各个会话和状态：🟢 运行中、⚪ 已结束、🟠 等待确认。点击按钮即可接入或查看终端。
+- 未接入的会话在一轮任务结束或需要确认时，也可以发送通知卡片。
+- 未接入任何会话时，由 **pi 管家**回复。你可以用自然语言让它切换、查看或新建会话。
 
-## How it works
+## 工作原理
 
-```
-Feishu app  ⇄  @larksuite/channel (WebSocket)  ⇄  Router ──► tmux send-keys / paste-buffer
-                                                    ▲   └──► pi --mode rpc   (concierge)
-                                                    │
-                              Registry: polls tmux every 2 s, reads agent state
-                              ├─ processes:   /proc (Linux, WSL), ps + lsof (macOS), PowerShell (Windows)
-                              ├─ Claude Code: ~/.claude/sessions/<pid>.json + transcript JSONL
-                              ├─ Codex:       screen markers + rollout JSONL
-                              ├─ pi:          screen markers + session JSONL
-                              └─ shell:       screen only
+```text
+飞书应用 ⇄ @larksuite/channel（WebSocket）⇄ Router
+                                          ├─► tmux send-keys / paste-buffer
+                                          └─► pi --mode rpc（管家）
+                                              ▲
+                          Registry：每 2 秒轮询 tmux，读取会话状态
+                          ├─ 进程：/proc（Linux、WSL）、ps + lsof（macOS）、PowerShell（Windows）
+                          ├─ Claude Code：~/.claude/sessions/<pid>.json + 对话记录 JSONL
+                          ├─ Codex：终端状态标记 + rollout JSONL
+                          ├─ pi：终端状态标记 + 会话 JSONL
+                          └─ Shell：终端画面
 ```
 
-- **Input** goes through a tmux paste buffer followed by Enter. Several lines for Claude Code are
-  sent key by key with Ctrl+J between them, so it reads them as typed and not as a paste. Nothing is
-  installed in the sessions.
-- **Output** comes from the agent's transcript file, not from scraping the screen. A shell has no
-  transcript, so a shell gets a screen snapshot when the screen stops changing.
-- **State** (`working`, `idle`, `blocked`, `shell`) comes from Claude Code's status file where there is
-  one, and from screen markers for the other agents.
-- A session already running in tmux needs no change. Start sessions the way you do today.
+- **输入**通过 tmux 粘贴缓冲区发送，随后按 Enter 提交。Claude Code 的多行输入会逐键发送，行间使用 Ctrl+J，让它按键入内容处理。无需在已有会话中安装插件。
+- **回复**从 Agent 的对话记录文件读取。普通 Shell 没有对话记录，因此在画面停止变化后返回终端截图式卡片。
+- **状态**包括 `working`、`idle`、`blocked`、`shell`。Claude Code 优先读取状态文件，其他 Agent 根据终端画面中的标记判断。
+- 已经在 tmux 中运行的会话可以直接接入，继续按原来的方式启动 Agent 即可。
 
-For Codex using a shared app-server, give each conversation a unique name with `/rename`
-and keep tmux's automatic pane title updates enabled. fmux resolves the displayed name through
-Codex's session index, checks the thread ID and directory, and follows that exact rollout even
-when the conversation is old. It never selects a Codex transcript just because it was the most
-recently updated in the same directory. If identity is missing or ambiguous, the card explains
-that replies are unavailable and offers the terminal view.
+对于使用共享 app-server 的 Codex，fmux 通过终端显示的对话名称查询会话索引，核对会话 ID 和目录后读取对应记录，恢复旧对话时也适用。已有唯一名称的对话无需重复改名；仅在尚未命名或名称重复时，使用 `/rename` 设置唯一名称，并保留 tmux 的自动窗格标题更新。
 
-## Use it from the phone
+运行时的 `⠋` 等动画标记和结束时的 `●` 标记会被识别，不影响会话匹配。fmux 不会仅凭“同目录最近更新”来选择 Codex 的记录；无法确认会话身份时，会在卡片中说明，并提供终端查看入口。
 
-| You do | Result |
+## 在手机上使用
+
+| 操作 | 结果 |
 |---|---|
-| Send `面板` | A dashboard card: every tmux session with its light |
-| Tap **接入** | The chat is attached. Messages now go to that session. One card shows where the session is |
-| Send text while attached | The text is typed into the session. One card streams the work and then holds the reply |
-| Send an image or file | It is saved under `~/.local/state/fmux/inbox/` and its path is sent to the session |
-| Quote-reply a card of some session | The reply goes to that session without switching |
-| Tell the concierge "把 A 的最后一条回复发给 B，让它照着改" | Handoff: B gets your comment as typed text and A's last reply as a pasted block. B's reply comes back as a card |
-| Type in the box of a "finished" card | Same: a reply without switching |
-| Tap **查看** | The session's card: state, last prompt, last reply. A shell shows its terminal |
-| Tap **终端** | The terminal, cut for a phone: the last 18 lines, four keys, more keys behind a fold, an input box |
-| Tap an option on a **等待确认** card | The matching key is sent to the dialog |
-| Tap **断开**, or send `//d` | Back to the concierge |
-| Tap **新建会话** | A form: new or past conversation, agent type, with or without `-d` / `--yolo`, directory, name (optional), first message |
+| 发送 `面板` | 显示各会话及其状态的面板卡片 |
+| 点击**接入** | 后续消息发送到该会话，并显示当前接入的会话卡片 |
+| 接入后发送文字 | 将文字输入会话，回复卡片持续更新过程，结束后保留最终回复 |
+| 发送图片或文件 | 保存到 `~/.local/state/fmux/inbox/`，并将文件路径发送到会话 |
+| 引用回复某个会话的卡片 | 将回复发送到该会话，无需切换当前接入 |
+| 对管家说“把 A 的最后一条回复发给 B，让它照着改” | 将你的说明作为输入、A 的最后一条回复作为粘贴内容交给 B，随后转发 B 的回复 |
+| 在“已结束”卡片的输入框中回复 | 同样直接回复该会话，无需切换 |
+| 点击**查看** | 显示状态、上一条输入和最后回复；普通 Shell 显示终端画面 |
+| 点击**终端** | 显示适合手机阅读的最近 18 行、四个常用按键、折叠的更多按键和输入框 |
+| 点击**等待确认**卡片中的选项 | 向终端对话框发送对应按键 |
+| 点击**断开**，或发送 `//d` | 退出接入，回到管家 |
+| 点击**新建会话** | 打开表单，选择新对话或历史对话、Agent 类型、是否启用 `-d` / `--yolo`、目录、可选名称和首条消息 |
 
-Voice messages are not forwarded. Dictate with the phone keyboard and send the text.
+暂不转发语音消息。可以使用手机键盘的语音输入功能，转成文字后发送。
 
-### What the cards look like
+### 卡片显示与刷新
 
-A header has a color only when the session needs a glance: green while it runs, orange while it
-waits for you. Everything else is plain. A card carries only the buttons that fit its state.
+卡片标题仅在需要关注时显示颜色：运行中为绿色，等待确认时为橙色。每张卡片只展示当前状态需要的按钮。
 
-| Card | Stays current | Until |
+| 卡片 | 刷新方式 | 停止刷新条件 |
 |---|---|---|
-| Dashboard | When a session changes, once a minute while an agent runs, every 5 minutes otherwise | A newer dashboard is sent. The old one shrinks to one line |
-| Session card (查看, 接入) | State and buttons. The last reply too, while you are not attached | 10 minutes (`live.peekMinutes`), or a newer card for the same session |
-| Terminal card | Every 3 s, if the screen changed | 10 minutes after the last tap on it |
-| Turn card | With each output of the agent | The turn ends. The card then holds the reply |
+| 会话面板 | 会话变化时更新；有 Agent 运行时每分钟更新，否则每 5 分钟更新 | 发送了新面板，旧面板缩为一行 |
+| 会话卡片（查看、接入） | 更新状态和按钮；未接入时也更新最后回复 | 默认 10 分钟（`live.peekMinutes`），或同一会话出现更新的卡片 |
+| 终端卡片 | 每 3 秒检查一次，画面变化时更新 | 距离最后一次点击超过 10 分钟 |
+| 回复卡片 | 随 Agent 输出持续更新 | 本轮结束，卡片保留回复 |
 
-A turn that ran longer than `notify.minWorkSec` ends with one short text line that quotes its card.
-The line rings the phone; an edited card does not. A refresh redraws the whole card, so text typed
-into a terminal card's input box is lost if the screen changes before you send it.
+运行超过 `notify.minWorkSec` 的一轮结束时，会额外发送一条引用回复卡片的简短文字，以触发手机通知；单纯编辑卡片不会触发通知。卡片刷新会重绘整张卡片，因此在终端卡片输入框中尚未发送的文字，可能因画面更新而丢失。
 
-Text commands. Use `//` while attached, because a single `/` belongs to the session
-(`/compact`, `/model`). While detached a single `/` works too.
+接入会话后，fmux 命令使用 `//` 前缀，单个 `/` 留给会话内的命令，例如 `/compact`、`/model`。未接入时，也可以用单个 `/` 操作 fmux。
 
-```
-//ls                    dashboard            //peek [session]        screen
-//a <number|name>       attach               //key [session] esc 1   send keys
-//d                     detach               //new [name agent dir]  new session
-//pi <message>          ask the concierge without detaching
-//stop                  send Esc to the attached session
+```text
+//ls                    会话面板             //peek [session]        查看终端
+//a <number|name>       接入会话             //key [session] esc 1   发送按键
+//d                     断开接入             //new [name agent dir]  新建会话
+//pi <message>          不断开当前会话，直接询问管家
+//stop                  向当前接入的会话发送 Esc
 ```
 
-### New sessions
+### 新建和恢复会话
 
-| Choice | Claude Code | Codex |
+| 选项 | Claude Code | Codex |
 |---|---|---|
-| With `-d` / `--yolo` (default) | `claude -d --permission-mode auto` | `codex --yolo` |
-| Without | `claude` | `codex` |
-| New conversation | `… -n <session name>` | |
-| Latest conversation of the directory | `… -c` | `… resume --last` |
-| A past conversation | `… -r <id>`, in that conversation's directory | `… resume <id>`, in that conversation's directory |
+| 启用 `-d` / `--yolo`（默认） | `claude -d --permission-mode auto` | `codex --yolo` |
+| 不启用 | `claude` | `codex` |
+| 新对话 | `… -n <session name>` | 使用普通启动命令 |
+| 继续该目录最近一次对话 | `… -c` | `… resume --last` |
+| 恢复指定历史对话 | 在该对话的目录下运行 `… -r <id>` | 在该对话的目录下运行 `… resume <id>` |
 
-`claude -d` is Claude Code's debug mode. What skips the permission prompts is the auto permission
-mode. The form lists the 10 newest Claude Code and 5 newest Codex conversations that are not open
-in a running Claude Code and whose directory still exists.
+`claude -d` 是 Claude Code 的调试模式；控制自动处理权限请求的是 `--permission-mode auto`。表单列出最近 10 条 Claude Code 和 5 条 Codex 历史对话，排除目录已不存在的记录，以及已经由运行中的 Claude Code 打开的对话。
 
-Session names are matched loosely everywhere (`//a proc`, `fmuxctl peek "gt proc"`): by part of
-the tmux name, of the agent's title, of the directory, or by kind. A name that fits several
-sessions gets a card with one button for each (in chat) or an error that lists them (`fmuxctl`).
+选择会话时支持模糊匹配，例如 `//a proc`、`fmuxctl peek "gt proc"`，可以按 tmux 名称、Agent 标题、目录的一部分或 Agent 类型查找。匹配到多个会话时，飞书中会显示选择按钮，`fmuxctl` 会列出候选项并报错。
 
-### Notifications
+### 通知
 
-A session that is not attached sends a card when a turn that ran for at least `notify.minWorkSec`
-(20 s) ends, and when it waits on a dialog. These cards are skipped while a tmux client saw keyboard
-input in the last `notify.quietIfLocalActiveSec` (180 s): at your desk the phone stays quiet.
-Set that value to `0` to always notify.
+未接入的会话在运行至少 `notify.minWorkSec`（默认 20 秒）的一轮结束时，或等待对话框确认时，发送通知卡片。
 
-## Install and run
+如果 tmux 客户端在最近 `notify.quietIfLocalActiveSec`（默认 180 秒）内收到过键盘输入，则跳过这些通知，避免你正在电脑前操作时手机重复提醒。将该值设为 `0` 可始终通知。
 
-Needs Node.js 20.12 or newer and tmux. The agents (`claude`, `codex`, `pi`) are optional.
+## 安装与运行
 
-| System | What fmux uses | Service | Tested |
+需要 Node.js 20.12 或更新版本，以及 tmux。各个 Agent（`claude`、`codex`、`pi`）按需安装。
+
+| 系统 | 使用的组件 | 服务托管方式 | 验证情况 |
 |---|---|---|---|
-| Linux | tmux, `/proc` | systemd user service | In daily use. Unit tests and the end-to-end test |
-| macOS | tmux, `ps` and `lsof` (macOS has them) | launchd agent | The `ps` and `lsof` code passes the end-to-end test on Linux. Not run on a Mac yet |
-| Windows | [psmux](https://github.com/psmux/psmux) as `tmux`, PowerShell for the process table | A psmux session, started at logon | Written from the psmux documentation. Unit tests for the parsing. Not run on Windows yet |
-| Windows, WSL 2 | The Linux code. fmux, tmux and the agents all run inside WSL | systemd if WSL has it, else a tmux session | The end-to-end test passes in a container without systemd. Not run on a WSL yet |
+| Linux | tmux、`/proc` | systemd 用户服务 | 已用于日常使用，通过单元测试和端到端测试 |
+| macOS | tmux、系统自带的 `ps` 和 `lsof` | launchd 用户服务 | `ps`、`lsof` 实现已在 Linux 上通过端到端测试，尚未在 Mac 上实测 |
+| Windows | 通过 [psmux](https://github.com/psmux/psmux) 提供 `tmux`，通过 PowerShell 查询进程 | 登录时启动的 psmux 会话 | 根据 psmux 文档实现，解析逻辑有单元测试，尚未在 Windows 上实测 |
+| Windows、WSL 2 | 使用 Linux 实现，fmux、tmux 和 Agent 均运行在 WSL 内 | 有 systemd 时使用 systemd，否则使用 tmux 会话 | 已在无 systemd 的容器内通过端到端测试，尚未在 WSL 上实测 |
 
-See [Platforms](#platforms) for what differs on each system.
+各系统的差异见[平台说明](#平台说明)。
 
 ```bash
 git clone https://github.com/Primatix-Intelligence/fmux.git ~/fmux
 cd ~/fmux && npm install
-ln -s ~/fmux/bin/fmux ~/fmux/bin/fmuxctl ~/.local/bin/    # Windows: npm link
+ln -s ~/fmux/bin/fmux ~/fmux/bin/fmuxctl ~/.local/bin/    # Windows 使用 npm link
 
-fmux doctor             # what is in place, what is missing
+fmux doctor             # 检查环境、依赖和服务状态
 ```
 
-Connect a Feishu bot. Pick the row that fits you:
+根据现有情况连接飞书机器人：
 
-| You have | Do this | Guide |
+| 当前情况 | 操作 | 安装指南中的章节 |
 |---|---|---|
-| No bot yet | `fmux setup`. Scan the QR code with the Feishu app. It creates the bot with the permissions fmux needs | 方式 A |
-| No bot yet, and you want to make the app by hand | Create the app in the developer console, write the config, run `fmux pair` | 方式 B |
-| A bot used with `lark-channel-bridge` | Stop the bridge, then `fmux setup --app-id cli_xxx --from-lark-channel-bridge`. No new app is needed | 方式 C1 |
-| A bot used with another program, or one you made earlier | Stop that program, then `fmux setup --app-id cli_xxx` and paste the App Secret. While it waits, set events and callbacks to long connection in the developer console and add the missing permissions | 方式 C2 |
+| 还没有机器人 | 运行 `fmux setup`，用飞书扫码，自动创建机器人并申请所需权限 | 方式 A |
+| 还没有机器人，希望手动创建应用 | 在开发者后台创建应用，填写配置后运行 `fmux pair` | 方式 B |
+| 已有机器人，之前由 `lark-channel-bridge` 使用 | 停止 bridge，运行 `fmux setup --app-id cli_xxx --from-lark-channel-bridge`，复用现有应用 | 方式 C1 |
+| 已有机器人，之前由其他程序使用，或以前手动创建 | 停止原程序，运行 `fmux setup --app-id cli_xxx` 并填写 App Secret；等待期间在开发者后台将事件和回调设置为长连接，并补齐权限 | 方式 C2 |
 
-Each way ends the same: send the bot one message, and its sender becomes the owner.
+各方式的最后一步相同：向机器人发送一条消息，将该消息的发送者绑定为主人。
 
 ```bash
-fmux install-service    # systemd on Linux, launchd on macOS, else a tmux session
+fmux install-service    # Linux 使用 systemd，macOS 使用 launchd，其他情况使用 tmux 会话
 ```
 
-Then send `面板` to the bot. The guide also covers the agent settings and troubleshooting.
-`fmux doctor` shows if the hub runs and what keeps it running.
+随后向机器人发送 `面板` 即可开始使用。详细安装指南还包含 Agent 配置和排错步骤。
+`fmux doctor` 可以查看主服务是否运行，以及由哪种方式托管。
 
-One Feishu app delivers each event to one connection only. Do not connect another program
-(`lark-channel-bridge`, another fmux) to the same app.
+一个飞书应用的每个事件只会交给一个连接处理。请避免让其他程序（例如 `lark-channel-bridge` 或另一个 fmux 实例）同时连接同一个应用。
 
-### Platforms
+### 平台说明
 
-`fmux install-service` picks the service manager of the machine. It gives the service the `PATH`
-of the shell that runs it, so run it where `tmux`, `claude` and `codex` are found.
+`fmux install-service` 会选择适合当前系统的服务管理方式，并继承执行安装命令时 Shell 的 `PATH`。请在能找到 `tmux`、`claude`、`codex` 等命令的终端中执行它。
 
-| | Linux with systemd | macOS | No systemd (some WSL, containers), or `--tmux` |
+| 项目 | 使用 systemd 的 Linux | macOS | 无 systemd（部分 WSL、容器），或指定 `--tmux` |
 |---|---|---|---|
-| Runs as | `~/.config/systemd/user/fmux.service` | `~/Library/LaunchAgents/com.primatix.fmux.plist` | tmux session `fmux-hub`, hidden from the dashboard |
-| Starts | At boot, after `loginctl enable-linger $USER` | At login | By hand. The command prints a line for `~/.profile` |
-| Status | `systemctl --user status fmux` | `launchctl print gui/$(id -u)/com.primatix.fmux` | `tmux has-session -t =fmux-hub` |
-| Logs | `journalctl --user -u fmux -f` | `tail -f ~/Library/Logs/fmux.log` | `tmux attach -t fmux-hub` |
-| Restart | `systemctl --user restart fmux` | `launchctl kickstart -k gui/$(id -u)/com.primatix.fmux` | `fmux install-service --tmux` |
-| Stop | `systemctl --user stop fmux` | `launchctl bootout gui/$(id -u)/com.primatix.fmux` | `tmux kill-session -t =fmux-hub` |
-| Control socket | `$XDG_RUNTIME_DIR/fmux.sock` | `~/.local/state/fmux/fmux.sock` | As on that system |
+| 运行位置 | `~/.config/systemd/user/fmux.service` | `~/Library/LaunchAgents/com.primatix.fmux.plist` | tmux 会话 `fmux-hub`，在面板中隐藏 |
+| 启动时机 | 执行 `loginctl enable-linger $USER` 后可随系统启动 | 用户登录时 | 手动启动；安装命令会输出可添加到 `~/.profile` 的启动命令 |
+| 状态 | `systemctl --user status fmux` | `launchctl print gui/$(id -u)/com.primatix.fmux` | `tmux has-session -t =fmux-hub` |
+| 日志 | `journalctl --user -u fmux -f` | `tail -f ~/Library/Logs/fmux.log` | `tmux attach -t fmux-hub` |
+| 重启 | `systemctl --user restart fmux` | `launchctl kickstart -k gui/$(id -u)/com.primatix.fmux` | `fmux install-service --tmux` |
+| 停止 | `systemctl --user stop fmux` | `launchctl bootout gui/$(id -u)/com.primatix.fmux` | `tmux kill-session -t =fmux-hub` |
+| 控制套接字 | `$XDG_RUNTIME_DIR/fmux.sock` | `~/.local/state/fmux/fmux.sock` | 使用对应系统的路径 |
 
-- **macOS.** `brew install tmux node`. A Mac that you use only over SSH has no launchd `gui` domain:
-  use `fmux install-service --tmux`. The hub is offline while the Mac sleeps.
-- **Windows with psmux.** tmux does not run on Windows. psmux is a tmux for Windows: it takes the
-  same commands and installs a `tmux` command. The agents run on Windows itself.
+**macOS**
 
-  ```powershell
-  winget install psmux
-  git clone https://github.com/Primatix-Intelligence/fmux.git $HOME\fmux
-  cd $HOME\fmux; npm install; npm link        # npm link puts fmux and fmuxctl on the PATH
-  fmux doctor
-  ```
+使用 `brew install tmux node` 安装依赖。仅通过 SSH 使用、没有登录桌面的 Mac 不具备 launchd 的 `gui` 域，请使用 `fmux install-service --tmux`。Mac 休眠期间主服务无法响应。
 
-  Start your sessions with `tmux new -s name`, as on Linux. What is different:
-  - The hub runs in a psmux session named `fmux-hub`. `fmux install-service` also writes `fmux.cmd`
-    to your Startup folder, which starts the hub at logon. Delete that file to undo it. The control
-    channel is the named pipe `\\.\pipe\fmux-<user>`.
-  - Sessions end when you log off or restart Windows.
-  - Windows does not say what a process reads from. An agent that a program drives is known from
-    its command line (`codex app-server`, `claude -p`, `pi --mode rpc`).
-  - psmux does not report when a client last had input, so `notify.quietIfLocalActiveSec` has no
-    effect: a finished turn always notifies.
-  - Several lines go in as a paste. The first message of a new session is quoted for PowerShell.
-  - The concierge needs `pi`, and pi needs Git Bash on Windows. Set `concierge.enabled` to `false`
-    to do without it. `fmux setup --from-lark-channel-bridge` is not available.
-- **Windows with WSL 2.** Install WSL (`wsl --install`), then follow the Linux steps inside WSL.
-  Install `tmux`, Node.js and the agents inside WSL, and keep the checkout in the Linux file system
-  (`~/fmux`), not under `/mnt/c`. A `claude` or `codex` installed on the Windows side is not in
-  that tmux. To get systemd, put `[boot]` and `systemd=true` in `/etc/wsl.conf` and run
-  `wsl --shutdown` in Windows. A systemd service does not keep WSL up: leave a WSL window open.
+**Windows 与 psmux**
 
-### Config
+tmux 不能原生运行在 Windows 上。psmux 提供兼容的命令接口，并安装名为 `tmux` 的命令，让 Agent 直接运行在 Windows 环境中。
 
-`~/.config/fmux/config.json` (defaults are in `src/config.mjs`):
+```powershell
+winget install psmux
+git clone https://github.com/Primatix-Intelligence/fmux.git $HOME\fmux
+cd $HOME\fmux; npm install; npm link        # npm link 将 fmux 和 fmuxctl 加入 PATH
+fmux doctor
+```
 
-| Key | Meaning |
+与 Linux 一样，使用 `tmux new -s name` 启动会话。主要差异如下：
+
+- 主服务运行在名为 `fmux-hub` 的 psmux 会话中。`fmux install-service` 还会向启动文件夹写入 `fmux.cmd`，让服务在登录时启动；删除该文件即可取消登录启动。控制通道为命名管道 `\\.\pipe\fmux-<user>`。
+- 注销或重启 Windows 会结束会话。
+- Windows 无法直接判断进程从哪里读取输入，因此根据命令行识别由程序驱动的 Agent，例如 `codex app-server`、`claude -p`、`pi --mode rpc`。
+- psmux 不报告客户端最后一次输入时间，`notify.quietIfLocalActiveSec` 因此不生效，符合通知条件的结束事件会始终通知。
+- 多行文字通过粘贴发送，新会话的首条消息按 PowerShell 规则转义。
+- 管家需要 pi，而 pi 在 Windows 上需要 Git Bash。不使用管家时，将 `concierge.enabled` 设为 `false`。Windows 不支持 `fmux setup --from-lark-channel-bridge`。
+
+**Windows 与 WSL 2**
+
+安装 WSL（`wsl --install`）后，在 WSL 内按 Linux 步骤安装。tmux、Node.js 和 Agent 都需要安装在 WSL 内，代码目录也应放在 Linux 文件系统中，例如 `~/fmux`。安装在 Windows 一侧的 `claude` 或 `codex` 不属于 WSL 内的 tmux 会话。
+
+如需启用 systemd，在 `/etc/wsl.conf` 中添加 `[boot]` 和 `systemd=true`，然后在 Windows 中执行 `wsl --shutdown`。systemd 服务本身不会让 WSL 持续运行，需要保留一个打开的 WSL 窗口。
+
+### 配置
+
+配置文件为 `~/.config/fmux/config.json`，默认值见 `src/config.mjs`。
+
+| 配置项 | 含义 |
 |---|---|
-| `app.id`, `app.secret` | The Feishu app. The secret is a reference, never the value: `{"source":"file","path":…}`, `{"source":"env","name":…}`, or `{"source":"exec","command":…,"id":…}` for a secret provider |
-| `app.tenant` | `feishu` (default) or `lark` |
-| `owner.openId` | The only user whose messages and clicks are accepted |
-| `owner.chatId` | The chat that receives the cards |
-| `notify.*` | See Notifications |
-| `live.peekMinutes` | How long a screen card refreshes itself (default 10) |
-| `tmux.hide` | tmux session names to leave out |
-| `agents.<type>` | How `新建` starts each type: `command` (new conversation), `continue` (latest one of the directory), `resume` (a chosen one), and `flags`, which fill `{flags}` unless the session is created without `-d` / `--yolo` |
-| `agents.claude.autoTrust` | Answer Claude Code's "trust this folder" prompt for a session the hub created (default on) |
-| `concierge.enabled`, `.model`, `.thinking` | The pi concierge. Empty model means pi's default |
+| `app.id`、`app.secret` | 飞书应用信息。Secret 通过引用读取，不直接写入配置：`{"source":"file","path":…}`、`{"source":"env","name":…}`，或密钥提供程序使用的 `{"source":"exec","command":…,"id":…}` |
+| `app.tenant` | `feishu`（默认）或 `lark` |
+| `owner.openId` | 唯一允许发送消息和点击卡片的用户 |
+| `owner.chatId` | 接收卡片的聊天 |
+| `notify.*` | 通知设置，见[通知](#通知) |
+| `live.peekMinutes` | 会话查看卡片和终端卡片的自动刷新时长，默认 10 分钟 |
+| `tmux.hide` | 面板中隐藏的 tmux 会话名称 |
+| `agents.<type>` | 各类 Agent 的启动方式：`command` 新建对话，`continue` 继续目录最近一次对话，`resume` 恢复指定对话；`flags` 填入 `{flags}`，新建时不启用 `-d` / `--yolo` 则留空 |
+| `agents.claude.autoTrust` | 自动确认由主服务创建的 Claude Code 会话中的“信任此文件夹”提示，默认开启 |
+| `concierge.enabled`、`.model`、`.thinking` | pi 管家配置；模型为空时使用 pi 的默认设置 |
 
-Restart the service after a change.
+修改配置后重启服务。
 
-### `fmuxctl`
+### `fmuxctl` 命令行工具
 
-`bin/fmuxctl` talks to the running hub over a Unix socket (see Platforms for its path).
-The concierge uses it, and so can any script or agent on this machine:
+`bin/fmuxctl` 通过 Unix 套接字或 Windows 命名管道与运行中的主服务通信，路径见[平台说明](#平台说明)。管家使用这个接口，本机的脚本或 Agent 也可以使用：
 
 ```bash
-fmuxctl ls                       # sessions and state
-fmuxctl peek gt_process -n 60    # screen
-fmuxctl send gt_process "继续"    # type into a session
-fmuxctl handoff proc coll "照这个结论改"   # gt_process's last reply into gt_collection, under your comment
-fmuxctl attach proc               # loose names work: this finds gt_process
-fmuxctl history                  # past Claude Code and Codex conversations
-fmuxctl new fig --resume 魔方     # new tmux session that resumes the conversation with that title
+fmuxctl ls                       # 列出会话和状态
+fmuxctl peek gt_process -n 60    # 查看终端最近 60 行
+fmuxctl send gt_process "继续"    # 向会话输入文字
+fmuxctl handoff proc coll "照这个结论改"   # 将 gt_process 的最后回复和你的说明交给 gt_collection
+fmuxctl attach proc               # 支持模糊名称，这里匹配 gt_process
+fmuxctl history                  # 查看 Claude Code 和 Codex 的历史对话
+fmuxctl new fig --resume 魔方     # 新建 tmux 会话并恢复该标题的对话
 fmuxctl new fix --agent codex --cwd ~/proj --no-yolo
-fmuxctl show gt_process          # post the session's card to the chat (--terminal for the terminal)
-fmuxctl notify "渲染跑完了"        # push a card to the phone
+fmuxctl show gt_process          # 向聊天发送会话卡片，添加 --terminal 可发送终端卡片
+fmuxctl notify "渲染跑完了"        # 向手机发送通知卡片
 ```
 
-## Security
+## 安全说明
 
-- Only `owner.openId` can send messages or click cards. Group chats are closed.
-- A click can send only the keys in `KEYS` (`src/tmux.mjs`). Text is pasted as data.
-- The hub runs as your user. Anyone who controls your Feishu account can type into your terminals
-  through the bot. That is the purpose of the tool. Protect the Feishu account accordingly.
-- New Claude Code sessions start in the auto permission mode and new Codex sessions with `--yolo`,
-  unless you choose otherwise in the form. Change the defaults in `agents.<type>.flags`.
-- The control socket has mode 600.
+- 只接受 `owner.openId` 对应用户的消息和卡片操作，不响应群聊。
+- 卡片点击只能发送 `KEYS`（`src/tmux.mjs`）中允许的按键；文字通过粘贴作为数据输入。
+- 主服务以你的系统用户身份运行。控制你的飞书账号的人可以通过机器人向终端输入内容，因此应保护好飞书账号。
+- 除非在表单中另行选择，新建 Claude Code 会话默认使用自动权限模式，Codex 默认使用 `--yolo`。可以通过 `agents.<type>.flags` 修改默认参数。
+- Unix 控制套接字的权限为 `600`。
 
-## Develop
+## 开发与测试
 
 ```bash
-npm test                                   # unit tests, no network, no tmux
-npm run test:integration                   # real tmux, stub agents, scratch HOME, Feishu replaced
-FMUX_PROCS=ps npm run test:integration     # the same with the macOS way to look at processes
-fmux --fake                                # real tmux, Feishu replaced by a recorder
-fmuxctl dev say "//ls"                    # act as the owner
+npm test                                   # 单元测试，不访问网络，不依赖 tmux
+npm run test:integration                   # 独立 tmux、模拟 Agent、临时 HOME 和模拟飞书通道
+FMUX_PROCS=ps npm run test:integration     # 使用 macOS 的进程查询方式运行相同测试
+fmux --fake                                # 使用真实 tmux，将飞书替换为记录器
+fmuxctl dev say "//ls"                    # 模拟主人发消息
 fmuxctl dev click '{"a":"attach","n":"gt_process"}'
-fmuxctl dev outbox 3                      # cards the hub would have sent
+fmuxctl dev outbox 3                      # 查看主服务准备发送的卡片
 ```
 
-Point `FMUX_CONFIG` and `FMUX_SOCK` at scratch paths for a fake run, so it does not share
-the state and socket of the service.
+运行模拟环境时，将 `FMUX_CONFIG` 和 `FMUX_SOCK` 指向临时路径，避免与已运行的服务共用状态和套接字。
 
-| File | Role |
+| 文件 | 职责 |
 |---|---|
-| `src/registry.mjs` | Poll tmux, classify panes, track state and turns, emit events |
-| `src/procs.mjs`, `src/win/procs.ps1` | Find the agent process of a pane: `/proc`, `ps` and `lsof`, or the Windows process table |
-| `src/transcript.mjs` | Find and follow the transcript of Claude Code, Codex and pi |
-| `src/screen.mjs` | Read dialogs and "working" markers from a captured screen |
-| `src/router.mjs` | Route messages and clicks, turn registry events into cards |
-| `src/cards.mjs` | Card JSON 2.0 builders |
-| `src/concierge.mjs` | The pi RPC client |
-| `src/feishu.mjs` | Feishu channel wrapper, card update throttle, fake channel |
-| `src/control.mjs`, `bin/fmuxctl.mjs` | Control socket and its CLI |
-| `src/setup.mjs`, `bin/fmux.mjs` | `fmux setup`, `pair`, `install-service`, `doctor` |
-| `src/service.mjs` | The service: systemd unit, launchd job, or a tmux session (psmux on Windows) |
-| `test/integration/` | End-to-end test with stub agents on a tmux server of its own |
-| `src/history.mjs`, `src/match.mjs` | Past conversations to resume; loose name matching |
-| `agent/CONCIERGE.md` | Instructions for the pi concierge |
+| `src/registry.mjs` | 轮询 tmux，识别窗格类型，跟踪状态和对话轮次，发出事件 |
+| `src/procs.mjs`、`src/win/procs.ps1` | 通过 `/proc`、`ps` 和 `lsof` 或 Windows 进程表定位窗格中的 Agent 进程 |
+| `src/transcript.mjs` | 定位并跟踪 Claude Code、Codex 和 pi 的对话记录 |
+| `src/codex-transcript.mjs` | 根据打开的文件或唯一会话名称定位 Codex 记录，识别标题中的运行和完成标记 |
+| `src/screen.mjs` | 从终端画面识别对话框和运行状态标记 |
+| `src/router.mjs` | 路由消息和点击事件，将会话事件转换成卡片 |
+| `src/cards.mjs` | 生成 Card JSON 2.0 卡片 |
+| `src/concierge.mjs` | pi RPC 客户端 |
+| `src/feishu.mjs` | 飞书通道封装、卡片更新限流和模拟通道 |
+| `src/control.mjs`、`bin/fmuxctl.mjs` | 本地控制接口及命令行工具 |
+| `src/setup.mjs`、`bin/fmux.mjs` | 实现 `fmux setup`、`pair`、`install-service`、`doctor` |
+| `src/service.mjs` | 服务托管：systemd、launchd 或 tmux 会话，Windows 使用 psmux |
+| `test/integration/` | 在独立 tmux 服务中使用模拟 Agent 进行端到端测试 |
+| `src/history.mjs`、`src/match.mjs` | 查询可恢复的历史对话，以及会话名称模糊匹配 |
+| `agent/CONCIERGE.md` | pi 管家的行为规则 |
 
-## Limits
+## 已知限制
 
-- Dialog detection reads the screen. A dialog layout it does not know shows as a screen excerpt
-  with the key pad, without option buttons.
-- Card edits do not ring the phone. A turn longer than `notify.minWorkSec` therefore ends with a
-  short text line.
-- A card holds about 30 KB. Longer replies are cut, and the full text stays in the terminal.
-- State is polled every 2 s. The end of a turn shows 2 to 4 s late.
+- 对话框检测依赖终端画面。遇到尚未适配的布局时，会显示终端片段和按键区，不会生成对应的选项按钮。
+- 编辑卡片不会触发手机通知，因此超过 `notify.minWorkSec` 的一轮结束时，会额外发送简短文字。
+- 每张卡片的大小上限约为 30 KB。较长回复会被截断，完整内容仍保留在终端。
+- 默认每 2 秒轮询状态，任务结束的显示通常有 2～4 秒延迟。
