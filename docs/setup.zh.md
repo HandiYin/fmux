@@ -70,6 +70,9 @@ fmux doctor
 
 一个机器人只接一台电脑。每个人、每台电脑用自己的机器人。
 
+以下是基础配置，不包含菜单事件或应用管理权限。想让按钮常驻输入框上方，可在安装完成后选择
+[机器人底部菜单](#机器人底部菜单)升级；不升级也能使用消息、卡片和文字命令。
+
 ### 方式 A：扫码创建
 
 ```bash
@@ -220,11 +223,32 @@ fmux install-service
 
 ### 机器人底部菜单
 
-底部菜单不会随聊天消息被翻走，适合接入 tmux 后的长对话。fmux 直接处理菜单点击，不调用模型。
+**可选升级。** 悬浮菜单的三个按钮常驻输入框上方，不会随聊天消息被翻走，适合接入 tmux 后的长对话。
+fmux 直接处理菜单点击，不调用模型；Agent 正在工作或等待确认时也可打开面板。
 
-1. 先部署当前版本并重启 fmux。
+默认安装只申请第 3 节的四项消息权限、消息事件和卡片回调，`fmux setup` 不会自动订阅菜单事件、
+配置菜单或申请应用管理权限。不启用菜单时，发「面板」或 `//ls` 打开面板，发 `//d` 回到管家。
+
+| 启用方式 | 需要额外申请 API 权限吗 | 适合谁 |
+|---|---|---|
+| 在飞书开发者后台手动配置（推荐） | 不需要 `application:application:patch` | 能管理自己机器人应用的用户 |
+| 通过开放平台 API 配置和发布 | 需要为该应用开通 `application:application:patch` | 希望用脚本部署的应用开发者 |
+
+菜单事件 `application.bot.menu_v6` 本身无需额外订阅权限。权限和菜单配置属于**飞书应用**，
+每个独立应用配置一次；不需要每个 tmux 会话或 Agent 单独申请。应用发布仍按所在企业的审核规则处理。
+
+#### 手动启用（推荐）
+
+1. 在 fmux 的代码目录更新代码和依赖：
+
+   ```bash
+   git pull --ff-only
+   npm ci
+   ```
+
+   按第 4 节对应平台的命令重启 fmux，并保持它在线。已有应用不需要重新运行 `fmux setup` 或重新绑定主人。
 2. 在飞书开发者后台的「事件与回调 → 事件配置」中，保留已有事件，添加「机器人自定义菜单事件」
-   （`application.bot.menu_v6`），继续使用长连接接收。`fmux setup` 新建的应用会申请这个事件；已有应用需要补上。
+   （`application.bot.menu_v6`），继续使用长连接接收。
 3. 在「应用能力 → 机器人」中开启「机器人自定义菜单」，展示样式选择「悬浮菜单」，添加以下三个一级菜单，响应动作均选「推送事件」：
 
    | 菜单名称 | 事件 Key | 点击结果 |
@@ -234,16 +258,42 @@ fmux install-service
    | 新建会话 | `fmux.new` | 打开新建会话表单，提交前不会创建会话 |
 
 4. 保存菜单，创建新版本并发布。使用飞书 7.22 及以上版本，发布成功约 5 分钟后重新进入机器人单聊，在输入框上方查看三个菜单按钮。悬浮菜单无需切换输入框；群聊不支持机器人菜单。
+5. 点击「会话面板」确认聊天末尾出现新面板；接入会话后点击「回到管家」，确认回到管家且原 tmux 任务继续运行。
 
 菜单只接受配置中主人的点击，重复和过期事件会被忽略。菜单事件与消息共用 fmux 已有长连接，
-不要为菜单再启动一个机器人进程。暂时看不到菜单时，单独发「面板」或 `//ls` 仍可打开面板，`//d` 回到管家。
+不要为菜单再启动一个机器人进程。暂时看不到菜单时，可先使用上述文字命令，并核对客户端版本、
+应用发布状态、菜单展示样式和菜单事件订阅。
 
-用开放平台 API 部署时，`src/bot-menu.mjs` 的 `botMenuConfig()` 可生成菜单能力配置；
-仅补充菜单与菜单事件，保留应用其他能力、权限、事件和可见范围，然后提交应用发布。
-菜单名称需要同时提供 `default_name` 和 `i18n_name.zh_cn`；仅提供默认名称会被接口拒绝。
-配置默认使用悬浮菜单（`bot_menu_display_strategy: 3`），按钮常驻输入框上方，不影响文字输入。
-提交发布时，需传入应用现有的 `mobile_default_ability` 和 `pc_default_ability`；
-只启用机器人的应用，这两个值均为 `bot`。提交成功后仍需核对发布状态和菜单事件是否已在线上生效。
+#### API 配置和发布（可选）
+
+选择 API 方式时，先为自己的飞书应用申请 `application:application:patch`，完成该权限的发布和审批后再部署。
+该权限用于管理应用配置，fmux 的日常消息转发和菜单点击处理不依赖它。仍需先按上面的第 1 步更新并重启 fmux。
+
+在代码目录生成菜单能力请求体（只输出 JSON，不调用飞书接口）：
+
+```bash
+node --input-type=module -e "import { botMenuConfig } from './src/bot-menu.mjs'; console.log(JSON.stringify(botMenuConfig(), null, 2))"
+```
+
+使用该应用的 `tenant_access_token`，按顺序调用以下接口；路径前缀均为 `https://open.feishu.cn/open-apis`：
+
+| 操作 | 接口 | 请求内容 |
+|---|---|---|
+| 更新机器人能力 | `PATCH /application/v7/applications/:app_id/ability` | 生成的菜单配置，按需合并应用现有机器人配置 |
+| 添加菜单事件 | `PATCH /application/v7/applications/:app_id/config` | `{"event":{"subscription_type":"websocket","add_events":["application.bot.menu_v6"]}}` |
+| 发布应用 | `POST /application/v7/applications/:app_id/publish` | 新的 `version`、`remark`、`changelog`，以及应用现有的 `mobile_default_ability` 和 `pc_default_ability` |
+
+生成的配置带有中文菜单名称（`default_name` 和 `i18n_name.zh_cn`）及悬浮样式（`bot_menu_display_strategy: 3`）。
+保留应用其他能力、权限、事件、回调和可见范围；若应用已有自定义菜单，先合并需要保留的菜单。
+只启用机器人的应用，发布请求中的两个默认能力值均为 `bot`；有其他能力的应用沿用当前设置。
+提交成功后，核对线上版本、菜单配置和事件订阅已生效，再按手动启用的第 4、5 步验证。
+
+不想继续使用菜单时，在开发者后台关闭「机器人自定义菜单」并发布即可；消息、卡片和文字命令仍可正常使用。
+
+官方说明：[机器人自定义菜单](https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/bot-v3/bot-customized-menu)、
+[菜单点击事件](https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/application-v6/bot/events/menu)、
+[更新应用能力](https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/application-v7/application-v7/application-ability/patch)、
+[发布应用](https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/application-v7/application-v7/application-publish/create)。
 
 ## 6. 配置 Agent
 

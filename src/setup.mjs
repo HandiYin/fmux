@@ -3,14 +3,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { CONFIG_PATH, loadConfig, readRawConfig, resolveSecret, writeRawConfig } from './config.mjs';
-import { BOT_MENU_EVENT } from './bot-menu.mjs';
 import { callControl } from './control.mjs';
 import { BACKEND } from './procs.mjs';
 import { HUB_SESSION, installService as installAs, installedKind, isWsl, serviceCommands, serviceKind } from './service.mjs';
 import { TMUX_BIN } from './tmux.mjs';
 import { sh } from './util.mjs';
 
-// What fmux needs from its Feishu app. The same list is in docs/setup.zh.md for a hand-made app.
+// Basic setup only. The optional bot menu is enabled separately in Feishu;
+// it must not add application-management permissions to every installation.
+// The same list is in docs/setup.zh.md for a hand-made app.
 export const NEEDS = {
   scopes: [
     'im:message.p2p_msg:readonly', // receive the owner's direct messages
@@ -18,7 +19,7 @@ export const NEEDS = {
     'im:message:readonly', // download images and files the owner sends
     'im:message.reactions:write_only', // the "OK" reaction on a delivered message
   ],
-  events: ['im.message.receive_v1', BOT_MENU_EVENT],
+  events: ['im.message.receive_v1'],
   callbacks: ['card.action.trigger'],
 };
 
