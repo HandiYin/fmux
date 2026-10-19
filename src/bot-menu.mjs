@@ -12,9 +12,11 @@ export function botMenuConfig() {
   return { bot: {
     enable: true,
     bot_menu_enable: true,
+    bot_menu_display_strategy: 1,
     bot_menus: BOT_MENU_ITEMS.map(({ key, name }, i) => ({
       menu_id: key, parent_menu_id: '', sort: i + 1,
-      default_name: name, event_key: key, menu_content_type: 2,
+      // Feishu rejects default_name alone; include the app's primary language.
+      default_name: name, i18n_name: { zh_cn: name }, event_key: key, menu_content_type: 2,
     })),
   } };
 }

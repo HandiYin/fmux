@@ -240,6 +240,10 @@ fmux install-service
 
 用开放平台 API 部署时，`src/bot-menu.mjs` 的 `botMenuConfig()` 可生成菜单能力配置；
 仅补充菜单与菜单事件，保留应用其他能力、权限、事件和可见范围，然后提交应用发布。
+菜单名称需要同时提供 `default_name` 和 `i18n_name.zh_cn`；仅提供默认名称会被接口拒绝。
+配置默认使用“可切换菜单，默认展示菜单”，可通过客户端的切换入口回到文字输入。
+提交发布时，需传入应用现有的 `mobile_default_ability` 和 `pc_default_ability`；
+只启用机器人的应用，这两个值均为 `bot`。提交成功后仍需核对发布状态和菜单事件是否已在线上生效。
 
 ## 6. 配置 Agent
 
