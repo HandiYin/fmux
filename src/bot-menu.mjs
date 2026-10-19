@@ -12,7 +12,8 @@ export function botMenuConfig() {
   return { bot: {
     enable: true,
     bot_menu_enable: true,
-    bot_menu_display_strategy: 1,
+    // Keep shortcuts above the composer so typing never hides navigation.
+    bot_menu_display_strategy: 3,
     bot_menus: BOT_MENU_ITEMS.map(({ key, name }, i) => ({
       menu_id: key, parent_menu_id: '', sort: i + 1,
       // Feishu rejects default_name alone; include the app's primary language.
