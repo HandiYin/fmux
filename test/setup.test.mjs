@@ -25,6 +25,7 @@ test('setup writes the app id, keeps the secret in its own file, and leaves the 
   await createApp({ registerApp, renderQr: (url, _opts, done) => done(`QR(${url})`), print: (line) => shown.push(line) });
 
   assert.deepEqual(options.addons, { scopes: { tenant: NEEDS.scopes }, events: { items: { tenant: ['im.message.receive_v1'] } }, callbacks: { items: ['card.action.trigger'] } });
+  assert.ok(options.addons.scopes.tenant.every((scope) => !scope.startsWith('application:')), 'optional menu management must not add application permissions to basic setup');
   assert.equal(options.createOnly, true);
   assert.ok(shown.some((line) => line.includes('QR(https://example.invalid/qr)')));
   assert.ok(!shown.join('\n').includes('s3cret'), 'the secret is never printed');

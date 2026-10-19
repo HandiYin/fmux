@@ -9,7 +9,9 @@ import { HUB_SESSION, installService as installAs, installedKind, isWsl, service
 import { TMUX_BIN } from './tmux.mjs';
 import { sh } from './util.mjs';
 
-// What fmux needs from its Feishu app. The same list is in docs/setup.zh.md for a hand-made app.
+// Basic setup only. The optional bot menu is enabled separately in Feishu;
+// it must not add application-management permissions to every installation.
+// The same list is in docs/setup.zh.md for a hand-made app.
 export const NEEDS = {
   scopes: [
     'im:message.p2p_msg:readonly', // receive the owner's direct messages
