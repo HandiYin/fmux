@@ -39,6 +39,7 @@ export function fmtElapsed(ms) {
 
 // The light of a session: lit green while it runs, off when it ended, orange when it waits for you.
 export function light(s, now = Date.now()) {
+  if (s.dormant) return { dot: '⚪', label: '休眠', color: 'neutral', detail: '发送消息会自动恢复' };
   if (s.status === 'working') return { dot: '🟢', label: '运行中', color: 'green', detail: `已 ${fmtElapsed(now - s.statusSince)}` };
   if (s.status === 'blocked') return { dot: '🟠', label: '等待确认', color: 'orange', detail: s.note || '' };
   if (s.status === 'shell') {

@@ -25,7 +25,7 @@ export function isWsl(release = os.release()) {
 // (claude, codex, pi) must be on this PATH. launchd starts a service without a locale.
 export function serviceEnv(env = process.env) {
   const out = { PATH: env.PATH || '/usr/local/bin:/usr/bin:/bin' };
-  for (const name of ['FMUX_CONFIG', 'FMUX_SOCK', 'FMUX_FAKE']) if (env[name]) out[name] = env[name];
+  for (const name of ['FMUX_CONFIG', 'FMUX_USER_CONFIG', 'FMUX_SOCK', 'FMUX_FAKE']) if (env[name]) out[name] = env[name];
   if (process.platform === 'darwin') out.LANG = env.LC_ALL || env.LANG || 'en_US.UTF-8';
   return out;
 }

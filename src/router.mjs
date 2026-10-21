@@ -92,6 +92,7 @@ export class Router {
   }
 
   find(value) {
+    if (value?.s?.startsWith('session:')) return this.registry.sessions.get(value.s) || null;
     return this.registry.sessions.get(value?.s) || (value?.n ? this.registry.resolve(value.n) : null);
   }
 
@@ -128,6 +129,10 @@ export class Router {
       }
       const quotedKey = this.store.sessionKeyFor(msg.replyToMessageId) || this.store.sessionKeyFor(msg.rootId);
       const quoted = quotedKey ? this.registry.sessions.get(quotedKey) : null;
+      if (quotedKey?.startsWith('session:') && !quoted) {
+        await this.info('会话已删除', '这条回复没有发出。请从面板选择要继续的会话。');
+        return;
+      }
       if (quoted) {
         await this.deliver(quoted, text, msg);
         return;
@@ -873,6 +878,13 @@ export class Router {
   // resume: 'new', 'last' (latest conversation of the directory), '<agent>:<conversation id>',
   // or words from a conversation's title. yolo: start the agent with its `flags` (-d, --yolo).
   async createSession({ name, agent = 'claude', cwd = '~', prompt = '', resume = 'new', yolo = true }) {
+    const options = { name, agent, cwd, prompt, resume, yolo };
+    const next = (this.creating || Promise.resolve()).catch(() => {}).then(() => this.createSessionOnce(options));
+    this.creating = next;
+    return next;
+  }
+
+  async createSessionOnce({ name, agent = 'claude', cwd = '~', prompt = '', resume = 'new', yolo = true }) {
     let template;
     if (resume && resume !== 'new' && resume !== 'last') {
       const tagged = resume.match(/^(claude|codex):(.+)$/);
@@ -894,15 +906,24 @@ export class Router {
     }
     template ??= spec.command;
     name = String(name || '').trim() || this.autoName(agent);
+    const prefix = this.cfg.sessions?.namePrefix || '';
+    if (prefix && !name.startsWith(prefix)) name = prefix + name;
+    if (this.tmux.SESSION_NAME_RE && !this.tmux.SESSION_NAME_RE.test(name)) throw new Error('无效的会话名称');
+    if (this.registry.allows && !this.registry.allows(name)) throw new Error(`会话 ${name} 被用户的 tmux 过滤设置排除`);
     const dir = expandHome(cwd || '~');
     if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) throw new Error(`目录不存在：${cwd}`);
-    if (this.registry.list().some((s) => s.tmuxSession === name)) throw new Error(`已有叫 ${name} 的会话`);
+    const exists = this.registry.list().some((s) => s.tmuxSession === name);
+    if (exists && this.cfg.sessions?.onConflict !== 'replace-idle') throw new Error(`已有叫 ${name} 的会话`);
     const base = template.replace('{flags}', yolo ? spec.flags || '' : '').replace('{name}', name).replace(/\s+/g, ' ').trim();
     const command = base ? (prompt ? `${base} ${quoteArg(prompt)}` : base) : prompt;
-    await this.tmux.newSession({ name, cwd: dir, command });
+    if (exists) {
+      if (!this.registry.replaceSession) throw new Error('当前 registry 不支持替换同名会话');
+      await this.registry.replaceSession({ name, cwd: dir, command, agent });
+    } else await this.tmux.newSession({ name, cwd: dir, command });
     await this.registry.poll();
     const session = this.registry.list().find((s) => s.tmuxSession === name);
     if (!session) throw new Error('会话创建后没有出现在 tmux 里');
+    this.registry.setLaunchPolicy?.(session, { agent, yolo });
     log('info', 'session.new', { name, agent, cwd: dir, resume, yolo });
     if (spec.autoTrust) this.autoTrust(session.key).catch((err) => log('warn', 'autotrust', { message: err.message }));
     return session;
@@ -912,7 +933,7 @@ export class Router {
   autoName(agent) {
     const d = new Date();
     const two = (n) => String(n).padStart(2, '0');
-    const base = `${agent}-${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}`;
+    const base = `${this.cfg.sessions?.namePrefix || ''}${agent}-${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}`;
     const taken = new Set(this.registry.list().map((s) => s.tmuxSession));
     let name = base;
     for (let i = 2; taken.has(name); i++) name = `${base}-${i}`;
@@ -1025,6 +1046,7 @@ export class Router {
   summary(s) {
     return {
       name: s.name, key: s.key, kind: s.kind, status: s.status, since: new Date(s.statusSince).toISOString(), note: s.note,
+      dormant: Boolean(s.dormant),
       cwd: s.cwd, title: s.title, attached: this.attachedKey() === s.key, lastPrompt: s.lastPrompt.slice(0, 300), lastText: s.lastText.slice(0, 600),
     };
   }
