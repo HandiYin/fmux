@@ -64,6 +64,41 @@ async function setup(t, { agent = 'claude' } = {}) {
     age: (minutes = 61) => { clock += minutes * 60000; }, setKind: (value) => { kind = value; } };
 }
 
+test('failed replacement never forwards chat input into the leftover shell, including after restart', async (t) => {
+  const h = await setup(t);
+  const create = h.tmux.newSession;
+  h.tmux.newSession = async (spec) => { await create(spec); h.setKind('shell'); throw new Error('launch failed'); };
+  await assert.rejects(h.registry.replaceSession({ name: 'work', cwd: h.session.cwd, command: 'claude', agent: 'claude' }), /launch failed/);
+  await h.registry.poll();
+  await assert.rejects(h.registry.transport.sendText(h.session.key, 'ordinary request'), /尚未就绪/);
+  const restarted = h.build();
+  t.after(() => restarted.store.flush());
+  await restarted.poll();
+  await assert.rejects(restarted.transport.sendText(h.session.key, 'after restart'), /尚未就绪/);
+  assert.deepEqual(h.tmux.sent, []);
+});
+
+test('closing a dormant record preserves the distinct same-name live terminal', async (t) => {
+  const h = await setup(t);
+  h.age(); await h.registry.poll();
+  h.tmux.panes.push(pane({ paneId: '%99', sessionName: 'work', cwd: h.session.cwd, clients: 1 }));
+  await h.registry.poll();
+  const live = h.registry.list().find((s) => !s.dormant);
+  const router = new Router({ feishu: createFakeFeishu(), registry: h.registry, store: h.registry.store, cfg: h.cfg, tmux: h.registry.transport });
+  await router.api.kill({ ref: h.session.key });
+  assert.equal(h.tmux.killed.length, 1, 'only the earlier retirement killed a terminal');
+  assert.equal(h.registry.sessions.has(live.key), true);
+  assert.equal(h.registry.sessions.has(h.session.key), false);
+  await assert.rejects(h.registry.transport.sendText(h.session.key, 'old target'), /已删除/);
+});
+
+test('closing a live terminal rechecks its durable identity before killing it', async (t) => {
+  const h = await setup(t);
+  h.tmux.panes[0].logicalId = 'session:22222222-aaaa-bbbb-cccc-000000000002';
+  await assert.rejects(h.registry.transport.killSession('work', { key: h.session.key }), /身份已改变/);
+  assert.deepEqual(h.tmux.killed, []);
+});
+
 test('connecting revives a dormant conversation without sending input', async (t) => {
   const h = await setup(t);
   h.age();

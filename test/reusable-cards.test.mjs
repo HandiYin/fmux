@@ -9,6 +9,30 @@ const turn = (seconds = 3, text = 'done') => ({ startedAt: Date.now() - seconds 
   endedAt: Date.now(), texts: [text], tools: 1, worked: true });
 const stop = (t, router) => t.after(() => { clearTimeout(router.nudgeTimer); clearInterval(router.ticker); });
 
+test('a deleted response card is replaced in the existing thread, without a new root', async (t) => {
+  const s = session();
+  const h = harness({ sessions: [s], notify: { completionPing: false } });
+  stop(t, h.router);
+  await h.router.attach(s);
+  const root = h.cardsSent()[0].messageId;
+  s.status = 'working'; s.turn = turn(1, 'progress');
+  await h.router.onStatus(s, 'idle');
+  const id = h.router.views.get(s.key).messageId;
+  const update = h.feishu.updater.update;
+  h.feishu.updater.update = async (messageId, card) => {
+    if (messageId === id) throw new Error('message does not exist');
+    return update(messageId, card);
+  };
+  s.status = 'idle';
+  await h.router.onTurnEnd(s, turn(1, 'final'));
+  const replacement = h.cardsSent().at(-1);
+  assert.notEqual(replacement.messageId, id);
+  assert.equal(replacement.replyTo, root);
+  assert.equal(replacement.replyInThread, true);
+  assert.equal(h.cardsSent().filter((r) => !r.replyInThread).length, 1);
+  assert.deepEqual(h.store.get('pendingCompletions'), {});
+});
+
 test('connecting a dormant session acknowledges the card before restoration finishes', async (t) => {
   const s = session({ dormant: true });
   const h = harness({ sessions: [s] });

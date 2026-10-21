@@ -524,7 +524,9 @@ export class Router {
   }
 
   postCompletionReplacement(pending) {
-    return this.post(pending.card, pending.key);
+    const session = this.registry.sessions.get(pending.key);
+    if (!session) throw new Error('会话已删除，无法恢复回复卡片。');
+    return this.postThreadCard(session, pending.card);
   }
 
   onOutput(session, events) { return this.publishSession('output', session, events); }
@@ -620,6 +622,8 @@ export class Router {
   async removeThread(session) {
     this.views.delete(session.key);
     this.persistViews();
+    for (const [id, pending] of this.pendingCompletions) if (pending.key === session.key) this.pendingCompletions.delete(id);
+    this.persistCompletions();
     this.oneShot.delete(session.key);
     this.blocked.delete(session.key);
     this.follows.delete(session.key);
@@ -1068,7 +1072,7 @@ export class Router {
       }
       case 'kill':
         this.forget(evt.messageId);
-        await this.tmux.killSession(session.tmuxSession);
+        await this.tmux.killSession(session.tmuxSession, { key: session.key });
         return replace(cards.stubCard(`tmux 会话 ${session.tmuxSession} 已结束。`), '已结束');
       default:
         return toast('未知操作', 'warning');
@@ -1310,7 +1314,7 @@ export class Router {
     },
     kill: async ({ ref }) => {
       const session = this.need(ref);
-      await this.tmux.killSession(session.tmuxSession);
+      await this.tmux.killSession(session.tmuxSession, { key: session.key });
       return { killed: session.tmuxSession };
     },
     notify: async ({ title = 'fmux', text }) => {

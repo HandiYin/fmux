@@ -70,12 +70,23 @@ export class ManagedRegistry extends Registry {
       },
       sendText: (key, text, options) => this.use(key, (s) => tmux.sendText(s.paneId, text, options)),
       sendKeys: (key, keys) => this.use(key, (s) => tmux.sendKeys(s.paneId, keys), { allowBlocked: true }),
-      killSession: async (name) => {
-        const first = this.list().find((s) => s.tmuxSession === name);
+      killSession: async (name, { key } = {}) => {
+        const matches = this.list().filter((s) => s.tmuxSession === name && (!key || s.key === key));
+        if (matches.length > 1) throw new Error('存在多个同名会话，请明确选择要结束的会话。');
+        const first = matches[0];
         if (!first) throw new Error('会话已删除。');
         return this.exclusive(first.key, async () => {
-          const targets = this.list().filter((s) => s.tmuxSession === name);
-          if (targets.some((s) => !s.dormant)) await tmux.killSession(name);
+          if (!first.dormant) await this.liveRegistry.poll();
+          const selected = this.sessions.get(first.key);
+          if (!selected) throw new Error('会话已删除。');
+          let targets = [selected];
+          if (!selected.dormant) {
+            const panes = await tmux.listPanes();
+            const owned = panes.find((p) => p.paneId === selected.paneId && p.sessionName === name);
+            if (!owned || (owned.logicalId && owned.logicalId !== selected.key)) throw new Error('终端身份已改变，未结束任何会话。');
+            targets = this.list().filter((s) => s.tmuxSession === name && !s.dormant);
+            await tmux.killSession(name);
+          }
           for (const s of targets) {
             this.records.delete(s.key);
             this.sessions.delete(s.key);
@@ -145,7 +156,8 @@ export class ManagedRegistry extends Registry {
         this.emit('changed');
         return s;
       } catch (err) {
-        this.starting.delete(s.key);
+        // Creation may have left a tagged shell behind. Keep the guard across
+        // retries and restarts until the intended agent is verified.
         if (prior) this.records.set(s.key, prior);
         this.save(true);
         throw err;
