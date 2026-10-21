@@ -61,8 +61,52 @@ async function setup(t, { agent = 'claude' } = {}) {
   await registry.poll();
   const session = registry.list()[0];
   return { registry, session, cfg, storeFile, build, meta, tmux, children,
-    age: () => { clock += 61 * 60000; }, setKind: (value) => { kind = value; } };
+    age: (minutes = 61) => { clock += minutes * 60000; }, setKind: (value) => { kind = value; } };
 }
+
+test('connecting revives a dormant conversation without sending input', async (t) => {
+  const h = await setup(t);
+  h.age();
+  await h.registry.poll();
+  const router = new Router({ feishu: createFakeFeishu(), registry: h.registry, store: h.registry.store, cfg: h.cfg, tmux: h.registry.transport });
+  t.after(() => clearTimeout(router.nudgeTimer));
+  await router.attach(h.session, { announce: false });
+  assert.equal(h.session.dormant, false);
+  assert.equal(h.tmux.created.length, 1);
+  assert.equal(h.registry.store.get('attached').key, h.session.key);
+  assert.deepEqual(h.tmux.sent, []);
+  assert.deepEqual(h.tmux.keys, []);
+});
+
+test('a failed activation preserves the previous attachment', async (t) => {
+  const h = await setup(t);
+  h.age();
+  await h.registry.poll();
+  h.setKind('shell');
+  const previous = { key: 'previous-session', name: 'previous' };
+  h.registry.store.set('attached', previous);
+  const router = new Router({ feishu: createFakeFeishu(), registry: h.registry, store: h.registry.store, cfg: h.cfg, tmux: h.registry.transport });
+  await assert.rejects(router.attach(h.session, { announce: false }), /尚未就绪/);
+  assert.deepEqual(h.registry.store.get('attached'), previous);
+  assert.equal(h.tmux.sent.length, 0);
+});
+
+test('idle timeout supports 36 hours and can be disabled for manual closure', async (t) => {
+  const h = await setup(t);
+  h.cfg.lifecycle.idleMinutes = 2160;
+  h.age(2159);
+  await h.registry.poll();
+  assert.equal(h.tmux.killed.length, 0);
+  h.age(2);
+  await h.registry.poll();
+  assert.equal(h.session.dormant, true);
+  await h.registry.activate(h.session.key);
+  h.cfg.lifecycle.enabled = false;
+  h.age(10000);
+  await h.registry.poll();
+  assert.equal(h.session.dormant, false);
+  assert.equal(h.tmux.killed.length, 1);
+});
 
 test('idle retirement keeps the durable target; the next message resumes the exact conversation', async (t) => {
   const h = await setup(t);

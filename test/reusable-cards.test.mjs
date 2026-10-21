@@ -3,10 +3,97 @@ import test from 'node:test';
 import { harness, session } from './helpers.mjs';
 import { Router } from '../src/router.mjs';
 import { createFeishu } from '../src/feishu.mjs';
+import { setLogSink } from '../src/util.mjs';
 
 const turn = (seconds = 3, text = 'done') => ({ startedAt: Date.now() - seconds * 1000,
   endedAt: Date.now(), texts: [text], tools: 1, worked: true });
 const stop = (t, router) => t.after(() => { clearTimeout(router.nudgeTimer); clearInterval(router.ticker); });
+
+test('connecting a dormant session acknowledges the card before restoration finishes', async (t) => {
+  const s = session({ dormant: true });
+  const h = harness({ sessions: [s] });
+  stop(t, h.router);
+  let release;
+  h.registry.activate = () => new Promise((resolve) => { release = () => { s.dormant = false; resolve(s); }; });
+  const attach = h.router.attach.bind(h.router);
+  let attached;
+  h.router.attach = (...args) => (attached = attach(...args));
+  const result = await h.click({ a: 'attach', s: s.key, n: s.name });
+  assert.match(result.toast.content, /正在恢复/);
+  assert.equal(h.router.attachedKey(), null);
+  release();
+  await attached;
+  assert.equal(h.router.attachedKey(), s.key);
+  assert.deepEqual(h.tmux.sent, []);
+});
+
+test('one status update refreshes both the thread and dashboard without a changed event or timer', async (t) => {
+  const s = session();
+  const h = harness({ sessions: [s] });
+  stop(t, h.router);
+  await h.router.sendDashboard();
+  const dashboard = h.cardsSent()[0].messageId;
+  await h.router.attach(s, { announce: false });
+  s.status = 'working';
+  s.turn = { startedAt: Date.now(), texts: ['working'], tools: 0 };
+  await h.router.onStatus(s, 'idle');
+  assert.match(h.latest(dashboard).card.body.elements[0].content, /运行中/);
+  assert.equal(h.latest(h.router.views.get(s.key).messageId).card.header.template, 'green');
+  s.status = 'blocked';
+  await h.router.onStatus(s, 'working');
+  assert.match(h.latest(dashboard).card.body.elements[0].content, /等待确认/);
+  s.status = 'idle';
+  s.lastText = 'done';
+  await h.router.onTurnEnd(s, turn());
+  assert.match(h.latest(dashboard).card.body.elements[0].content, /已结束/);
+});
+
+test('a slow thread subscriber does not delay the dashboard subscriber', async (t) => {
+  const s = session();
+  const h = harness({ sessions: [s] });
+  stop(t, h.router);
+  await h.router.sendDashboard();
+  const id = h.cardsSent()[0].messageId;
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const unsubscribe = h.router.subscribeSession('thread', () => gate);
+  s.status = 'working';
+  const update = h.router.onStatus(s, 'idle');
+  await new Promise(setImmediate);
+  assert.match(h.latest(id).card.body.elements[0].content, /运行中/);
+  release();
+  await update;
+  unsubscribe();
+  assert.equal(h.router.sessionSubscribers.has('thread'), false);
+});
+
+test('subscriber failures are isolated and identify the failing callback', async (t) => {
+  const logs = [];
+  setLogSink((line) => logs.push(JSON.parse(line)));
+  t.after(() => setLogSink(() => {}));
+  const s = session();
+  const h = harness({ sessions: [s] });
+  stop(t, h.router);
+  await h.router.sendDashboard();
+  const id = h.cardsSent()[0].messageId;
+  h.router.subscribeSession('thread', () => { throw new Error('thread failed'); });
+  s.status = 'working';
+  const results = await h.router.onStatus(s, 'idle');
+  assert.deepEqual(results.map((r) => r.status), ['rejected', 'fulfilled']);
+  assert.equal(results[0].reason.message, 'thread failed');
+  const failure = logs.find((l) => l.event === 'session.update_failed');
+  const success = logs.find((l) => l.event === 'session.updated');
+  assert.equal(failure.subscriber, 'thread');
+  assert.equal(success.subscriber, 'dashboard');
+  assert.equal(failure.updateId, success.updateId);
+  assert.equal(failure.change, 'status');
+  assert.match(h.latest(id).card.body.elements[0].content, /运行中/);
+  h.router.subscribeSession('thread', () => {});
+  h.feishu.updater.update = async () => { throw new Error('dashboard failed'); };
+  const failed = await h.router.onStatus(s, 'idle');
+  assert.deepEqual(failed.map((r) => r.status), ['fulfilled', 'rejected']);
+  assert.equal(failed[1].reason.message, 'dashboard failed');
+});
 
 test('restart notices are plain thread messages and preserve the running reply card', async (t) => {
   const s = session({ status: 'working', turn: { startedAt: Date.now(), texts: ['progress so far'], tools: 1 } });

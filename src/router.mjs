@@ -49,6 +49,34 @@ export class Router {
     this.startedAt = Date.now();
     this.pendingCompletions = new Map(Object.entries(store.get('pendingCompletions') || {}));
     this.completing = new Set();
+    this.sessionSubscribers = new Map();
+    this.sessionUpdateId = 0;
+    this.subscribeSession('thread', (event, session, ...args) => {
+      const handlers = { output: this.outputThread, status: this.statusThread, blocked: this.blockedThread,
+        turn_end: this.finishTurn, removed: this.removeThread };
+      return handlers[event]?.call(this, session, ...args);
+    });
+    this.subscribeSession('dashboard', (event) => event === 'output'
+      ? this.nudge() : this.refreshDashboard(event, { throwOnError: true }));
+  }
+
+  subscribeSession(name, listener) {
+    this.sessionSubscribers.set(name, listener);
+    return () => { if (this.sessionSubscribers.get(name) === listener) this.sessionSubscribers.delete(name); };
+  }
+
+  async publishSession(event, session, ...args) {
+    const update = { updateId: ++this.sessionUpdateId, change: event, session: session.name, status: session.status };
+    log('info', 'session.update', update);
+    return Promise.allSettled([...this.sessionSubscribers].map(async ([subscriber, listener]) => {
+      try {
+        await listener(event, session, ...args);
+        log('info', 'session.updated', { ...update, subscriber });
+      } catch (err) {
+        log('error', 'session.update_failed', { ...update, subscriber, message: err.message });
+        throw err;
+      }
+    }));
   }
 
   wire() {
@@ -499,24 +527,30 @@ export class Router {
     return this.post(pending.card, pending.key);
   }
 
-  onOutput(session, events) {
+  onOutput(session, events) { return this.publishSession('output', session, events); }
+  onStatus(session, previous) { return this.publishSession('status', session, previous); }
+  onBlocked(session) { return this.publishSession('blocked', session); }
+  onTurnEnd(session, turn) { return this.publishSession('turn_end', session, turn); }
+  onRemoved(session) { return this.publishSession('removed', session); }
+
+  outputThread(session, events) {
     if (!this.isFollowed(session)) return;
     if (session.status === 'blocked') return;
     if (!events.some((e) => e.type === 'text' || e.type === 'tool')) return;
     const view = this.ensureView(session);
     view.turn = session.turn;
     this.persistViews();
-    view.ready.then(() => {
+    return view.ready.then(() => {
       if (view.messageId && this.views.get(session.key) === view) this.feishu.updater.schedule(view.messageId, this.renderTurn(session, 'working'));
     });
   }
 
-  async onStatus(session, previous) {
+  async statusThread(session, previous) {
     if (previous === 'blocked') await this.closeBlocked(session, '已在终端处理');
-    if (session.status === 'working' && this.isFollowed(session)) this.ensureView(session);
+    if (session.status === 'working' && this.isFollowed(session)) await this.ensureView(session).ready;
   }
 
-  async onBlocked(session) {
+  async blockedThread(session) {
     if (!this.isFollowed(session) && (!this.cfg.notify.enabled || this.cfg.notify.scope === 'followed' || this.localActive())) return;
     await this.showBlocked(session);
   }
@@ -537,16 +571,6 @@ export class Router {
     if (!state) return;
     this.blocked.delete(session.key);
     await this.feishu.updater.flush(state.messageId, cards.blockedCard({ session, dialog: state.dialog, screen: state.screen, answered }));
-  }
-
-  async onTurnEnd(session, turn) {
-    try {
-      await this.finishTurn(session, turn);
-    } finally {
-      // Completion must update the dashboard even for quiet, unfollowed sessions.
-      // Do not rely on a cached signature or a later background tick for this.
-      await this.refreshDashboard('turn_end');
-    }
   }
 
   async finishTurn(session, turn) {
@@ -593,7 +617,7 @@ export class Router {
     }
   }
 
-  async onRemoved(session) {
+  async removeThread(session) {
     this.views.delete(session.key);
     this.persistViews();
     this.oneShot.delete(session.key);
@@ -611,11 +635,13 @@ export class Router {
   // ---- attach / detach ----
 
   async attach(session, { announce = true } = {}) {
+    if (this.registry.activate) session = await this.registry.activate(session.key);
     const previous = this.attachedSession();
     if (previous && previous.key !== session.key) this.leaveSession(previous);
     this.promised.delete(session.key);
     this.store.set('attached', { key: session.key, name: session.name });
     this.nudge();
+    await this.refreshDashboard('attach');
     log('info', 'attach', { session: session.name });
     if (!announce) return;
     // One card says where the session is: its dialog, its running turn, or its last reply.
@@ -725,7 +751,7 @@ export class Router {
     this.startTicker();
   }
 
-  async refreshDashboard(reason) {
+  async refreshDashboard(reason, { throwOnError = false } = {}) {
     if (!this.reusable.has('dashboard')) return;
     try {
       const out = await this.renderLive({ kind: 'dash', key: '' });
@@ -734,6 +760,7 @@ export class Router {
       log('info', 'dashboard.refreshed', { reason, sessions: this.registry.list().map((s) => ({ name: s.name, status: s.status })) });
     } catch (err) {
       log('warn', 'dashboard.refresh', { reason, message: err.message });
+      if (throwOnError) throw err;
     }
   }
 
@@ -967,6 +994,15 @@ export class Router {
     if (!session) return toast(`会话 ${v.n || ''} 已不存在`, 'error');
     switch (v.a) {
       case 'attach': {
+        if (session.dormant || this.registry.restoring?.has(session.key)) {
+          this.attach(session).catch(async (err) => {
+            log('error', 'session.activate', { session: session.name, message: err.message });
+            const rootId = this.reusable.get(`session:${session.key}`)?.id || evt.messageId;
+            await this.notifyThread(session, `恢复 ${session.name} 失败：${err.message}`, rootId)
+              .catch((reportError) => log('error', 'session.activate_report', { message: reportError.message }));
+          });
+          return toast(`正在恢复 ${session.name}，就绪后会接入`);
+        }
         // A click on the session's own card needs no second card: that card turns into "已接入".
         const own = this.live.get(evt.messageId) || (this.reusable.get(`session:${session.key}`)?.id === evt.messageId ? { kind: 'peek', key: session.key } : null);
         const sameCard = own && own.kind !== 'dash' && own.key === session.key && session.status !== 'working' && session.status !== 'blocked';

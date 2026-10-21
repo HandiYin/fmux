@@ -16,6 +16,7 @@ test('user preferences override behavior while retaining credentials and other s
     tmux: { include: ['fmux-*'], exclude: ['fmux-private-*'] },
     notify: { scope: 'followed', completionPing: false },
     sessions: { namePrefix: 'fmux-', onConflict: 'replace-idle' },
+    lifecycle: { idleMinutes: 2160 },
   }));
   const cfg = loadConfig(file);
   assert.deepEqual(cfg.app, { ...raw.app, tenant: 'feishu' });
@@ -25,6 +26,7 @@ test('user preferences override behavior while retaining credentials and other s
   assert.deepEqual(cfg.tmux.hide, ['reserved']);
   assert.deepEqual(cfg.tmux.include, ['fmux-*']);
   assert.equal(cfg.sessions.onConflict, 'replace-idle');
+  assert.equal(cfg.lifecycle.idleMinutes, 2160);
   assert.deepEqual(JSON.parse(fs.readFileSync(file)), raw);
   fs.writeFileSync(path.join(dir, 'userconfig.json'), '{"app":{"id":"wrong"}}');
   assert.throws(() => loadConfig(file), /Unsupported userconfig setting/);

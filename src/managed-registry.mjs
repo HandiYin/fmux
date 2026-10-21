@@ -227,6 +227,18 @@ export class ManagedRegistry extends Registry {
     if (signature !== this.signature) { this.signature = signature; this.emit('changed'); }
   }
 
+  async activate(key) {
+    return this.exclusive(key, async () => {
+      let s = this.sessions.get(key);
+      if (!s) throw new Error('会话已删除。');
+      s.lastUseAt = this.now();
+      if (s.dormant || this.restoring.has(key)) s = await this.restore(s);
+      await this.checkpoint(s);
+      this.save(true);
+      return s;
+    });
+  }
+
   async use(key, fn, { allowBlocked = false } = {}) {
     return this.exclusive(key, async () => {
       let s = this.sessions.get(key);
