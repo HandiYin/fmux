@@ -44,6 +44,8 @@ export class Router {
     this.ticking = false;
     this.nudgeTimer = null;
     this.startedAt = Date.now();
+    this.pendingCompletions = new Map(Object.entries(store.get('pendingCompletions') || {}));
+    this.completing = new Set();
   }
 
   wire() {
@@ -321,10 +323,10 @@ export class Router {
   ensureView(session) {
     let view = this.views.get(session.key);
     if (view) return view;
-    view = { messageId: null, ready: null, minute: 0 };
+    view = { messageId: null, ready: null, minute: 0, identity: this.viewIdentity(session), turn: session.turn };
     this.views.set(session.key, view);
     view.ready = this.post(this.renderTurn(session, 'working'), session.key)
-      .then((id) => { view.messageId = id; })
+      .then((id) => { view.messageId = id; this.persistViews(); })
       .catch((err) => {
         log('error', 'router.view', { message: err.message });
         if (this.views.get(session.key) === view) this.views.delete(session.key);
@@ -332,10 +334,60 @@ export class Router {
     return view;
   }
 
+  viewIdentity(session) {
+    return JSON.stringify([session.kind, session.cwd, session.transcript]);
+  }
+
+  persistViews() {
+    this.store.set('turnCards', Object.fromEntries([...this.views].filter(([, v]) => v.messageId)
+      .map(([key, v]) => [key, { messageId: v.messageId, rootId: v.rootId, identity: v.identity, turn: v.turn }])));
+  }
+
+  persistCompletions() {
+    this.store.set('pendingCompletions', Object.fromEntries(this.pendingCompletions));
+  }
+
+  async completeCard(session, messageId, card) {
+    this.pendingCompletions.set(messageId, { key: session.key, card, attempts: 0, retryAt: 0 });
+    this.persistCompletions();
+    this.store.flush();
+    await this.deliverCompletion(messageId);
+  }
+
+  async deliverCompletion(messageId) {
+    const pending = this.pendingCompletions.get(messageId);
+    if (!pending || this.completing.has(messageId)) return;
+    this.completing.add(messageId);
+    try {
+      try {
+        await this.feishu.updater.flush(messageId, pending.card, { throwOnError: true });
+      } catch (err) {
+        if (!/deleted|recalled|not found|expired|message does not exist/i.test(err.message || '')) throw err;
+        await this.postCompletionReplacement(pending);
+      }
+      if (this.pendingCompletions.get(messageId) === pending) this.pendingCompletions.delete(messageId);
+      this.persistCompletions();
+      this.store.flush();
+    } catch (err) {
+      pending.attempts++;
+      pending.retryAt = Date.now() + Math.min(60000, 1000 * 2 ** Math.min(pending.attempts, 6));
+      this.persistCompletions();
+      throw err;
+    } finally {
+      this.completing.delete(messageId);
+    }
+  }
+
+  postCompletionReplacement(pending) {
+    return this.post(pending.card, pending.key);
+  }
+
   onOutput(session, events) {
     if (!this.isFollowed(session)) return;
     if (!events.some((e) => e.type === 'text' || e.type === 'tool')) return;
     const view = this.ensureView(session);
+    view.turn = session.turn;
+    this.persistViews();
     view.ready.then(() => {
       if (view.messageId && this.views.get(session.key) === view) this.feishu.updater.schedule(view.messageId, this.renderTurn(session, 'working'));
     });
@@ -370,6 +422,7 @@ export class Router {
     this.oneShot.delete(session.key);
     const view = this.views.get(session.key);
     this.views.delete(session.key);
+    this.persistViews();
     const seconds = (turn.endedAt - turn.startedAt) / 1000;
     const long = seconds >= this.cfg.notify.minWorkSec;
     const promised = this.promised.delete(session.key);
@@ -378,7 +431,7 @@ export class Router {
     // A dialog that opened and closed while the agent was idle (the folder trust prompt) is not a turn.
     if (empty && !turn.worked) {
       if (view) await view.ready;
-      if (view?.messageId) await this.feishu.updater.flush(view.messageId, cards.stubCard(`${session.name}：已处理。`));
+      if (view?.messageId) await this.completeCard(session, view.messageId, cards.stubCard(`${session.name}：已处理。`));
       return;
     }
     if (followed) {
@@ -388,7 +441,7 @@ export class Router {
         await this.post(done, session.key);
         return;
       }
-      await this.feishu.updater.flush(view.messageId, done);
+      await this.completeCard(session, view.messageId, done);
       // An edit does not ring the phone. After a long turn, one short line does.
       if (long) {
         const preview = oneLine(turn.texts.at(-1) || '', 60);
@@ -400,6 +453,13 @@ export class Router {
       return;
     }
     if (empty) return;
+    if (view) {
+      await view.ready;
+      if (view.messageId) {
+        await this.completeCard(session, view.messageId, cards.finishedCard({ session, turn }));
+        return;
+      }
+    }
     if (promised || (this.cfg.notify.enabled && long && !this.localActive())) {
       const messageId = await this.post(cards.finishedCard({ session, turn }), session.key);
       this.finished.set(messageId, { key: session.key, turn });
@@ -409,6 +469,7 @@ export class Router {
 
   async onRemoved(session) {
     this.views.delete(session.key);
+    this.persistViews();
     this.oneShot.delete(session.key);
     this.blocked.delete(session.key);
     this.follows.delete(session.key);
@@ -446,6 +507,7 @@ export class Router {
     const view = this.views.get(session.key);
     if (!view) return;
     this.views.delete(session.key);
+    this.persistViews();
     this.promised.add(session.key);
     view.ready.then(() => view.messageId && this.feishu.updater.flush(view.messageId, cards.stubCard(text)));
   }
@@ -454,9 +516,8 @@ export class Router {
   async shutdown() {
     clearInterval(this.ticker);
     const pending = [];
-    for (const [key, view] of this.views) {
-      const session = this.registry.sessions.get(key);
-      if (view.messageId) pending.push(this.feishu.updater.flush(view.messageId, cards.stubCard(`fmux 重启了。${session?.name || '会话'} 这一轮的回复会出现在新的卡片里。`)));
+    for (const view of this.views.values()) {
+      pending.push(view.ready.then(() => view.messageId && this.feishu.updater.flush(view.messageId)));
     }
     this.views.clear();
     await Promise.race([Promise.allSettled(pending), sleep(2000)]);
@@ -502,7 +563,7 @@ export class Router {
   }
 
   // After a restart the cards sent before it go on being updated.
-  resume() {
+  async resume() {
     const saved = this.store.get('live') || [];
     const legacy = this.store.get('dash');
     if (legacy?.messageId && !saved.some((e) => e.kind === 'dash')) saved.push({ id: legacy.messageId, kind: 'dash', key: '', until: null });
@@ -510,6 +571,18 @@ export class Router {
       // "attached" cards of an earlier version are session cards now, with the same time limit.
       const legacy = e.kind === 'attached';
       this.live.set(e.id, { kind: legacy ? 'peek' : e.kind, key: e.key, until: legacy ? Date.now() + this.peekTtl : e.until ?? Infinity, signature: '' });
+    }
+    for (const [key, saved] of Object.entries(this.store.get('turnCards') || {})) {
+      const session = this.registry.sessions.get(key);
+      // Raw pane IDs can be reused after reboot; a transcript must also match.
+      if (!session?.transcript || saved.identity !== this.viewIdentity(session)) continue;
+      this.views.set(key, { ...saved, ready: Promise.resolve(), minute: 0 });
+      if (session.status === 'idle') {
+        const turn = { ...saved.turn, texts: [...(saved.turn?.texts || [])], tools: saved.turn?.tools || 0,
+          startedAt: saved.turn?.startedAt || session.statusSince, endedAt: Date.now(), worked: true };
+        if (session.lastText && turn.texts.at(-1) !== session.lastText) turn.texts.push(session.lastText);
+        await this.onTurnEnd(session, turn).catch((err) => log('error', 'turn.resume', { message: err.message }));
+      }
     }
     const attached = this.attachedSession();
     if (attached?.status === 'working') this.ensureView(attached);
@@ -575,6 +648,10 @@ export class Router {
     this.ticking = true;
     try {
       const now = Date.now();
+      for (const [id, pending] of this.pendingCompletions) {
+        if (pending.retryAt <= now) await this.deliverCompletion(id)
+          .catch((err) => log('warn', 'turn.retry', { messageId: id, message: err.message }));
+      }
       for (const [messageId, entry] of [...this.live]) {
         if (now > entry.until) {
           this.retire(messageId);
