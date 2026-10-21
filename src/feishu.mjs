@@ -67,7 +67,12 @@ export async function createFeishu({ appId, appSecret, ownerOpenId, tenant = 'fe
     ...(tenant === 'lark' ? { domain: 'https://open.larksuite.com' } : {}),
     // Only the owner's direct chat reaches the handlers. Groups are closed with a chat id that cannot exist.
     policy: { dmMode: 'allowlist', dmAllowlist: [ownerOpenId], groupAllowlist: ['oc_fmux_groups_closed'], requireMention: true },
-    safety: { staleMessageWindowMs: 5 * 60 * 1000 },
+    safety: {
+      staleMessageWindowMs: 5 * 60 * 1000,
+      // A chat can contain different session threads; merging loses their routing context.
+      batch: { text: { delayMs: 0, maxMessages: 1 } },
+      chatQueue: { mergeWhileBusy: false, cardActions: 'separate' },
+    },
     keepalive: {
       enabled: true,
       onUnrecoverable: (err) => {
@@ -82,6 +87,11 @@ export async function createFeishu({ appId, appSecret, ownerOpenId, tenant = 'fe
   channel.on('reconnecting', () => log('warn', 'feishu.reconnecting'));
   channel.on('reconnected', () => log('info', 'feishu.reconnected'));
   channel.on('reject', (evt) => log('info', 'feishu.reject', { reason: evt.reason, sender: evt.senderId, chat: evt.chatId }));
+  channel.onRawEvent('im.message.receive_v1', (raw) => {
+    const event = raw?.event || raw;
+    const msg = event?.message;
+    log('info', 'feishu.message_event', { messageId: msg?.message_id, chat: msg?.chat_id, type: msg?.message_type });
+  });
 
   let onMenu = () => {};
   const dispatchMenu = createBotMenuHandler({
@@ -95,13 +105,16 @@ export async function createFeishu({ appId, appSecret, ownerOpenId, tenant = 'fe
   });
 
   const api = {
-    onMessage: (fn) => channel.on('message', fn),
+    onMessage: (fn) => channel.on('message', (msg) => {
+      log('info', 'feishu.message_received', { messageId: msg.messageId, chat: msg.chatId, type: msg.rawContentType });
+      return fn(msg);
+    }),
     onCardAction: (fn) => channel.on('cardAction', fn),
     onBotMenu: (fn) => { onMenu = fn; },
     connect: () => channel.connect(),
     disconnect: () => channel.disconnect(),
-    async sendCard(chatId, card, { replyTo } = {}) {
-      const res = await channel.send(chatId, { card }, replyTo ? { replyTo } : undefined);
+    async sendCard(chatId, card, { replyTo, replyInThread = false } = {}) {
+      const res = await channel.send(chatId, { card }, replyTo ? { replyTo, replyInThread } : undefined);
       return res.messageId;
     },
     async updateCard(messageId, card) {
@@ -112,8 +125,8 @@ export async function createFeishu({ appId, appSecret, ownerOpenId, tenant = 'fe
       });
       if (res.code) throw new Error(`Card update failed (${res.code}): ${res.msg || 'unknown error'}`);
     },
-    async sendText(chatId, text, { replyTo } = {}) {
-      const res = await channel.send(chatId, { markdown: text }, replyTo ? { replyTo } : undefined);
+    async sendText(chatId, text, { replyTo, replyInThread = false } = {}) {
+      const res = await channel.send(chatId, { markdown: text }, replyTo ? { replyTo, replyInThread } : undefined);
       return res.messageId;
     },
     // Resolves to null when the reaction could not be added, so a caller can fall back to a card.
@@ -157,7 +170,7 @@ export function createFakeFeishu({ dir } = {}) {
     },
     async sendCard(chatId, card, opts = {}) {
       const messageId = `om_fake_${++seq}`;
-      api.record('card', messageId, { chatId, card, replyTo: opts.replyTo });
+      api.record('card', messageId, { chatId, card, replyTo: opts.replyTo, replyInThread: opts.replyInThread });
       return messageId;
     },
     async updateCard(messageId, card) {
@@ -165,7 +178,7 @@ export function createFakeFeishu({ dir } = {}) {
     },
     async sendText(chatId, text, opts = {}) {
       const messageId = `om_fake_${++seq}`;
-      api.record('text', messageId, { chatId, text, replyTo: opts.replyTo });
+      api.record('text', messageId, { chatId, text, replyTo: opts.replyTo, replyInThread: opts.replyInThread });
       return messageId;
     },
     react: async (messageId, emoji) => {

@@ -81,12 +81,12 @@ test('followed turn: one card streams and then holds the reply; only a long turn
   h.store.set('attached', { key: '%1', name: 'work' });
   await h.router.onStatus(s, 'idle');
   await h.router.views.get('%1').ready;
-  assert.deepEqual(h.heads(), ['work [运行中 Claude]']);
-  const liveId = h.cardsSent()[0].messageId;
+  assert.deepEqual(h.heads(), ['work [运行中 Claude 已接入]', 'work [运行中 Claude]']);
+  const liveId = h.router.views.get('%1').messageId;
 
   s.status = 'idle';
   await h.router.onTurnEnd(s, turn(3));
-  assert.equal(h.cardsSent().length, 1);
+  assert.equal(h.cardsSent().length, 2);
   assert.equal(h.latest(liveId).card.header.subtitle.content, '用时 3s · 工具调用 2 次');
   assert.equal(h.latest(liveId).card.body.elements[0].content, 'all done');
   assert.equal(h.feishu.sent.filter((r) => r.kind === 'text').length, 0);
@@ -99,15 +99,16 @@ test('followed long turn: the same card holds the reply, and one line rings the 
   h.store.set('attached', { key: '%1', name: 'work' });
   await h.router.onStatus(s, 'idle');
   await h.router.views.get('%1').ready;
-  const liveId = h.cardsSent()[0].messageId;
+  const liveId = h.router.views.get('%1').messageId;
   await h.router.onTurnEnd(s, turn(90));
   await new Promise((r) => setTimeout(r, 5));
-  assert.equal(h.cardsSent().length, 1, 'no second card');
+  assert.equal(h.cardsSent().length, 2, 'root plus one turn card in its thread');
   assert.equal(h.latest(liveId).card.header.subtitle.content, '用时 1m30s · 工具调用 2 次');
   const lines = h.feishu.sent.filter((r) => r.kind === 'text');
   assert.equal(lines.length, 1);
   assert.equal(lines[0].text, '**work** 已结束（1m30s）：all done');
-  assert.equal(lines[0].replyTo, liveId);
+  assert.equal(lines[0].replyTo, h.cardsSent()[0].messageId);
+  assert.equal(lines[0].replyInThread, true);
 
   await h.say('接着做', { replyToMessageId: lines[0].messageId });
   assert.deepEqual(h.tmux.sent.at(-1), ['%1', '接着做']);
@@ -118,7 +119,8 @@ test('a reply that came without a running card is sent as one card', async () =>
   const h = harness({ sessions: [s] });
   h.store.set('attached', { key: '%1', name: 'work' });
   await h.router.onTurnEnd(s, turn(90));
-  assert.equal(h.cardsSent().length, 1);
+  assert.equal(h.cardsSent().length, 2);
+  assert.equal(h.cardsSent()[1].replyInThread, true);
   assert.equal(h.feishu.sent.filter((r) => r.kind === 'text').length, 0);
 });
 
@@ -134,16 +136,62 @@ test('unattached sessions notify only after a long turn and only when the keyboa
 
   h.registry.localActiveAt = Date.now() - 600000;
   await h.router.onTurnEnd(s, turn(90));
-  assert.deepEqual(h.heads(), ['work [已结束 Claude]']);
+  assert.deepEqual(h.heads(), ['work [空闲 Claude]', 'work [已结束 Claude]']);
   await h.router.onBlocked(s);
-  assert.equal(h.heads().at(-1), 'work [等待确认 Claude]');
+  assert.equal(h.head(h.latest(h.cardsSent().at(-1).messageId)), 'work [等待确认 Claude]');
+  assert.equal(h.cardsSent().length, 3);
+});
+
+test('quiet user preferences suppress background completions, dialogs and extra completion pings', async () => {
+  const s = session();
+  const h = harness({ sessions: [s], notify: { scope: 'followed', completionPing: false, detachedCompletion: false } });
+  await h.router.onTurnEnd(s, turn(90));
+  await h.router.onBlocked(s);
+  assert.equal(h.feishu.sent.length, 0);
+  h.router.promised.add(s.key);
+  await h.router.onTurnEnd(s, turn(90));
+  assert.equal(h.feishu.sent.length, 0);
+  h.store.set('attached', { key: s.key, name: s.name });
+  s.status = 'working';
+  await h.router.onStatus(s, 'idle');
+  await h.router.views.get(s.key).ready;
+  await h.router.onTurnEnd(s, turn(90));
+  assert.equal(h.cardsSent().length, 2);
+  assert.equal(h.feishu.sent.filter((r) => r.kind === 'text').length, 0);
+});
+
+test('disabling notifications also suppresses promised completions and followed completion pings', async () => {
+  const s = session();
+  const h = harness({ sessions: [s], notify: { enabled: false } });
+  h.router.promised.add(s.key);
+  await h.router.onTurnEnd(s, turn(90));
+  assert.equal(h.feishu.sent.length, 0);
+  h.store.set('attached', { key: s.key, name: s.name });
+  s.status = 'working';
+  await h.router.onStatus(s, 'idle');
+  await h.router.views.get(s.key).ready;
+  await h.router.onTurnEnd(s, turn(90));
+  assert.equal(h.cardsSent().length, 2);
+  assert.equal(h.feishu.sent.filter((r) => r.kind === 'text').length, 0);
+});
+
+test('personal name prefix applies to explicit and automatic names; filtered names never launch', async () => {
+  const h = harness({ sessions: [] });
+  h.cfg.sessions = { namePrefix: 'fmux-', onConflict: 'replace-idle' };
+  await h.router.createSession({ name: 'fix', agent: 'shell', cwd: '/tmp' });
+  await h.router.createSession({ agent: 'shell', cwd: '/tmp' });
+  assert.equal(h.tmux.created[0].name, 'fmux-fix');
+  assert.match(h.tmux.created[1].name, /^fmux-shell-/);
+  h.registry.allows = () => false;
+  await assert.rejects(h.router.createSession({ name: 'reserved', agent: 'shell', cwd: '/tmp' }), /过滤设置排除/);
+  assert.equal(h.tmux.created.length, 2);
 });
 
 test('quote-reply and the reply form reach a session without attaching', async () => {
   const s = session();
   const h = harness({ sessions: [s] });
   await h.router.onTurnEnd(s, turn(90));
-  const finishedId = h.cardsSent()[0].messageId;
+  const finishedId = h.cardsSent().find((r) => r.replyInThread).messageId;
 
   await h.say('再跑一遍', { replyToMessageId: finishedId });
   assert.deepEqual(h.tmux.sent, [['%1', '再跑一遍']]);
@@ -152,8 +200,9 @@ test('quote-reply and the reply form reach a session without attaching', async (
 
   const reply = await h.click({ a: 'reply', ...ref }, { messageId: finishedId, action: { value: { a: 'reply', ...ref }, formValue: { text: '好' } } });
   assert.deepEqual(h.tmux.sent.at(-1), ['%1', '好']);
-  assert.equal(reply.toast.content, '已发送');
-  assert.match(JSON.stringify(reply.card.data), /已回复：好/);
+  assert.equal(reply.toast.content, '已接收，正在发送');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(JSON.stringify(h.latest(finishedId).card), /已回复：好/);
 });
 
 test('keys are limited to the whitelist', async () => {
@@ -197,8 +246,9 @@ test('leaving a session in the middle of a turn still announces its result', asy
   await h.router.detach();
   h.registry.localActiveAt = Date.now();
   await h.router.onTurnEnd(s, turn(3));
-  assert.equal(h.heads().at(-1), 'work [已结束 Claude]');
-  assert.match(JSON.stringify(h.cardsSent().at(-1).card), /"a":"reply"/);
+  const child = h.cardsSent().find((r) => r.replyInThread);
+  assert.equal(h.head(h.latest(child.messageId)), 'work [已结束 Claude]');
+  assert.match(JSON.stringify(h.latest(child.messageId).card), /"a":"reply"/);
 });
 
 test('a dialog answered while the agent was idle does not post an empty turn', async () => {
@@ -245,14 +295,17 @@ test('the dashboard is edited in place when a session changes, and only then', a
   assert.equal(card.header.subtitle.content, '消息发往 Pi 管家');
 });
 
-test('a second dashboard takes over and the first one says it stopped', async () => {
+test('explicit dashboard requests send a fresh panel even when the old card remains valid', async () => {
   const h = harness();
   await h.say('/ls');
   await h.say('/ls');
   const [first, second] = h.cardsSent().map((r) => r.messageId);
   await new Promise((r) => setTimeout(r, 20));
-  assert.match(JSON.stringify(h.latest(first).card), /已停止更新/);
+  assert.equal(h.cardsSent().length, 2);
+  assert.notEqual(first, second);
+  assert.doesNotMatch(JSON.stringify(h.latest(first).card), /已停止更新/);
   assert.deepEqual([...h.router.live.keys()], [second]);
+  assert.equal(h.store.get('reusableCards').dashboard.id, second);
 });
 
 test('attach sends one card, chosen by the state of the session', async () => {
@@ -265,17 +318,17 @@ test('attach sends one card, chosen by the state of the session', async () => {
   const busy = harness({ sessions: [working] });
   await busy.click({ a: 'attach', ...ref });
   await busy.router.views.get('%1').ready;
-  assert.deepEqual(busy.heads(), ['work [运行中 Claude]']);
+  assert.deepEqual(busy.heads(), ['work [运行中 Claude 已接入]', 'work [运行中 Claude]']);
 
   const waiting = harness({ sessions: [session({ status: 'blocked' })] });
   waiting.tmux.screens.set('%1', ' Proceed?\n ❯ 1. Yes\n   2. No\n');
   await waiting.click({ a: 'attach', ...ref });
-  assert.deepEqual(waiting.heads(), ['work [等待确认 Claude]']);
+  assert.deepEqual(waiting.heads(), ['work [等待确认 Claude 已接入]', 'work [等待确认 Claude]']);
 
   const shell = harness({ sessions: [session({ kind: 'shell', status: 'shell' })] });
   shell.tmux.screens.set('%1', '$ ls');
   await shell.click({ a: 'attach', ...ref });
-  assert.equal(shell.cardsSent()[0].card.header.subtitle.content, '终端');
+  assert.equal(shell.cardsSent()[0].card.body.elements.some((el) => el.tag === 'form'), true);
 });
 
 test('the session card follows the session; attaching from it needs no second card', async () => {
@@ -286,11 +339,9 @@ test('the session card follows the session; attaching from it needs no second ca
   assert.equal(h.head(h.latest(id)), 'work [已结束 Claude]');
   await h.say('//peek work');
   await new Promise((r) => setTimeout(r, 20));
-  assert.match(JSON.stringify(h.latest(id).card), /work：看下面更新的卡片/, 'a newer card of the same session replaces the old one');
-  h.feishu.sent.length = 0;
+  assert.equal(h.cardsSent().length, 1, 'repeated peek edits the existing session card');
   await h.say('//peek work');
-  const [{ messageId: id2 }] = h.cardsSent();
-  return attachFromOwnCard(h, s, id2);
+  return attachFromOwnCard(h, s, id);
 });
 
 async function attachFromOwnCard(h, s, id) {
@@ -303,14 +354,14 @@ async function attachFromOwnCard(h, s, id) {
   s.statusSince = Date.now();
   s.lastText = 'new reply';
   await h.router.tick();
-  await h.feishu.updater.flush(id);
+  assert.equal(h.head(h.latest(id)), 'work [已结束 Claude 已接入]', 'root does not redraw its input during task updates');
+  await h.click({ a: 'peek.refresh', ...ref }, { messageId: id });
   assert.equal(h.head(h.latest(id)), 'work [运行中 Claude 已接入]');
   assert.equal(h.latest(id).card.header.template, 'green');
-  assert.match(JSON.stringify(h.latest(id).card), /old reply/, 'while attached the reply comes in its own card; this one keeps what it showed');
+  assert.match(JSON.stringify(h.latest(id).card), /new reply/);
 
   await h.router.detach();
-  await h.router.tick();
-  await h.feishu.updater.flush(id);
+  await h.click({ a: 'peek.refresh', ...ref }, { messageId: id });
   assert.equal(h.head(h.latest(id)), 'work [运行中 Claude]');
   assert.match(JSON.stringify(h.latest(id).card), /new reply/, 'not attached: the card follows the session again');
 }
@@ -330,8 +381,9 @@ test('a terminal card refreshes while the screen changes and stops after its tim
   h.tmux.screens.set('%1', 'line one');
   await h.click({ a: 'term', ...ref });
   await new Promise((r) => setTimeout(r, 5));
-  const id = h.cardsSent()[0].messageId;
-  assert.equal(h.cardsSent()[0].card.header.subtitle.content, '终端');
+  const terminal = h.cardsSent().find((r) => r.replyInThread);
+  const id = terminal.messageId;
+  assert.equal(terminal.card.header.subtitle.content, '终端');
   await h.router.tick();
   assert.equal(h.feishu.sent.filter((r) => r.kind === 'update').length, 0, 'an unchanged screen is not sent again');
 
@@ -367,7 +419,7 @@ test('live cards survive a restart', async () => {
   const id = h.cardsSent()[0].messageId;
   const again = harness();
   again.store.set('live', h.store.get('live'));
-  again.router.resume();
+  await again.router.resume();
   assert.deepEqual([...again.router.live.keys()], [id]);
   await again.router.tick();
   await again.feishu.updater.flush(id);

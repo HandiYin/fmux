@@ -101,17 +101,17 @@ test('the terminal card is cut for a phone and shows four keys until the fold is
   assert.equal(card.body.elements[2].expanded, false);
 });
 
-test('a finished reply carries no buttons; a running one can be interrupted', () => {
+test('a finished reply retains its input form; a running one can be interrupted', () => {
   const s = session();
   const turn = { texts: ['answer'], tools: 2, lastTool: 'Bash', startedAt: 0, endedAt: 65000 };
   const done = cards.turnCard({ session: s, state: 'done', ...turn });
-  assert.deepEqual(buttonsOf(done), []);
+  assert.deepEqual(buttonsOf(done), ['发送']);
   assert.equal(done.header.template, 'default');
   assert.equal(done.header.subtitle.content, '用时 1m05s · 工具调用 2 次');
   const running = cards.turnCard({ session: s, state: 'working', ...turn, startedAt: Date.now() });
   assert.deepEqual(buttonsOf(running), ['中断', '终端']);
   assert.equal(running.header.template, 'green');
-  assert.deepEqual(buttonsOf(cards.turnCard({ session: s, state: 'done', ...turn, texts: [] })), ['终端']);
+  assert.deepEqual(buttonsOf(cards.turnCard({ session: s, state: 'done', ...turn, texts: [] })), ['终端', '发送']);
 });
 
 test('color is kept for running and for waiting', () => {
@@ -126,7 +126,7 @@ test('a done turn keeps earlier text in a collapsed panel and the answer in the 
   const card = cards.turnCard({ session: session(), state: 'done', texts: ['step one', 'final answer'], tools: 0, startedAt: 0, endedAt: 1000 });
   assert.equal(card.body.elements[0].tag, 'collapsible_panel');
   assert.equal(card.body.elements[1].content, 'final answer');
-  assert.equal(card.body.elements.length, 2);
+  assert.equal(card.body.elements.at(-1).tag, 'form');
 });
 
 test('the light: green while running, off when ended, orange when waiting', () => {

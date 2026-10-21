@@ -59,7 +59,7 @@ test('the Feishu adapter uses the existing channel and acknowledges without wait
     appId: 'cli_test', appSecret: 'test-only', ownerOpenId: OWNER,
     createChannel: () => {
       channels++;
-      return { on() {}, onRawEvent: (type, fn) => { assert.equal(type, BOT_MENU_EVENT); rawHandler = fn; } };
+      return { on() {}, onRawEvent: (type, fn) => { if (type === BOT_MENU_EVENT) rawHandler = fn; } };
     },
   });
   feishu.onBotMenu(async (e) => { await gate; delivered.push(e.key); });
@@ -73,7 +73,7 @@ test('the Feishu adapter uses the existing channel and acknowledges without wait
   assert.deepEqual(delivered, ['fmux.dashboard']);
 });
 
-test('the menu opens a fresh panel while attached, including busy and blocked sessions', async () => {
+test('the menu sends a fresh panel while attached, including busy and blocked sessions', async () => {
   for (const status of ['idle', 'working', 'blocked']) {
     const h = harness({ sessions: [session({ status })] });
     h.store.set('attached', { key: '%1', name: 'work' });
@@ -82,6 +82,7 @@ test('the menu opens a fresh panel while attached, including busy and blocked se
     const firstId = h.cardsSent().at(-1).messageId;
     await click();
     assert.equal(h.titles().at(-1), '会话面板');
+    assert.equal(h.cardsSent().length, 2);
     assert.notEqual(h.cardsSent().at(-1).messageId, firstId);
     assert.equal(h.store.get('attached').key, '%1');
     assert.deepEqual(h.tmux.sent, []);
