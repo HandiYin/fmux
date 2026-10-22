@@ -4,7 +4,7 @@ import { CONFIG_PATH, ROOT, loadConfig, resolveSecret } from './config.mjs';
 import { Concierge } from './concierge.mjs';
 import { startControl } from './control.mjs';
 import { createFakeFeishu, createFeishu } from './feishu.mjs';
-import { Registry } from './registry.mjs';
+import { ManagedRegistry } from './managed-registry.mjs';
 import { Router } from './router.mjs';
 import { Store } from './store.mjs';
 import { log } from './util.mjs';
@@ -25,7 +25,7 @@ export async function runDaemon({ fake = false } = {}) {
     : await createFeishu({ appId: cfg.app.id, appSecret: await resolveSecret(cfg.app.secret), ownerOpenId: cfg.owner.openId, tenant: cfg.app.tenant });
 
   const store = new Store(path.join(cfg.stateDir, fake ? 'state.fake.json' : 'state.json'));
-  const registry = new Registry({ intervalMs: cfg.poll.intervalMs, hide: cfg.tmux.hide });
+  const registry = new ManagedRegistry({ cfg, store });
   const concierge = cfg.concierge.enabled
     ? new Concierge({
         bin: cfg.concierge.bin,
@@ -38,7 +38,7 @@ export async function runDaemon({ fake = false } = {}) {
         env: { ...process.env, ...(process.platform === 'win32' ? {} : { PATH: `${path.join(ROOT, 'bin')}:${process.env.PATH}` }), FMUX_SOCK: cfg.socket, FMUX_ROOT: ROOT, FMUX_CONFIG: CONFIG_PATH },
       })
     : null;
-  const router = new Router({ feishu, registry, concierge, store, cfg });
+  const router = new Router({ feishu, registry, concierge, store, cfg, tmux: registry.transport });
   router.wire();
 
   const methods = { ...router.api };

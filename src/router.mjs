@@ -40,12 +40,44 @@ export class Router {
     this.follows = new Map(); // session key -> token of a running screen follow
     this.promised = new Set(); // sessions left mid-turn: their result is announced whatever the notify settings
     this.live = new Map(); // message id -> { kind: 'dash' | 'peek' | 'term', key, until, signature }: cards kept current
+    this.reusable = new Map(Object.entries(store.get('reusableCards') || {}));
+    this.rootSessions = new Map(Object.entries(store.get('rootSessions') || {}));
+    this.cardWrites = new Map();
+    this.sessionRoots = new Set();
     this.piView = null;
     this.ticking = false;
     this.nudgeTimer = null;
     this.startedAt = Date.now();
     this.pendingCompletions = new Map(Object.entries(store.get('pendingCompletions') || {}));
     this.completing = new Set();
+    this.sessionSubscribers = new Map();
+    this.sessionUpdateId = 0;
+    this.subscribeSession('thread', (event, session, ...args) => {
+      const handlers = { output: this.outputThread, status: this.statusThread, blocked: this.blockedThread,
+        turn_end: this.finishTurn, removed: this.removeThread };
+      return handlers[event]?.call(this, session, ...args);
+    });
+    this.subscribeSession('dashboard', (event) => event === 'output'
+      ? this.nudge() : this.refreshDashboard(event, { throwOnError: true }));
+  }
+
+  subscribeSession(name, listener) {
+    this.sessionSubscribers.set(name, listener);
+    return () => { if (this.sessionSubscribers.get(name) === listener) this.sessionSubscribers.delete(name); };
+  }
+
+  async publishSession(event, session, ...args) {
+    const update = { updateId: ++this.sessionUpdateId, change: event, session: session.name, status: session.status };
+    log('info', 'session.update', update);
+    return Promise.allSettled([...this.sessionSubscribers].map(async ([subscriber, listener]) => {
+      try {
+        await listener(event, session, ...args);
+        log('info', 'session.updated', { ...update, subscriber });
+      } catch (err) {
+        log('error', 'session.update_failed', { ...update, subscriber, message: err.message });
+        throw err;
+      }
+    }));
   }
 
   wire() {
@@ -56,6 +88,13 @@ export class Router {
     this.registry.on('turn_end', guard('turn_end', this.onTurnEnd));
     this.registry.on('removed', guard('removed', this.onRemoved));
     this.registry.on('changed', () => this.nudge());
+    this.registry.on('replaced', (session) => {
+      for (const map of [this.views, this.blocked, this.follows]) map.delete(session.key);
+      this.oneShot.delete(session.key);
+      this.promised.delete(session.key);
+      for (const entry of this.live.values()) if (entry.key === session.key) entry.frozen = null;
+      for (const [id, finished] of this.finished) if (finished.key === session.key) this.finished.delete(id);
+    });
     this.feishu.updater.onError = (messageId) => this.forget(messageId);
     if (this.concierge) {
       this.concierge.on('text', (delta) => this.onPiProgress((v) => { v.text += delta; }));
@@ -92,6 +131,7 @@ export class Router {
   }
 
   find(value) {
+    if (value?.s?.startsWith('session:')) return this.registry.sessions.get(value.s) || null;
     return this.registry.sessions.get(value?.s) || (value?.n ? this.registry.resolve(value.n) : null);
   }
 
@@ -106,11 +146,109 @@ export class Router {
     return this.post(cards.infoCard({ title, text, ...extra }));
   }
 
+  rememberCard(slot, id, createdAt = Date.now()) {
+    if (slot.startsWith('session:')) {
+      const key = slot.slice('session:'.length);
+      const previous = this.reusable.get(slot);
+      // Renewing an editable root must not redirect replies in its older thread.
+      if (previous) this.rootSessions.set(previous.id, key);
+      this.rootSessions.set(id, key);
+      while (this.rootSessions.size > 400) this.rootSessions.delete(this.rootSessions.keys().next().value);
+      this.store.set('rootSessions', Object.fromEntries(this.rootSessions));
+    }
+    this.reusable.set(slot, { id, createdAt });
+    this.store.set('reusableCards', Object.fromEntries(this.reusable));
+  }
+
+  // Serialize first creation and edits so concurrent status/output events share one card.
+  reuseCard(slot, card, key, opts, fresh = false) {
+    const next = (this.cardWrites.get(slot) || Promise.resolve()).catch(() => {}).then(async () => {
+      const existing = this.reusable.get(slot);
+      if (existing && !fresh && Date.now() - existing.createdAt < DASH_TTL) {
+        try {
+          await this.feishu.updater.flush(existing.id, card, { throwOnError: true });
+          return existing.id;
+        } catch (err) {
+          // A transient API failure must not produce duplicate cards.
+          if (!/deleted|recalled|not found|expired|message does not exist/i.test(err.message || '')) throw err;
+          this.forget(existing.id);
+        }
+      } else if (existing) this.forget(existing.id);
+      const id = await this.post(card, key, opts);
+      this.rememberCard(slot, id);
+      this.store.flush();
+      return id;
+    });
+    this.cardWrites.set(slot, next);
+    return next.finally(() => { if (this.cardWrites.get(slot) === next) this.cardWrites.delete(slot); });
+  }
+
+  clearSessionLive(key) {
+    const id = this.reusable.get(`session:${key}`)?.id;
+    if (id) this.forget(id);
+  }
+
+  sessionCard(session, card) {
+    this.clearSessionLive(session.key);
+    return this.reuseCard(`session:${session.key}`, card, session.key).then((id) => {
+      this.forget(id);
+      return id;
+    });
+  }
+
+  async notifyThread(session, text, rootId) {
+    const id = await this.feishu.sendText(this.chatId, text, { replyTo: rootId, replyInThread: true });
+    if (session) this.store.rememberMessage(id, session.key);
+    return id;
+  }
+
+  async sessionRoot(session) {
+    const slot = `session:${session.key}`;
+    const existing = this.reusable.get(slot);
+    if (existing && Date.now() - existing.createdAt < DASH_TTL && this.sessionRoots.has(existing.id)) return existing.id;
+    // Also migrates roots previously overwritten with the turn-only layout.
+    const id = await this.reuseCard(slot, cards.sessionCard({ session, attached: this.attachedKey() === session.key }), session.key);
+    this.sessionRoots.add(id);
+    this.forget(id);
+    return id;
+  }
+
+  async postThreadCard(session, card) {
+    const rootId = await this.sessionRoot(session);
+    try {
+      return await this.post(card, session.key, { replyTo: rootId, replyInThread: true });
+    } catch (err) {
+      if (!/deleted|recalled|not found|expired|message does not exist/i.test(err.message || '')) throw err;
+      const slot = `session:${session.key}`;
+      if (this.reusable.get(slot)?.id === rootId) {
+        this.reusable.delete(slot);
+        this.sessionRoots.delete(rootId);
+        this.store.set('reusableCards', Object.fromEntries(this.reusable));
+      }
+      const replacement = await this.sessionRoot(session);
+      return this.post(card, session.key, { replyTo: replacement, replyInThread: true });
+    }
+  }
+
+  boundSession(messageId) {
+    if (!messageId) return null;
+    const key = this.store.sessionKeyFor(messageId) || this.rootSessions.get(messageId);
+    if (key) return key;
+    // Long-lived roots may outlast the bounded message-ID cache.
+    for (const [slot, root] of this.reusable) {
+      if (root.id === messageId && /^(session|terminal):/.test(slot)) return slot.slice(slot.indexOf(':') + 1);
+    }
+    return null;
+  }
+
   // ---- inbound chat messages ----
 
   async onMessage(msg) {
     try {
-      if (msg.senderId !== this.cfg.owner.openId || msg.chatType !== 'p2p') return;
+      if (msg.senderId !== this.cfg.owner.openId || msg.chatType !== 'p2p') {
+        log('info', 'message.ignored', { messageId: msg.messageId, reason: msg.senderId !== this.cfg.owner.openId ? 'not_owner' : 'not_p2p' });
+        return;
+      }
       if (this.store.get('chatId') !== msg.chatId) this.store.set('chatId', msg.chatId);
       let text = MEDIA_ONLY.has(msg.rawContentType) ? '' : String(msg.content || '').trim();
       if (msg.rawContentType === 'audio') {
@@ -119,17 +257,36 @@ export class Router {
       }
       const files = await this.saveResources(msg);
       if (files.length) text = [text, ...files.map((f) => `[附件] ${f}`)].filter(Boolean).join('\n');
-      if (!text) return;
+      if (!text) {
+        log('info', 'message.ignored', { messageId: msg.messageId, reason: 'empty_or_unsupported' });
+        return;
+      }
 
       const command = this.parseCommand(text);
       if (command) {
+        log('info', 'message.command', { messageId: msg.messageId, command: command.name });
         await this.runCommand(command, msg);
         return;
       }
-      const quotedKey = this.store.sessionKeyFor(msg.replyToMessageId) || this.store.sessionKeyFor(msg.rootId);
+      const quotedKey = this.boundSession(msg.replyToMessageId) || this.boundSession(msg.rootId) ||
+        (msg.threadId ? this.store.get('threadSessions')?.[msg.threadId] : null);
       const quoted = quotedKey ? this.registry.sessions.get(quotedKey) : null;
+      if (quotedKey && !quoted) {
+        await this.info('会话已删除', '这条回复没有发出。请从面板选择要继续的会话。');
+        return;
+      }
       if (quoted) {
+        if (msg.threadId) {
+          const bindings = new Map(Object.entries(this.store.get('threadSessions') || {}));
+          bindings.set(msg.threadId, quoted.key);
+          while (bindings.size > 400) bindings.delete(bindings.keys().next().value);
+          this.store.set('threadSessions', Object.fromEntries(bindings));
+        }
         await this.deliver(quoted, text, msg);
+        return;
+      }
+      if (msg.threadId || msg.rootId || msg.replyToMessageId) {
+        await this.info('无法定位回复会话', '这条回复没有发出。请从面板选择会话，在对应的新卡片中继续。');
         return;
       }
       const attached = this.store.get('attached');
@@ -274,6 +431,7 @@ export class Router {
 
   // `typed` is a line the session should read as the owner's own words, sent before the text.
   async deliver(session, text, msg, { typed = '' } = {}) {
+    log('info', 'deliver.start', { messageId: msg?.messageId, session: session.name, status: session.status, dormant: Boolean(session.dormant) });
     if (session.status === 'blocked') {
       await this.showBlocked(session, '这个会话在等确认，消息**没有发出**。先选一项；要直接输入文字，用「屏幕」卡片里的输入框。');
       return false;
@@ -283,6 +441,7 @@ export class Router {
     // A pasted block it marks as pasted. Everything else gets the paste, which every program accepts.
     const keys = !typed && session.kind === 'claude' && text.includes('\n') && this.tmux.canType(text);
     await this.tmux.sendText(session.key, text, { typed, keys });
+    if (msg?.messageId) this.store.rememberMessage(msg.messageId, session.key);
     log('info', 'deliver', { session: session.name, chars: text.length, typed: typed.length, keys });
     if (msg?.messageId) this.feishu.react(msg.messageId, 'OK');
     if (session.kind === 'shell') this.followScreen(session);
@@ -309,7 +468,7 @@ export class Router {
       if (this.follows.get(session.key) !== token) return;
       this.follows.delete(session.key);
       this.oneShot.delete(session.key);
-      await this.sendPeek(session);
+      await this.postThreadCard(session, cards.terminalCard({ session, screen, attached: this.attachedKey() === session.key, live: 'off' }));
     })().catch((err) => log('error', 'router.follow', { message: err.message }));
   }
 
@@ -325,8 +484,8 @@ export class Router {
     if (view) return view;
     view = { messageId: null, ready: null, minute: 0, identity: this.viewIdentity(session), turn: session.turn };
     this.views.set(session.key, view);
-    view.ready = this.post(this.renderTurn(session, 'working'), session.key)
-      .then((id) => { view.messageId = id; this.persistViews(); })
+    view.ready = this.postThreadCard(session, this.renderTurn(session, 'working'))
+      .then((id) => { view.messageId = id; view.rootId = this.reusable.get(`session:${session.key}`)?.id; this.persistViews(); })
       .catch((err) => {
         log('error', 'router.view', { message: err.message });
         if (this.views.get(session.key) === view) this.views.delete(session.key);
@@ -379,34 +538,47 @@ export class Router {
   }
 
   postCompletionReplacement(pending) {
-    return this.post(pending.card, pending.key);
+    const session = this.registry.sessions.get(pending.key);
+    if (!session) throw new Error('会话已删除，无法恢复回复卡片。');
+    return this.postThreadCard(session, pending.card);
   }
 
-  onOutput(session, events) {
+  onOutput(session, events) { return this.publishSession('output', session, events); }
+  onStatus(session, previous) { return this.publishSession('status', session, previous); }
+  onBlocked(session) { return this.publishSession('blocked', session); }
+  onTurnEnd(session, turn) { return this.publishSession('turn_end', session, turn); }
+  onRemoved(session) { return this.publishSession('removed', session); }
+
+  outputThread(session, events) {
     if (!this.isFollowed(session)) return;
+    if (session.status === 'blocked') return;
     if (!events.some((e) => e.type === 'text' || e.type === 'tool')) return;
     const view = this.ensureView(session);
     view.turn = session.turn;
     this.persistViews();
-    view.ready.then(() => {
+    return view.ready.then(() => {
       if (view.messageId && this.views.get(session.key) === view) this.feishu.updater.schedule(view.messageId, this.renderTurn(session, 'working'));
     });
   }
 
-  async onStatus(session, previous) {
+  async statusThread(session, previous) {
     if (previous === 'blocked') await this.closeBlocked(session, '已在终端处理');
-    if (session.status === 'working' && this.isFollowed(session)) this.ensureView(session);
+    if (session.status === 'working' && this.isFollowed(session)) await this.ensureView(session).ready;
   }
 
-  async onBlocked(session) {
-    if (!this.isFollowed(session) && (!this.cfg.notify.enabled || this.localActive())) return;
+  async blockedThread(session) {
+    if (!this.isFollowed(session) && (!this.cfg.notify.enabled || this.cfg.notify.scope === 'followed' || this.localActive())) return;
     await this.showBlocked(session);
   }
 
   async showBlocked(session, hint) {
     const screen = await this.tmux.capture(session.key);
     const state = { dialog: findDialog(screen) || session.dialog, screen };
-    state.messageId = await this.post(cards.blockedCard({ session, ...state, hint }), session.key);
+    const previous = this.blocked.get(session.key);
+    if (previous) {
+      state.messageId = previous.messageId;
+      await this.feishu.updater.flush(state.messageId, cards.blockedCard({ session, ...state, hint }));
+    } else state.messageId = await this.postThreadCard(session, cards.blockedCard({ session, ...state, hint }));
     this.blocked.set(session.key, state);
   }
 
@@ -417,7 +589,7 @@ export class Router {
     await this.feishu.updater.flush(state.messageId, cards.blockedCard({ session, dialog: state.dialog, screen: state.screen, answered }));
   }
 
-  async onTurnEnd(session, turn) {
+  async finishTurn(session, turn) {
     const followed = this.isFollowed(session);
     this.oneShot.delete(session.key);
     const view = this.views.get(session.key);
@@ -437,57 +609,57 @@ export class Router {
     if (followed) {
       const done = this.renderTurn(session, 'done', turn);
       if (view) await view.ready;
-      if (!view?.messageId) {
-        await this.post(done, session.key);
-        return;
-      }
-      await this.completeCard(session, view.messageId, done);
+      if (view?.messageId) await this.completeCard(session, view.messageId, done);
+      else await this.postThreadCard(session, done);
       // An edit does not ring the phone. After a long turn, one short line does.
-      if (long) {
+      if (view?.messageId && long && this.cfg.notify.enabled && this.cfg.notify.completionPing !== false && !this.localActive()) {
         const preview = oneLine(turn.texts.at(-1) || '', 60);
         const line = `**${session.name}** 已结束（${fmtDuration(seconds)}）${preview ? `：${preview}` : ''}`;
-        this.feishu.sendText(this.chatId, line, { replyTo: view.messageId })
-          .then((id) => this.store.rememberMessage(id, session.key))
-          .catch((err) => log('warn', 'turn.ping', { message: err.message }));
+        await this.notifyThread(session, line, view.rootId || await this.sessionRoot(session)).catch((err) => log('warn', 'turn.ping', { message: err.message }));
       }
       return;
     }
     if (empty) return;
-    if (view) {
-      await view.ready;
-      if (view.messageId) {
-        await this.completeCard(session, view.messageId, cards.finishedCard({ session, turn }));
-        return;
-      }
-    }
-    if (promised || (this.cfg.notify.enabled && long && !this.localActive())) {
-      const messageId = await this.post(cards.finishedCard({ session, turn }), session.key);
+    const notify = this.cfg.notify.enabled && ((promised && this.cfg.notify.detachedCompletion !== false) ||
+        (!promised && this.cfg.notify.scope !== 'followed' && long && !this.localActive()));
+    if (view) await view.ready;
+    if (view?.messageId || notify) {
+      const done = cards.finishedCard({ session, turn });
+      const messageId = view?.messageId || await this.postThreadCard(session, done);
+      if (view?.messageId) await this.completeCard(session, messageId, done);
       this.finished.set(messageId, { key: session.key, turn });
       while (this.finished.size > 40) this.finished.delete(this.finished.keys().next().value);
+      if (notify && view?.messageId) await this.notifyThread(session, `**${session.name}** 已结束（${fmtDuration(seconds)}）：${oneLine(turn.texts.at(-1) || '', 60)}`, view.rootId || await this.sessionRoot(session));
     }
   }
 
-  async onRemoved(session) {
+  async removeThread(session) {
     this.views.delete(session.key);
     this.persistViews();
+    for (const [id, pending] of this.pendingCompletions) if (pending.key === session.key) this.pendingCompletions.delete(id);
+    this.persistCompletions();
     this.oneShot.delete(session.key);
     this.blocked.delete(session.key);
     this.follows.delete(session.key);
     this.promised.delete(session.key);
     if (this.attachedKey() === session.key) {
       this.store.set('attached', null);
-      await this.info(`会话 ${session.name} 已结束`, '已回到 Pi 管家。');
+      const card = cards.infoCard({ title: `会话 ${session.name} 已结束`, text: '已回到 Pi 管家。' });
+      if (this.reusable.has(`session:${session.key}`)) await this.sessionCard(session, card);
+      else await this.post(card);
     }
   }
 
   // ---- attach / detach ----
 
   async attach(session, { announce = true } = {}) {
+    if (this.registry.activate) session = await this.registry.activate(session.key);
     const previous = this.attachedSession();
-    if (previous && previous.key !== session.key) this.dropView(previous, `已切到 ${session.name}。${previous.name} 仍在运行，结束后会通知你。`);
+    if (previous && previous.key !== session.key) this.leaveSession(previous);
     this.promised.delete(session.key);
     this.store.set('attached', { key: session.key, name: session.name });
     this.nudge();
+    await this.refreshDashboard('attach');
     log('info', 'attach', { session: session.name });
     if (!announce) return;
     // One card says where the session is: its dialog, its running turn, or its last reply.
@@ -498,26 +670,29 @@ export class Router {
 
   async detach() {
     const previous = this.attachedSession();
-    if (previous) this.dropView(previous, `已断开。${previous.name} 仍在运行，结束后会通知你。`);
+    if (previous) this.leaveSession(previous);
     this.store.set('attached', null);
     this.nudge();
   }
 
-  dropView(session, text) {
-    const view = this.views.get(session.key);
-    if (!view) return;
-    this.views.delete(session.key);
-    this.persistViews();
-    this.promised.add(session.key);
-    view.ready.then(() => view.messageId && this.feishu.updater.flush(view.messageId, cards.stubCard(text)));
+  leaveSession(session) {
+    if (this.views.has(session.key) || session.status === 'working' || session.status === 'blocked') this.promised.add(session.key);
+    // Keep the turn card so its final result can arrive as a silent edit after detaching.
   }
 
-  // Before a restart: turn cards cannot be picked up again, so they say where the reply will be.
+  // Keep turn output intact; operational notices belong in the thread as text.
   async shutdown() {
     clearInterval(this.ticker);
     const pending = [];
-    for (const view of this.views.values()) {
-      pending.push(view.ready.then(() => view.messageId && this.feishu.updater.flush(view.messageId)));
+    for (const [key, view] of this.views) {
+      const session = this.registry.sessions.get(key);
+      pending.push((async () => {
+        await view.ready;
+        if (!view.messageId) return;
+        await this.feishu.updater.flush(view.messageId);
+        const rootId = view.rootId || this.reusable.get(`session:${key}`)?.id;
+        if (rootId) await this.notifyThread(session, `fmux 正在重启。${session?.name || '会话'} 的后续回复会继续发到此线程。`, rootId);
+      })());
     }
     this.views.clear();
     await Promise.race([Promise.allSettled(pending), sleep(2000)]);
@@ -568,9 +743,10 @@ export class Router {
     const legacy = this.store.get('dash');
     if (legacy?.messageId && !saved.some((e) => e.kind === 'dash')) saved.push({ id: legacy.messageId, kind: 'dash', key: '', until: null });
     for (const e of saved) {
-      // "attached" cards of an earlier version are session cards now, with the same time limit.
-      const legacy = e.kind === 'attached';
-      this.live.set(e.id, { kind: legacy ? 'peek' : e.kind, key: e.key, until: legacy ? Date.now() + this.peekTtl : e.until ?? Infinity, signature: '' });
+      const slot = e.kind === 'dash' ? 'dashboard' : `${e.kind === 'term' ? 'terminal' : 'session'}:${e.key}`;
+      if (!this.reusable.has(slot)) this.rememberCard(slot, e.id);
+      if (e.kind === 'peek' || e.kind === 'attached') continue;
+      this.live.set(e.id, { kind: e.kind, key: e.key, until: e.until ?? Infinity, signature: '' });
     }
     for (const [key, saved] of Object.entries(this.store.get('turnCards') || {})) {
       const session = this.registry.sessions.get(key);
@@ -586,7 +762,24 @@ export class Router {
     }
     const attached = this.attachedSession();
     if (attached?.status === 'working') this.ensureView(attached);
+    this.persistLive();
+    // Startup configuration (especially filters) must be reflected immediately,
+    // including when a previous update failure removed the panel from live tracking.
+    await this.refreshDashboard('resume');
     this.startTicker();
+  }
+
+  async refreshDashboard(reason, { throwOnError = false } = {}) {
+    if (!this.reusable.has('dashboard')) return;
+    try {
+      const out = await this.renderLive({ kind: 'dash', key: '' });
+      const id = await this.reuseCard('dashboard', out.card);
+      this.track('dash', id, '', DASH_TTL).signature = out.signature;
+      log('info', 'dashboard.refreshed', { reason, sessions: this.registry.list().map((s) => ({ name: s.name, status: s.status })) });
+    } catch (err) {
+      log('warn', 'dashboard.refresh', { reason, message: err.message });
+      if (throwOnError) throw err;
+    }
   }
 
   startTicker() {
@@ -625,7 +818,7 @@ export class Router {
     const live = final ? 'off' : 'on';
     const minute = session.status === 'working' ? Math.floor((now - session.statusSince) / 60000) : 0;
     // A shell has nothing but its screen. An agent shows its last exchange unless the terminal was asked for.
-    if (entry.kind === 'term' || session.kind === 'shell') {
+    if (!session.dormant && entry.kind === 'term') {
       const screen = await this.tmux.capture(session.key);
       return {
         card: cards.terminalCard({ session, screen, attached, now, live }),
@@ -658,6 +851,7 @@ export class Router {
           continue;
         }
         const out = await this.renderLive(entry);
+        if (this.live.get(messageId) !== entry) continue;
         if (out.gone) {
           this.forget(messageId);
           await this.feishu.updater.flush(messageId, out.card);
@@ -669,7 +863,7 @@ export class Router {
       // Turn cards change with the agent's output; between outputs only the elapsed time moves.
       for (const [key, view] of this.views) {
         const session = this.registry.sessions.get(key);
-        if (!session?.turn || !view.messageId) continue;
+        if (!session?.turn || session.status !== 'working' || !this.isFollowed(session) || !view.messageId) continue;
         const minute = Math.floor((now - session.turn.startedAt) / 60000);
         if (minute === view.minute) continue;
         view.minute = minute;
@@ -683,24 +877,36 @@ export class Router {
   }
 
   // Send a new live card.
-  async postLive(kind, session, ttlMs) {
+  async postLive(kind, session, ttlMs, fresh = false) {
     const key = session?.key || '';
     const out = await this.renderLive({ kind, key });
-    const messageId = await this.post(out.card, key || undefined);
+    const slot = kind === 'dash' ? 'dashboard' : `${kind === 'term' ? 'terminal' : 'session'}:${key}`;
+    const opts = kind === 'term' ? { replyTo: await this.sessionRoot(session), replyInThread: true } : undefined;
+    const messageId = await this.reuseCard(slot, out.card, key || undefined, opts, fresh);
+    if (kind === 'peek') { this.sessionRoots.add(messageId); this.forget(messageId); return messageId; }
     this.track(kind, messageId, key, ttlMs).signature = out.signature;
     return messageId;
   }
 
   // Make the card a click came from the live one, and return its new content for the click's reply.
   async adopt(kind, messageId, session, ttlMs) {
-    const entry = this.track(kind, messageId, session?.key || '', ttlMs);
+    if (kind === 'peek') this.sessionRoots.add(messageId);
+    const slot = kind === 'dash' ? 'dashboard' : `${kind === 'term' ? 'terminal' : 'session'}:${session?.key}`;
+    const sameMain = session && this.reusable.get(`session:${session.key}`)?.id === messageId;
+    if (kind !== 'term' || !sameMain) {
+      if (this.reusable.get(slot)?.id !== messageId) this.rememberCard(slot, messageId);
+    }
+    const entry = kind === 'peek' ? { kind, key: session.key } : this.track(kind, messageId, session?.key || '', ttlMs);
+    if (kind === 'peek') this.forget(messageId);
     const out = await this.renderLive(entry);
     entry.signature = out.signature;
     return out.card;
   }
 
   sendDashboard() {
-    return this.postLive('dash', null, DASH_TTL);
+    // Clearing local chat history does not invalidate the server-side card ID.
+    // An explicit request must therefore send a visible new panel.
+    return this.postLive('dash', null, DASH_TTL, true);
   }
 
   get peekTtl() {
@@ -791,6 +997,11 @@ export class Router {
         }
         await this.attach(session, { announce: false });
         this.store.rememberMessage(evt.messageId, session.key);
+        const existing = this.reusable.get(`session:${session.key}`);
+        if (existing && existing.id !== evt.messageId) {
+          await this.sendPeek(session);
+          return replace(cards.stubCard(`${session.name}：已更新原会话卡片。`), `已创建 ${session.name}`);
+        }
         return replace(await this.adopt('peek', evt.messageId, session, this.peekTtl), `已创建 ${session.name}`);
       }
       default:
@@ -801,8 +1012,17 @@ export class Router {
     if (!session) return toast(`会话 ${v.n || ''} 已不存在`, 'error');
     switch (v.a) {
       case 'attach': {
+        if (session.dormant || this.registry.restoring?.has(session.key)) {
+          this.attach(session).catch(async (err) => {
+            log('error', 'session.activate', { session: session.name, message: err.message });
+            const rootId = this.reusable.get(`session:${session.key}`)?.id || evt.messageId;
+            await this.notifyThread(session, `恢复 ${session.name} 失败：${err.message}`, rootId)
+              .catch((reportError) => log('error', 'session.activate_report', { message: reportError.message }));
+          });
+          return toast(`正在恢复 ${session.name}，就绪后会接入`);
+        }
         // A click on the session's own card needs no second card: that card turns into "已接入".
-        const own = this.live.get(evt.messageId);
+        const own = this.live.get(evt.messageId) || (this.reusable.get(`session:${session.key}`)?.id === evt.messageId ? { kind: 'peek', key: session.key } : null);
         const sameCard = own && own.kind !== 'dash' && own.key === session.key && session.status !== 'working' && session.status !== 'blocked';
         await this.attach(session, { announce: !sameCard });
         if (sameCard) return replace(await this.redraw(session, evt, own.kind), `已接入 ${session.name}`);
@@ -845,19 +1065,28 @@ export class Router {
       case 'reply': {
         const text = String(form.text || '').trim();
         if (!text) return toast('内容为空', 'warning');
-        if (v.from === 'term' || v.from === 'peek') {
-          // The terminal card talks to the terminal as it is, dialog or not.
-          await this.tmux.sendText(session.key, text);
-          await sleep(600);
-          return replace(await this.redraw(session, evt, 'term'), '已发送');
-        }
-        if (!(await this.deliver(session, text))) return toast('会话在等确认，没有发出', 'warning');
-        const finished = this.finished.get(evt.messageId);
-        return finished ? replace(cards.finishedCard({ session, turn: finished.turn, replied: text }), '已发送') : toast('已发送');
+        // Restoring an agent may take longer than Feishu's callback deadline.
+        const send = async () => {
+          if (v.from === 'term' || v.from === 'peek') {
+            await this.tmux.sendText(session.key, text, { allowBlocked: true });
+            await sleep(600);
+            await this.feishu.updater.flush(evt.messageId, await this.redraw(session, evt, 'term'));
+            return;
+          }
+          if (!(await this.deliver(session, text))) return;
+          const finished = this.finished.get(evt.messageId);
+          if (finished) await this.feishu.updater.flush(evt.messageId, cards.finishedCard({ session, turn: finished.turn, replied: text }));
+        };
+        send().catch(async (err) => {
+          log('error', 'card.deliver', { session: session.name, message: err.message });
+          await this.postThreadCard(session, cards.infoCard({ title: '发送失败', text: err.message, template: 'red' }))
+            .catch((reportError) => log('error', 'card.deliver_report', { message: reportError.message }));
+        });
+        return toast('已接收，正在发送');
       }
       case 'kill':
         this.forget(evt.messageId);
-        await this.tmux.killSession(session.tmuxSession);
+        await this.tmux.killSession(session.tmuxSession, { key: session.key });
         return replace(cards.stubCard(`tmux 会话 ${session.tmuxSession} 已结束。`), '已结束');
       default:
         return toast('未知操作', 'warning');
@@ -873,6 +1102,13 @@ export class Router {
   // resume: 'new', 'last' (latest conversation of the directory), '<agent>:<conversation id>',
   // or words from a conversation's title. yolo: start the agent with its `flags` (-d, --yolo).
   async createSession({ name, agent = 'claude', cwd = '~', prompt = '', resume = 'new', yolo = true }) {
+    const options = { name, agent, cwd, prompt, resume, yolo };
+    const next = (this.creating || Promise.resolve()).catch(() => {}).then(() => this.createSessionOnce(options));
+    this.creating = next;
+    return next;
+  }
+
+  async createSessionOnce({ name, agent = 'claude', cwd = '~', prompt = '', resume = 'new', yolo = true }) {
     let template;
     if (resume && resume !== 'new' && resume !== 'last') {
       const tagged = resume.match(/^(claude|codex):(.+)$/);
@@ -894,15 +1130,24 @@ export class Router {
     }
     template ??= spec.command;
     name = String(name || '').trim() || this.autoName(agent);
+    const prefix = this.cfg.sessions?.namePrefix || '';
+    if (prefix && !name.startsWith(prefix)) name = prefix + name;
+    if (this.tmux.SESSION_NAME_RE && !this.tmux.SESSION_NAME_RE.test(name)) throw new Error('无效的会话名称');
+    if (this.registry.allows && !this.registry.allows(name)) throw new Error(`会话 ${name} 被用户的 tmux 过滤设置排除`);
     const dir = expandHome(cwd || '~');
     if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) throw new Error(`目录不存在：${cwd}`);
-    if (this.registry.list().some((s) => s.tmuxSession === name)) throw new Error(`已有叫 ${name} 的会话`);
+    const exists = this.registry.list().some((s) => s.tmuxSession === name);
+    if (exists && this.cfg.sessions?.onConflict !== 'replace-idle') throw new Error(`已有叫 ${name} 的会话`);
     const base = template.replace('{flags}', yolo ? spec.flags || '' : '').replace('{name}', name).replace(/\s+/g, ' ').trim();
     const command = base ? (prompt ? `${base} ${quoteArg(prompt)}` : base) : prompt;
-    await this.tmux.newSession({ name, cwd: dir, command });
+    if (exists) {
+      if (!this.registry.replaceSession) throw new Error('当前 registry 不支持替换同名会话');
+      await this.registry.replaceSession({ name, cwd: dir, command, agent });
+    } else await this.tmux.newSession({ name, cwd: dir, command });
     await this.registry.poll();
     const session = this.registry.list().find((s) => s.tmuxSession === name);
     if (!session) throw new Error('会话创建后没有出现在 tmux 里');
+    this.registry.setLaunchPolicy?.(session, { agent, yolo });
     log('info', 'session.new', { name, agent, cwd: dir, resume, yolo });
     if (spec.autoTrust) this.autoTrust(session.key).catch((err) => log('warn', 'autotrust', { message: err.message }));
     return session;
@@ -912,7 +1157,7 @@ export class Router {
   autoName(agent) {
     const d = new Date();
     const two = (n) => String(n).padStart(2, '0');
-    const base = `${agent}-${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}`;
+    const base = `${this.cfg.sessions?.namePrefix || ''}${agent}-${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}`;
     const taken = new Set(this.registry.list().map((s) => s.tmuxSession));
     let name = base;
     for (let i = 2; taken.has(name); i++) name = `${base}-${i}`;
@@ -994,7 +1239,7 @@ export class Router {
     if (!this.piView) {
       const view = { text: '', tools: 0, lastTool: null, startedAt: Date.now(), messageId: null };
       this.piView = view;
-      view.ready = this.post(cards.conciergeCard({ state: 'working', ...view }))
+      view.ready = this.reuseCard('concierge', cards.conciergeCard({ state: 'working', ...view }))
         .then((id) => { view.messageId = id; })
         .catch((err) => log('error', 'pi.view', { message: err.message }));
     }
@@ -1017,7 +1262,7 @@ export class Router {
     await view.ready;
     const done = cards.conciergeCard({ state: 'done', ...view, text: view.text.trim(), endedAt: Date.now(), error });
     if (view.messageId) await this.feishu.updater.flush(view.messageId, done);
-    else await this.post(done);
+    else await this.reuseCard('concierge', done);
   }
 
   // ---- control API (fmuxctl, and through it the concierge) ----
@@ -1026,6 +1271,7 @@ export class Router {
     return {
       name: s.name, key: s.key, kind: s.kind, status: s.status, since: new Date(s.statusSince).toISOString(), note: s.note,
       cwd: s.cwd, title: s.title, attached: this.attachedKey() === s.key, lastPrompt: s.lastPrompt.slice(0, 300), lastText: s.lastText.slice(0, 600),
+      dormant: Boolean(s.dormant),
     };
   }
 
@@ -1082,10 +1328,14 @@ export class Router {
     },
     kill: async ({ ref }) => {
       const session = this.need(ref);
-      await this.tmux.killSession(session.tmuxSession);
+      await this.tmux.killSession(session.tmuxSession, { key: session.key });
       return { killed: session.tmuxSession };
     },
-    notify: async ({ title = 'fmux', text }) => ({ messageId: await this.post(cards.infoCard({ title, text })) }),
+    notify: async ({ title = 'fmux', text }) => {
+      const session = this.attachedSession();
+      const rootId = session ? await this.sessionRoot(session) : await this.sendDashboard();
+      return { messageId: await this.notifyThread(session, `**${title}**\n${text}`, rootId) };
+    },
     dashboard: async () => ({ messageId: await this.sendDashboard() }),
     handoff: async (params) => this.handoff(params),
     show: async ({ ref, terminal = false }) => ({ messageId: await (terminal ? this.sendTerminal(this.need(ref)) : this.sendPeek(this.need(ref))) }),

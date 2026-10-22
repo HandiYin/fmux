@@ -349,7 +349,7 @@ node --input-type=module -e "import { botMenuConfig } from './src/bot-menu.mjs';
 
 | 项 | 默认 | 含义 |
 |---|---|---|
-| `notify.minWorkSec` | 20 | 没接入的会话，一轮运行超过这么多秒，结束时发卡片 |
+| `notify.minWorkSec` | 20 | 没接入的会话，一轮运行超过这么多秒，结束时更新会话卡片并按通知设置在线程中提醒 |
 | `notify.quietIfLocalActiveSec` | 180 | 这么多秒内本机 tmux 有键盘输入，就不发通知。设 0 总是通知 |
 
 ## 7. 排错

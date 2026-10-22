@@ -9,6 +9,7 @@ import { Tail, adapters, lastExchange, locateTranscript, readClaudeMeta } from '
 import { pick } from './match.mjs';
 import { findDialog, looksWorking } from './screen.mjs';
 import { log } from './util.mjs';
+import { sessionFilter } from './session-filter.mjs';
 
 const SHELLS = new Set(['bash', 'zsh', 'fish', 'sh', 'dash', 'pwsh', 'powershell', 'cmd', 'nu']);
 // psmux keeps a spare server under this name to start sessions fast. It is not a session of the user.
@@ -34,12 +35,13 @@ function newTurn(session) {
 //   changed()                      something the dashboard shows is different
 export class Registry extends EventEmitter {
   // `probe` is how the registry looks at processes and transcripts; tests replace it.
-  constructor({ tmux = realTmux, intervalMs = 2000, hide = [], probe = {} } = {}) {
+  constructor({ tmux = realTmux, intervalMs = 2000, hide = [], include = [], exclude = [], probe = {} } = {}) {
     super();
     this.tmux = tmux;
     this.probe = { snapshot, findAgent, readClaudeMeta, locateTranscript, ...probe };
     this.intervalMs = intervalMs;
     this.hide = new Set([...hide, HUB_SESSION]);
+    this.allows = sessionFilter({ include, exclude, hide: [...this.hide] });
     this.sessions = new Map();
     this.localActiveAt = 0;
     this.polls = 0;
@@ -76,8 +78,9 @@ export class Registry extends EventEmitter {
     const list = this.list();
     if (!text) return { match: null, candidates: [] };
     if (/^\d+$/.test(text)) return { match: list[Number(text) - 1] || null, candidates: [] };
-    const exact = list.find((s) => s.key === text || s.name === text);
-    if (exact) return { match: exact, candidates: [] };
+    const exact = list.filter((s) => s.key === text || s.name === text);
+    if (exact.length === 1) return { match: exact[0], candidates: [] };
+    if (exact.length > 1) return { match: null, candidates: exact };
     return pick(text, list, (s) => [[s.name, 1], [s.title, 0.9], [path.basename(s.cwd || ''), 0.5], [s.kind, 0.4]]);
   }
 
@@ -98,7 +101,7 @@ export class Registry extends EventEmitter {
     const snap = await this.probe.snapshot();
     const seen = new Set();
     for (const pane of panes) {
-      if (this.hide.has(pane.sessionName) || INTERNAL_SESSION.test(pane.sessionName)) continue;
+      if (!this.allows(pane.sessionName) || INTERNAL_SESSION.test(pane.sessionName)) continue;
       seen.add(pane.paneId);
       let session = this.sessions.get(pane.paneId);
       const isNew = !session;
@@ -139,6 +142,9 @@ export class Registry extends EventEmitter {
     s.activityAt = pane.activityAt;
     s.title = cleanTitle(pane.title, pane.sessionName);
     s.paneTitle = pane.title;
+    s.logicalId = pane.logicalId;
+    s.clients = pane.clients;
+    s.single = pane.single;
 
     const agent = await this.probe.findAgent(snap, pane.panePid, pane.tty);
     const kind = agent?.kind || 'shell';
@@ -152,6 +158,8 @@ export class Registry extends EventEmitter {
       if (!isNew) s.lastText = '';
     }
     const meta = kind === 'claude' ? this.probe.readClaudeMeta(s.agentPid) : null;
+    s.conversationId = meta?.sessionId || null;
+    s.hasChildren = Boolean((snap.children.get(agent?.pid) || []).length);
 
     await this.followTranscript(s, kind, meta);
     const events = s.tail ? s.tail.read() : [];

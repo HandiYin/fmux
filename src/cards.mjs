@@ -39,6 +39,7 @@ export function fmtElapsed(ms) {
 
 // The light of a session: lit green while it runs, off when it ended, orange when it waits for you.
 export function light(s, now = Date.now()) {
+  if (s.dormant) return { dot: '⚪', label: '休眠', color: 'neutral', detail: '发送消息会自动恢复' };
   if (s.status === 'working') return { dot: '🟢', label: '运行中', color: 'green', detail: `已 ${fmtElapsed(now - s.statusSince)}` };
   if (s.status === 'blocked') return { dot: '🟠', label: '等待确认', color: 'orange', detail: s.note || '' };
   if (s.status === 'shell') {
@@ -215,10 +216,12 @@ export function sessionCard({ session, attached = false, now = Date.now(), live 
   if (session.lastPrompt) elements.push(note(`上一条输入：${plainPreview(session.lastPrompt, 90)}`));
   if (session.lastText) elements.push(md(truncate(session.lastText, 1200, '\n\n…（已截断）')));
   else elements.push(note('这个会话还没有回复。'));
+  elements.push(replyForm(session, `发送到 ${session.name}`));
+  elements.push(note('此处状态为上次查看时的快照。任务进度和回复在线程中；也可在线程内发消息。'));
   elements.push(row([
     attached ? detachButton() : attachButton(session),
     terminalButton(session),
-    live === 'off' ? btn('刷新', { a: 'peek.refresh', ...ref(session) }, { icon: ICON.refresh }) : null,
+    btn('刷新', { a: 'peek.refresh', ...ref(session) }, { icon: ICON.refresh }),
   ]));
   elements.push(liveNote(live, now));
   return card({
@@ -286,6 +289,7 @@ export function turnCard({ session, state, texts, tools, lastTool, startedAt, en
   const elements = done && !texts.length ? [note(missingReply(session))] : turnBody(texts, done);
   if (done) {
     if (!texts.length) elements.push(row([terminalButton(session)]));
+    elements.push(replyForm(session, `继续 ${session.name}`));
     return card({
       title: session.name,
       subtitle: `用时 ${fmtDuration((endedAt - startedAt) / 1000)}${tools ? ` · 工具调用 ${tools} 次` : ''}`,

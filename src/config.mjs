@@ -13,13 +13,18 @@ const DEFAULTS = {
   stateDir: '~/.local/state/fmux',
   socket: '',
   poll: { intervalMs: 2000 },
-  tmux: { hide: [] },
+  lifecycle: { enabled: true, idleMinutes: 60, restoreTimeoutMs: 30000 },
+  tmux: { hide: [], include: [], exclude: [] },
+  sessions: { namePrefix: '', onConflict: 'error' },
   notify: {
     // Notify about a session nobody is attached to once a turn ran at least this long.
     minWorkSec: 20,
     // Skip those notifications while a tmux client saw keyboard input this recently.
     quietIfLocalActiveSec: 180,
     enabled: true,
+    scope: 'all',
+    completionPing: true,
+    detachedCompletion: true,
   },
   // How a new session starts each agent. {name} is the tmux session name, {id} a conversation id.
   // `continue` resumes the latest conversation of the directory, `resume` a chosen one.
@@ -56,7 +61,15 @@ function merge(base, over) {
 
 export function loadConfig(file = CONFIG_PATH) {
   const raw = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
-  const cfg = merge(DEFAULTS, raw);
+  const userFile = process.env.FMUX_USER_CONFIG || path.join(path.dirname(file), 'userconfig.json');
+  const user = fs.existsSync(userFile) ? JSON.parse(fs.readFileSync(userFile, 'utf8')) : {};
+  for (const key of Object.keys(user)) {
+    if (!['tmux', 'notify', 'sessions', 'lifecycle', 'live', 'concierge', 'agents'].includes(key)) throw new Error(`Unsupported userconfig setting: ${key}`);
+  }
+  const cfg = merge(merge(DEFAULTS, raw), user);
+  if (!['all', 'followed'].includes(cfg.notify.scope)) throw new Error('notify.scope must be all or followed');
+  if (!['error', 'replace-idle'].includes(cfg.sessions.onConflict)) throw new Error('sessions.onConflict must be error or replace-idle');
+  if (typeof cfg.sessions.namePrefix !== 'string' || !/^[A-Za-z0-9_-]*$/.test(cfg.sessions.namePrefix)) throw new Error('Invalid sessions.namePrefix');
   cfg.stateDir = expandHome(cfg.stateDir);
   cfg.socket = process.env.FMUX_SOCK || cfg.socket || socketPath(cfg.stateDir);
   return cfg;

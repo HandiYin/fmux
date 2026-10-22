@@ -1,0 +1,16 @@
+{
+  "tmux": {
+    "include": ["fmux-*"],
+    "exclude": []
+  },
+  "sessions": {
+    "namePrefix": "fmux-",
+    "onConflict": "replace-idle"
+  },
+  "notify": {
+    "enabled": true,
+    "scope": "followed",
+    "completionPing": false,
+    "detachedCompletion": false
+  }
+}
