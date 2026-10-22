@@ -32,16 +32,17 @@ export class CardUpdater {
     if (!card) return entry.busy;
     entry.lastSent = Date.now();
     entry.busy = entry.busy
-      .then(() => this.update(messageId, card))
+      .then(async () => { await this.update(messageId, card); return null; })
       .catch((err) => {
         log('warn', 'card.update', { messageId, message: err.message });
         this.onError?.(messageId, err);
+        return err;
       });
     return entry.busy;
   }
 
   // Push the latest card now and wait for it; used for the final state of a card.
-  async flush(messageId, card) {
+  async flush(messageId, card, { throwOnError = false } = {}) {
     let entry = this.entries.get(messageId);
     if (!entry) {
       entry = { lastSent: 0, card: null, timer: null, busy: Promise.resolve() };
@@ -50,8 +51,11 @@ export class CardUpdater {
     if (card) entry.card = card;
     clearTimeout(entry.timer);
     entry.timer = null;
-    await this.send(messageId, entry);
-    this.entries.delete(messageId);
+    const sent = this.send(messageId, entry);
+    const error = await sent;
+    // A newer write may already be queued on this same entry.
+    if (entry.busy === sent && !entry.card && !entry.timer && this.entries.get(messageId) === entry) this.entries.delete(messageId);
+    if (throwOnError && error) throw error;
   }
 }
 
@@ -100,7 +104,14 @@ export async function createFeishu({ appId, appSecret, ownerOpenId, tenant = 'fe
       const res = await channel.send(chatId, { card }, replyTo ? { replyTo } : undefined);
       return res.messageId;
     },
-    updateCard: (messageId, card) => channel.updateCard(messageId, card),
+    async updateCard(messageId, card) {
+      // channel.updateCard discards the SDK response, including nonzero API codes.
+      if (!channel.rawClient) return channel.updateCard(messageId, card);
+      const res = await channel.rawClient.im.v1.message.patch({
+        path: { message_id: messageId }, data: { content: JSON.stringify(card) },
+      });
+      if (res.code) throw new Error(`Card update failed (${res.code}): ${res.msg || 'unknown error'}`);
+    },
     async sendText(chatId, text, { replyTo } = {}) {
       const res = await channel.send(chatId, { markdown: text }, replyTo ? { replyTo } : undefined);
       return res.messageId;

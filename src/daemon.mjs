@@ -63,7 +63,7 @@ export async function runDaemon({ fake = false } = {}) {
   registry.start();
   const control = startControl({ socket: cfg.socket, methods });
   await feishu.connect();
-  router.resume();
+  await router.resume();
   log('info', 'hub.ready', { fake, sessions: registry.sessions.size, bot: feishu.botName(), attached: store.get('attached')?.name || null });
 
   function shutdown(signal) {
