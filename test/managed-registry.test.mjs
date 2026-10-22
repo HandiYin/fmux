@@ -207,6 +207,44 @@ test('a hub restart keeps identities of still-running tmux panes', async (t) => 
   assert.equal(restarted.list()[0].dormant, false);
 });
 
+for (const agent of ['shell', 'pi']) {
+  test(`a hub restart preserves ${agent} card targets without creating a restore record`, async (t) => {
+    const h = await setup(t, { agent });
+    const key = h.session.key;
+    h.registry.store.rememberMessage('old-root', key);
+    h.registry.store.flush();
+    const restarted = h.build();
+    t.after(() => restarted.store.flush());
+    await restarted.poll();
+    assert.equal(restarted.list()[0].key, key);
+    assert.equal(restarted.records.size, 0, 'a stable pane ID does not enable automatic retirement');
+    const feishu = createFakeFeishu();
+    const router = new Router({ feishu, registry: restarted, store: restarted.store, cfg: h.cfg, tmux: restarted.transport });
+    t.after(() => { router.follows.clear(); clearTimeout(router.nudgeTimer); clearInterval(router.ticker); });
+    // The screen follower is unrelated to this routing check.
+    router.followScreen = () => {};
+    await router.onMessage({ senderId: OWNER, chatId: CHAT, chatType: 'p2p', messageId: 'follow-up',
+      content: 'continue', rawContentType: 'text', rootId: 'old-root' });
+    assert.deepEqual(h.tmux.sent, [['%1', 'continue']]);
+    assert.deepEqual(h.tmux.created, []);
+    assert.deepEqual(h.tmux.killed, []);
+  });
+}
+
+test('multi-pane sessions retain distinct card targets across a hub restart', async (t) => {
+  const h = await setup(t, { agent: 'shell' });
+  h.tmux.panes[0].single = false;
+  h.tmux.panes.push(pane({ paneId: '%2', paneIndex: 1, single: false, clients: 0, cwd: h.session.cwd }));
+  await h.registry.poll();
+  const before = h.registry.list().map((s) => [s.key, s.paneId]);
+  const restarted = h.build();
+  t.after(() => restarted.store.flush());
+  await restarted.poll();
+  assert.deepEqual(restarted.list().map((s) => [s.key, s.paneId]), before);
+  assert.equal(new Set(before.map(([key]) => key)).size, 2);
+  assert.equal(restarted.records.size, 0);
+});
+
 test('simultaneous follow-ups create one replacement and send both inputs in order', async (t) => {
   const h = await setup(t);
   h.age();
@@ -330,6 +368,43 @@ test('a confirmation discovered at startup blocks text but permits explicit key 
   assert.equal(h.tmux.sent.length, 0);
   await h.registry.transport.sendKeys(h.session.key, ['esc']);
   assert.deepEqual(h.tmux.keys, [['%2', ['esc']]]);
+});
+
+test('the terminal form permits explicit text at a confirmation while ordinary text stays blocked', async (t) => {
+  const h = await setup(t);
+  h.meta.status = 'waiting';
+  await h.registry.poll(); await h.registry.poll();
+  assert.equal(h.session.status, 'blocked');
+  await assert.rejects(h.registry.transport.sendText(h.session.key, 'ordinary prompt'), /等待确认/);
+  const feishu = createFakeFeishu();
+  const router = new Router({ feishu, registry: h.registry, store: h.registry.store, cfg: h.cfg, tmux: h.registry.transport });
+  t.after(() => { clearTimeout(router.nudgeTimer); clearInterval(router.ticker); });
+  let finish;
+  const written = new Promise((resolve) => { finish = resolve; });
+  // Resolve only when the asynchronous form action has finished updating its card.
+  const update = feishu.updater.update;
+  feishu.updater.update = async (...args) => { await update(...args); finish(); };
+  const ack = await router.onCardAction({ messageId: 'terminal-card', chatId: CHAT, operator: { openId: OWNER },
+    action: { value: { a: 'reply', s: h.session.key, from: 'term' }, formValue: { text: 'confirm explicitly' } } });
+  assert.equal(ack.toast.content, '已接收，正在发送');
+  await Promise.race([written, new Promise((resolve) => setTimeout(resolve, 1500))]);
+  assert.deepEqual(h.tmux.sent, [['%1', 'confirm explicitly']]);
+  await assert.rejects(h.registry.transport.sendText(h.session.key, 'another ordinary prompt'), /等待确认/);
+});
+
+test('explicit terminal text does not bypass restoration or failed-launch identity checks', async (t) => {
+  const h = await setup(t);
+  h.age(); await h.registry.poll();
+  h.setKind('shell');
+  await assert.rejects(h.registry.transport.sendText(h.session.key, 'manual input', { allowBlocked: true }), /尚未就绪/);
+  assert.deepEqual(h.tmux.sent, []);
+  h.setKind('claude');
+  await h.registry.activate(h.session.key);
+  const create = h.tmux.newSession;
+  h.tmux.newSession = async (spec) => { await create(spec); h.setKind('shell'); };
+  await h.registry.replaceSession({ name: 'work', cwd: h.session.cwd, command: 'claude', agent: 'claude' });
+  await assert.rejects(h.registry.transport.sendText(h.session.key, 'manual input after failed launch', { allowBlocked: true }), /尚未就绪/);
+  assert.deepEqual(h.tmux.sent, []);
 });
 
 test('an unverified startup can be inspected and answered without forwarding text', async (t) => {

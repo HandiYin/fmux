@@ -353,6 +353,41 @@ test('persistent roots still route messages after the recent-message cache is ev
   assert.deepEqual(h.tmux.sent, [[s.key, 'late thread reply']]);
 });
 
+test('renewed roots retain old thread routing after cache eviction and a hub restart', async (t) => {
+  const s = session();
+  const other = session({ key: '%2', name: 'other', tmuxSession: 'other' });
+  const h = harness({ sessions: [s, other] });
+  stop(t, h.router);
+  const oldRoot = await h.router.sendPeek(s);
+  h.router.reusable.get(`session:${s.key}`).createdAt = Date.now() - 14 * 86400000;
+  const newRoot = await h.router.sendPeek(s);
+  assert.notEqual(newRoot, oldRoot);
+  for (let i = 0; i < 450; i++) h.store.rememberMessage(`other-${i}`, other.key);
+  h.store.set('attached', { key: other.key, name: other.name });
+  const restarted = new Router({ feishu: h.feishu, registry: h.registry, store: h.store, cfg: h.cfg, tmux: h.tmux });
+  stop(t, restarted);
+  await restarted.onMessage({ senderId: h.cfg.owner.openId, chatId: h.cfg.owner.chatId, chatType: 'p2p',
+    messageId: 'om_late_reply', content: 'continue original task', rawContentType: 'text',
+    rootId: oldRoot, replyToMessageId: 'old-child', threadId: 'omt_old_thread' });
+  assert.deepEqual(h.tmux.sent, [[s.key, 'continue original task']]);
+  assert.equal(h.store.get('attached').key, other.key);
+});
+
+test('unresolved thread and quote targets never fall through to the attachment or concierge', async (t) => {
+  const h = harness();
+  stop(t, h.router);
+  const s = h.registry.list()[0];
+  for (const attached of [null, { key: s.key, name: s.name }]) {
+    h.store.set('attached', attached);
+    for (const context of [{ rootId: 'unknown-root' }, { threadId: 'unknown-thread' }, { replyToMessageId: 'unknown-parent' }]) {
+      await h.say('private follow up', context);
+      assert.match(JSON.stringify(h.cardsSent().at(-1).card), /无法定位回复会话/);
+    }
+  }
+  assert.deepEqual(h.tmux.sent, []);
+  assert.deepEqual(h.concierge.prompts, []);
+});
+
 test('detached tasks finish by editing their own thread card, without touching the root', async (t) => {
   const h = harness({ notify: { scope: 'followed', detachedCompletion: false } });
   stop(t, h.router);

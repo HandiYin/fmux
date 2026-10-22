@@ -68,8 +68,9 @@ export class ManagedRegistry extends Registry {
         const session = this.sessions.get(key);
         return session?.dormant ? session.lastText || '会话已休眠，发送消息会自动恢复。' : tmux.capture(pane(key), options);
       },
-      sendText: (key, text, options) => this.use(key, (s) => tmux.sendText(s.paneId, text, options)),
-      sendKeys: (key, keys) => this.use(key, (s) => tmux.sendKeys(s.paneId, keys), { allowBlocked: true }),
+      sendText: (key, text, { allowBlocked = false, ...options } = {}) =>
+        this.use(key, (s) => tmux.sendText(s.paneId, text, options), { allowBlocked }),
+      sendKeys: (key, keys) => this.use(key, (s) => tmux.sendKeys(s.paneId, keys), { allowBlocked: true, allowUnverified: true }),
       killSession: async (name, { key } = {}) => {
         const matches = this.list().filter((s) => s.tmuxSession === name && (!key || s.key === key));
         if (matches.length > 1) throw new Error('存在多个同名会话，请明确选择要结束的会话。');
@@ -180,14 +181,15 @@ export class ManagedRegistry extends Registry {
   }
 
   async checkpoint(s) {
-    if (this.restoring.has(s.key)) return;
-    const id = conversationId(s);
-    if (!id || !s.single || !this.rawTmux.SESSION_NAME_RE?.test(s.tmuxSession) || !this.cfg.agents[s.kind]?.resume?.includes('{id}')) return;
-    // Persist the identity in tmux too, so a hub restart does not change card targets.
-    if (s.logicalId !== s.key) {
+    // Every live pane needs a stable card target across hub restarts, including
+    // shells, pi and multi-pane sessions that cannot be retired or restored.
+    if (s.paneId && s.logicalId !== s.key) {
       await this.rawTmux.setSessionIdentity(s.paneId, s.key);
       s.logicalId = s.key;
     }
+    if (this.restoring.has(s.key)) return;
+    const id = conversationId(s);
+    if (!id || !s.single || !this.rawTmux.SESSION_NAME_RE?.test(s.tmuxSession) || !this.cfg.agents[s.kind]?.resume?.includes('{id}')) return;
     const prior = this.records.get(s.key);
     const record = {};
     for (const field of ['key', 'name', 'tmuxSession', 'kind', 'cwd', 'title', 'lastText', 'lastPrompt', 'transcript', 'statusSince', 'lastUseAt']) record[field] = s[field];
@@ -251,13 +253,13 @@ export class ManagedRegistry extends Registry {
     });
   }
 
-  async use(key, fn, { allowBlocked = false } = {}) {
+  async use(key, fn, { allowBlocked = false, allowUnverified = false } = {}) {
     return this.exclusive(key, async () => {
       let s = this.sessions.get(key);
       if (!s) throw new Error('会话已删除，消息没有发出。');
       s.lastUseAt = this.now();
-      if (s.dormant || (this.restoring.has(key) && !(allowBlocked && s.logicalId === key))) s = await this.restore(s);
-      if (this.starting.has(key) && !allowBlocked) {
+      if (s.dormant || (this.restoring.has(key) && !(allowUnverified && s.logicalId === key))) s = await this.restore(s);
+      if (this.starting.has(key) && !allowUnverified) {
         const deadline = this.now() + this.cfg.lifecycle.restoreTimeoutMs;
         do {
           await this.liveRegistry.poll();
@@ -269,7 +271,8 @@ export class ManagedRegistry extends Registry {
         if (s.kind !== this.starting.get(key) || !['idle', 'blocked', 'shell'].includes(s.status) || s.pending) throw new Error('新会话尚未就绪，消息没有发出。');
         this.starting.delete(key);
       }
-      // Startup can reveal a permission dialog; never type the user's message into it.
+      // Only explicit terminal input may answer a dialog. Text still has to pass
+      // startup identity checks, even when it comes from the terminal form.
       if (!allowBlocked && s.status === 'blocked') throw new Error('会话正在等待确认，消息没有发出。请先处理终端中的提示。');
       await fn(s);
       s.lastUseAt = this.now();

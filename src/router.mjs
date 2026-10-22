@@ -41,6 +41,7 @@ export class Router {
     this.promised = new Set(); // sessions left mid-turn: their result is announced whatever the notify settings
     this.live = new Map(); // message id -> { kind: 'dash' | 'peek' | 'term', key, until, signature }: cards kept current
     this.reusable = new Map(Object.entries(store.get('reusableCards') || {}));
+    this.rootSessions = new Map(Object.entries(store.get('rootSessions') || {}));
     this.cardWrites = new Map();
     this.sessionRoots = new Set();
     this.piView = null;
@@ -146,6 +147,15 @@ export class Router {
   }
 
   rememberCard(slot, id, createdAt = Date.now()) {
+    if (slot.startsWith('session:')) {
+      const key = slot.slice('session:'.length);
+      const previous = this.reusable.get(slot);
+      // Renewing an editable root must not redirect replies in its older thread.
+      if (previous) this.rootSessions.set(previous.id, key);
+      this.rootSessions.set(id, key);
+      while (this.rootSessions.size > 400) this.rootSessions.delete(this.rootSessions.keys().next().value);
+      this.store.set('rootSessions', Object.fromEntries(this.rootSessions));
+    }
     this.reusable.set(slot, { id, createdAt });
     this.store.set('reusableCards', Object.fromEntries(this.reusable));
   }
@@ -222,7 +232,7 @@ export class Router {
 
   boundSession(messageId) {
     if (!messageId) return null;
-    const key = this.store.sessionKeyFor(messageId);
+    const key = this.store.sessionKeyFor(messageId) || this.rootSessions.get(messageId);
     if (key) return key;
     // Long-lived roots may outlast the bounded message-ID cache.
     for (const [slot, root] of this.reusable) {
@@ -261,7 +271,7 @@ export class Router {
       const quotedKey = this.boundSession(msg.replyToMessageId) || this.boundSession(msg.rootId) ||
         (msg.threadId ? this.store.get('threadSessions')?.[msg.threadId] : null);
       const quoted = quotedKey ? this.registry.sessions.get(quotedKey) : null;
-      if (quotedKey?.startsWith('session:') && !quoted) {
+      if (quotedKey && !quoted) {
         await this.info('会话已删除', '这条回复没有发出。请从面板选择要继续的会话。');
         return;
       }
@@ -273,6 +283,10 @@ export class Router {
           this.store.set('threadSessions', Object.fromEntries(bindings));
         }
         await this.deliver(quoted, text, msg);
+        return;
+      }
+      if (msg.threadId || msg.rootId || msg.replyToMessageId) {
+        await this.info('无法定位回复会话', '这条回复没有发出。请从面板选择会话，在对应的新卡片中继续。');
         return;
       }
       const attached = this.store.get('attached');
@@ -1054,7 +1068,7 @@ export class Router {
         // Restoring an agent may take longer than Feishu's callback deadline.
         const send = async () => {
           if (v.from === 'term' || v.from === 'peek') {
-            await this.tmux.sendText(session.key, text);
+            await this.tmux.sendText(session.key, text, { allowBlocked: true });
             await sleep(600);
             await this.feishu.updater.flush(evt.messageId, await this.redraw(session, evt, 'term'));
             return;
