@@ -44,7 +44,9 @@ when the conversation is old. It never selects a Codex transcript just because i
 recently updated in the same directory. While a turn runs, Codex sometimes drops the name from
 the title (leaving only a spinner and the directory) or prefixes it with `Action Required`;
 fmux keeps reading the last confirmed rollout through those decorations instead of losing the
-reply. If identity is missing from the start or is ambiguous, the card explains that replies are
+reply. The last confirmed rollout and byte offset are kept in `state.json`, so a hub restart
+during a turn resumes the same transcript instead of waiting for the name to come back. If
+identity is missing from the start or is ambiguous, the card explains that replies are
 unavailable and offers the terminal view.
 
 ## Use it from the phone
