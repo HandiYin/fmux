@@ -156,6 +156,43 @@ test('unattached sessions notify only after a long turn and only when the keyboa
   assert.equal(h.heads().at(-1), 'work [等待确认 Claude]');
 });
 
+test('with notifications off, even a promised completion stays silent', async () => {
+  const s = session();
+  const h = harness({ sessions: [s], notify: { enabled: false } });
+  h.router.promised.add('%1');
+  await h.router.onTurnEnd(s, turn(90));
+  await h.router.onBlocked(s);
+  assert.equal(h.feishu.sent.length, 0);
+});
+
+test('an idle attachment returns to the dashboard after ten minutes without input', async () => {
+  const s = session();
+  const h = harness({ sessions: [s] });
+  h.store.set('attached', { key: '%1', name: 'work', lastInputAt: Date.now() - 11 * 60000 });
+  await h.router.tick();
+  assert.equal(h.store.get('attached'), null);
+  assert.equal(h.titles().at(-1), '会话面板');
+});
+
+test('a working session, recent input, or idleMinutes 0 keeps the attachment', async () => {
+  const idle = session();
+  const h = harness({ sessions: [idle] });
+  h.store.set('attached', { key: '%1', name: 'work', lastInputAt: Date.now() - 11 * 60000 });
+  idle.status = 'working';
+  await h.router.tick();
+  assert.equal(h.store.get('attached').name, 'work');
+
+  idle.status = 'idle';
+  await h.router.deliver(idle, 'still here');
+  await h.router.tick();
+  assert.equal(h.store.get('attached').name, 'work');
+
+  h.cfg.attach.idleMinutes = 0;
+  h.store.set('attached', { key: '%1', name: 'work', lastInputAt: Date.now() - 99 * 60000 });
+  await h.router.tick();
+  assert.equal(h.store.get('attached').name, 'work');
+});
+
 test('quote-reply and the reply form reach a session without attaching', async () => {
   const s = session();
   const h = harness({ sessions: [s] });

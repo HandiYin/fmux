@@ -19,7 +19,13 @@ const DEFAULTS = {
     minWorkSec: 20,
     // Skip those notifications while a tmux client saw keyboard input this recently.
     quietIfLocalActiveSec: 180,
+    // false: no completion or dialog card from a session that is not attached.
     enabled: true,
+  },
+  attach: {
+    // Return to the dashboard after this many minutes without input, while the session is idle.
+    // 0 keeps the attachment until the owner leaves explicitly.
+    idleMinutes: 10,
   },
   // How a new session starts each agent. {name} is the tmux session name, {id} a conversation id.
   // `continue` resumes the latest conversation of the directory, `resume` a chosen one.
@@ -57,6 +63,9 @@ function merge(base, over) {
 export function loadConfig(file = CONFIG_PATH) {
   const raw = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
   const cfg = merge(DEFAULTS, raw);
+  const idleMinutes = Number(cfg.attach.idleMinutes);
+  if (!Number.isFinite(idleMinutes) || idleMinutes < 0) throw new Error('attach.idleMinutes must be a number >= 0');
+  cfg.attach.idleMinutes = idleMinutes;
   cfg.stateDir = expandHome(cfg.stateDir);
   cfg.socket = process.env.FMUX_SOCK || cfg.socket || socketPath(cfg.stateDir);
   return cfg;

@@ -354,6 +354,8 @@ node --input-type=module -e "import { botMenuConfig } from './src/bot-menu.mjs';
 |---|---|---|
 | `notify.minWorkSec` | 20 | 没接入的会话，一轮运行超过这么多秒，结束时发卡片 |
 | `notify.quietIfLocalActiveSec` | 180 | 这么多秒内本机 tmux 有键盘输入，就不发通知。设 0 总是通知 |
+| `notify.enabled` | true | 设为 false 后，未接入会话不再发完成或等待确认卡片，包括你中途切走的任务 |
+| `attach.idleMinutes` | 10 | 接入的会话空闲且这么多分钟没有输入时，自动断开并回到面板。设 0 关闭。运行中、等待确认或有前台子进程时不会自动断开 |
 
 ## 7. 排错
 

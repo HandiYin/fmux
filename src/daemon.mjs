@@ -58,7 +58,7 @@ export async function runDaemon({ fake = false } = {}) {
   const attached = store.get('attached');
   if (attached && !registry.sessions.has(attached.key)) {
     const byName = registry.resolve(attached.name);
-    store.set('attached', byName ? { key: byName.key, name: byName.name } : null);
+    store.set('attached', byName ? { ...attached, key: byName.key, name: byName.name, lastInputAt: attached.lastInputAt || Date.now() } : null);
   }
   registry.start();
   const control = startControl({ socket: cfg.socket, methods });

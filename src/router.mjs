@@ -42,6 +42,7 @@ export class Router {
     this.live = new Map(); // message id -> { kind: 'dash' | 'peek' | 'term', key, until, signature }: cards kept current
     this.piView = null;
     this.ticking = false;
+    this.autoReturning = false;
     this.nudgeTimer = null;
     this.startedAt = Date.now();
   }
@@ -78,6 +79,13 @@ export class Router {
   attachedSession() {
     const key = this.attachedKey();
     return key ? this.registry.sessions.get(key) || null : null;
+  }
+
+  // Remember when the owner last typed into the attached session. The auto-return timer reads it.
+  touchAttached(session = this.attachedSession()) {
+    const attached = this.store.get('attached');
+    if (!attached || !session || attached.key !== session.key) return;
+    this.store.set('attached', { ...attached, lastInputAt: Date.now() });
   }
 
   isFollowed(s) {
@@ -213,6 +221,7 @@ export class Router {
           return;
         }
         await this.tmux.sendKeys(session.key, tokens);
+        this.touchAttached(session);
         await sleep(450);
         await this.sendTerminal(session);
         return;
@@ -233,7 +242,10 @@ export class Router {
         return;
       case 'stop': {
         const session = this.attachedSession();
-        if (session) await this.tmux.sendKeys(session.key, ['esc']);
+        if (session) {
+          await this.tmux.sendKeys(session.key, ['esc']);
+          this.touchAttached(session);
+        }
         return;
       }
       case 'kill': {
@@ -281,6 +293,7 @@ export class Router {
     // A pasted block it marks as pasted. Everything else gets the paste, which every program accepts.
     const keys = !typed && session.kind === 'claude' && text.includes('\n') && this.tmux.canType(text);
     await this.tmux.sendText(session.key, text, { typed, keys });
+    this.touchAttached(session);
     log('info', 'deliver', { session: session.name, chars: text.length, typed: typed.length, keys });
     if (msg?.messageId) this.feishu.react(msg.messageId, 'OK');
     if (session.kind === 'shell') this.followScreen(session);
@@ -412,7 +425,9 @@ export class Router {
       return;
     }
     if (empty) return;
-    if (promised || (this.cfg.notify.enabled && long && !this.localActive())) {
+    // A disabled notification setting silences every unsolicited card for an unattached
+    // session, including the "you left this turn running" completion.
+    if (this.cfg.notify.enabled && (promised || (long && !this.localActive()))) {
       const messageId = await this.post(cards.finishedCard({ session, turn }), session.key);
       this.finished.set(messageId, { key: session.key, turn });
       while (this.finished.size > 40) this.finished.delete(this.finished.keys().next().value);
@@ -435,9 +450,10 @@ export class Router {
 
   async attach(session, { announce = true } = {}) {
     const previous = this.attachedSession();
-    if (previous && previous.key !== session.key) this.dropView(previous, `已切到 ${session.name}。${previous.name} 仍在运行，结束后会通知你。`);
+    const running = this.cfg.notify.enabled ? '仍在运行，结束后会通知你。' : '仍在运行。';
+    if (previous && previous.key !== session.key) this.dropView(previous, `已切到 ${session.name}。${previous.name} ${running}`);
     this.promised.delete(session.key);
-    this.store.set('attached', { key: session.key, name: session.name });
+    this.store.set('attached', { key: session.key, name: session.name, lastInputAt: Date.now() });
     this.nudge();
     log('info', 'attach', { session: session.name });
     if (!announce) return;
@@ -449,7 +465,8 @@ export class Router {
 
   async detach() {
     const previous = this.attachedSession();
-    if (previous) this.dropView(previous, `已断开。${previous.name} 仍在运行，结束后会通知你。`);
+    const running = this.cfg.notify.enabled ? '仍在运行，结束后会通知你。' : '仍在运行。';
+    if (previous) this.dropView(previous, `已断开。${previous.name} ${running}`);
     this.store.set('attached', null);
     this.nudge();
   }
@@ -523,6 +540,11 @@ export class Router {
       const legacy = e.kind === 'attached';
       this.live.set(e.id, { kind: legacy ? 'peek' : e.kind, key: e.key, until: legacy ? Date.now() + this.peekTtl : e.until ?? Infinity, signature: '' });
     }
+    const savedAttached = this.store.get('attached');
+    if (savedAttached) {
+      // A hub restart is not the owner walking away: give the attachment a fresh window.
+      this.store.set('attached', { ...savedAttached, lastInputAt: Date.now() });
+    }
     const attached = this.attachedSession();
     if (attached?.status === 'working') this.ensureView(attached);
     this.startTicker();
@@ -582,6 +604,36 @@ export class Router {
     };
   }
 
+  // The owner attached "for a moment" and then put the phone down. Once the session is idle
+  // and nothing was typed into it for attach.idleMinutes, go back to a fresh dashboard.
+  async maybeReturnToDashboard() {
+    if (this.autoReturning) return;
+    const attached = this.store.get('attached');
+    if (!attached) return;
+    const session = this.attachedSession();
+    if (!session) return;
+    const minutes = Number(this.cfg.attach?.idleMinutes ?? 10);
+    if (!(minutes > 0)) return;
+    if (session.status === 'working' || session.status === 'blocked') return;
+    if (session.turn) return;
+    if (session.kind === 'shell' && session.note) return;
+    const lastInputAt = Number(attached.lastInputAt);
+    if (!Number.isFinite(lastInputAt) || lastInputAt <= 0) {
+      // State written by an older fmux has no timestamp: give this attachment a full window.
+      this.touchAttached(session);
+      return;
+    }
+    if (Date.now() - lastInputAt < minutes * 60000) return;
+    this.autoReturning = true;
+    try {
+      log('info', 'attach.auto_return', { session: session.name, idleMinutes: minutes });
+      await this.detach();
+      await this.sendDashboard();
+    } finally {
+      this.autoReturning = false;
+    }
+  }
+
   async tick() {
     if (this.ticking) return;
     this.ticking = true;
@@ -610,6 +662,7 @@ export class Router {
         view.minute = minute;
         this.feishu.updater.schedule(view.messageId, this.renderTurn(session, 'working'));
       }
+      await this.maybeReturnToDashboard();
     } catch (err) {
       log('error', 'router.tick', { message: err.message });
     } finally {
@@ -755,6 +808,7 @@ export class Router {
         return replace(await this.redraw(session, evt, 'term'));
       case 'key': {
         await this.tmux.sendKeys(session.key, [v.k]);
+        this.touchAttached(session);
         if (v.from === 'term' || v.from === 'peek') {
           await sleep(450);
           return replace(await this.redraw(session, evt, 'term'), `已发送 ${v.k}`);
@@ -773,6 +827,7 @@ export class Router {
           if (!option || !option.label.startsWith(v.l)) return toast('屏幕上的对话框已经变了，点「屏幕」看一下', 'warning');
           await this.tmux.sendKeys(session.key, keysFor(dialog, v.i));
         }
+        this.touchAttached(session);
         this.blocked.delete(session.key);
         const answered = v.i === -1 ? 'Esc' : dialog.options[v.i].label;
         return replace(cards.blockedCard({ session, dialog, screen: state?.screen || screen, answered }), '已发送');
@@ -783,6 +838,7 @@ export class Router {
         if (v.from === 'term' || v.from === 'peek') {
           // The terminal card talks to the terminal as it is, dialog or not.
           await this.tmux.sendText(session.key, text);
+          this.touchAttached(session);
           await sleep(600);
           return replace(await this.redraw(session, evt, 'term'), '已发送');
         }

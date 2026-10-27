@@ -129,7 +129,14 @@ sessions gets a card with one button for each (in chat) or an error that lists t
 A session that is not attached sends a card when a turn that ran for at least `notify.minWorkSec`
 (20 s) ends, and when it waits on a dialog. These cards are skipped while a tmux client saw keyboard
 input in the last `notify.quietIfLocalActiveSec` (180 s): at your desk the phone stays quiet.
-Set that value to `0` to always notify.
+Set that value to `0` to always notify. Set `notify.enabled` to `false` to silence every card from
+a session that is not attached, including a turn you left running.
+
+### Returning to the dashboard
+
+After `attach.idleMinutes` (10) without input, an attached session that is idle goes back to a
+fresh dashboard. A working, waiting or busy shell session stays attached, so a long job is not
+interrupted. Set the value to `0` to keep the attachment until you detach by hand.
 
 ## Install and run
 
@@ -229,6 +236,7 @@ of the shell that runs it, so run it where `tmux`, `claude` and `codex` are foun
 | `owner.openId` | The only user whose messages and clicks are accepted |
 | `owner.chatId` | The chat that receives the cards |
 | `notify.*` | See Notifications |
+| `attach.idleMinutes` | Minutes without input before an idle attachment returns to the dashboard (default 10; `0` disables) |
 | `live.peekMinutes` | How long a screen card refreshes itself (default 10) |
 | `tmux.hide` | tmux session names to leave out |
 | `agents.<type>` | How `新建` starts each type: `command` (new conversation), `continue` (latest one of the directory), `resume` (a chosen one), and `flags`, which fill `{flags}` unless the session is created without `-d` / `--yolo` |

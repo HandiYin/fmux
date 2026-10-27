@@ -73,6 +73,7 @@ export function harness({ sessions = [session()], notify = {} } = {}) {
     owner: { openId: OWNER, chatId: CHAT },
     stateDir: '/nonexistent',
     notify: { minWorkSec: 20, quietIfLocalActiveSec: 180, enabled: true, ...notify },
+    attach: { idleMinutes: 10 },
     agents: {
       claude: { flags: '-d', command: 'claude {flags} -n {name}', continue: 'claude {flags} -c', resume: 'claude {flags} -r {id}' },
       codex: { flags: '--yolo', command: 'codex {flags}', continue: 'codex {flags} resume --last', resume: 'codex {flags} resume {id}' },
