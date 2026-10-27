@@ -106,7 +106,7 @@ export class Registry extends EventEmitter {
         session = {
           key: pane.paneId, kind: null, agentPid: null, status: null, statusSince: Date.now(),
           note: '', dialog: null, lastText: '', lastPrompt: '', turn: null, transcript: null,
-          tail: null, pending: null, agentSeenAt: 0, firstSeenAt: Date.now(),
+          tail: null, pending: null, bindingLostAt: 0, agentSeenAt: 0, firstSeenAt: Date.now(),
         };
         this.sessions.set(pane.paneId, session);
       }
@@ -148,6 +148,7 @@ export class Registry extends EventEmitter {
       s.agentSeenAt = isNew ? 0 : Date.now();
       s.transcript = null;
       s.tail = null;
+      s.bindingLostAt = 0;
       s.dialog = null;
       if (!isNew) s.lastText = '';
     }
@@ -225,16 +226,34 @@ export class Registry extends EventEmitter {
     const every = kind === 'claude' || kind === 'codex' ? 1 : s.transcript ? 15 : 3;
     if (this.polls % every !== 0) return;
     const file = await this.probe.locateTranscript(kind, s.agentPid, meta, { cwd: s.cwd, title: s.paneTitle });
-    if (file === s.transcript) return;
+    if (file === s.transcript) {
+      s.bindingLostAt = 0;
+      return;
+    }
+    if (!file) {
+      // A Codex TUI often replaces its title with only a spinner and the cwd while it works
+      // ("⠧ ubuntu"), and with "Action Required | …" while a dialog waits. Those are not a
+      // different conversation: keep reading the last confirmed rollout, otherwise every reply
+      // produced during that window is skipped when the title comes back. A title that really
+      // resolves to another thread returns that file above and rebinds immediately.
+      if (kind === 'codex' && s.transcript) {
+        if (!s.bindingLostAt) {
+          s.bindingLostAt = Date.now();
+          log('info', 'transcript.holding', { session: s.name, title: s.paneTitle, file: path.basename(s.transcript) });
+        }
+      }
+      return;
+    }
     if (kind === 'codex') {
-      log('info', file ? 'transcript.bound' : 'transcript.unbound', { session: s.name, title: s.paneTitle, file: file ? path.basename(file) : null });
+      log('info', 'transcript.bound', { session: s.name, title: s.paneTitle, file: path.basename(file) });
+      // A different thread: drop the previous conversation and start at the new file's position.
       s.transcript = null;
       s.tail = null;
       s.lastText = '';
       s.lastPrompt = '';
       s.turn = null;
     }
-    if (!file) return;
+    s.bindingLostAt = 0;
     let born = 0;
     try {
       born = fs.statSync(file).birthtimeMs;

@@ -60,19 +60,28 @@ const agents = {
     const add = (line) => shared ? fs.appendFileSync(file, `${JSON.stringify(line)}\n`) : fs.writeSync(fd, `${JSON.stringify(line)}\n`);
     add({ type: 'session_meta', payload: { id, cwd, originator: 'codex-tui' } });
     const name = '共享 Codex 会话';
-    const title = (marker = '') => { if (shared) process.stdout.write(`\x1b]0;${marker}${name} | ${path.basename(cwd)}\x07`); };
+    const dir = path.basename(cwd);
+    const title = (text) => { if (shared) process.stdout.write(`\x1b]0;${text}\x07`); };
+    const mark = (marker = '') => title(`${marker}${name} | ${dir}`);
     let animation;
     if (shared) {
       fs.appendFileSync(ensure(path.join(home, '.codex', 'session_index.jsonl')), `${JSON.stringify({ id, thread_name: name })}\n`);
-      title();
+      mark();
     }
     return {
       begin(text) {
         if (shared) {
           const frames = [...'⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'];
           let i = 0;
-          title(`${frames[i]} `);
-          animation = setInterval(() => title(`${frames[++i % frames.length]} `), 100);
+          // Codex sometimes drops the thread name from its title while it works: only the
+          // spinner and the cwd remain ("⠧ integration"). Keep that for a few polls, then
+          // bring the name back, like a real command turn does.
+          const tick = () => {
+            const frame = frames[i++ % frames.length];
+            title(i <= 12 ? `${frame} ${dir}` : `${frame} ${name} | ${dir}`);
+          };
+          tick();
+          animation = setInterval(tick, 100);
           add({ type: 'event_msg', payload: { type: 'item_completed', item: { type: 'UserMessage', content: [{ type: 'text', text }] } } });
           add({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: `working: ${text}` }] } });
         } else add({ type: 'event_msg', payload: { type: 'user_message', message: text } });
@@ -82,8 +91,8 @@ const agents = {
         add({ type: 'event_msg', payload: { type: 'task_complete', duration_ms: BUSY_MS } });
         if (shared) {
           clearInterval(animation);
-          title('● ');
-          setTimeout(() => title(), 3000);
+          mark('● ');
+          setTimeout(() => mark(), 3000);
         }
       },
     };

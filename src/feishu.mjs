@@ -32,16 +32,17 @@ export class CardUpdater {
     if (!card) return entry.busy;
     entry.lastSent = Date.now();
     entry.busy = entry.busy
-      .then(() => this.update(messageId, card))
+      .then(async () => { await this.update(messageId, card); return null; })
       .catch((err) => {
         log('warn', 'card.update', { messageId, message: err.message });
         this.onError?.(messageId, err);
+        return err;
       });
     return entry.busy;
   }
 
   // Push the latest card now and wait for it; used for the final state of a card.
-  async flush(messageId, card) {
+  async flush(messageId, card, { throwOnError = false } = {}) {
     let entry = this.entries.get(messageId);
     if (!entry) {
       entry = { lastSent: 0, card: null, timer: null, busy: Promise.resolve() };
@@ -50,8 +51,12 @@ export class CardUpdater {
     if (card) entry.card = card;
     clearTimeout(entry.timer);
     entry.timer = null;
-    await this.send(messageId, entry);
-    this.entries.delete(messageId);
+    const sent = this.send(messageId, entry);
+    const error = await sent;
+    // A newer write may already be queued on this same entry; only drop it when this was the last.
+    if (entry.busy === sent && !entry.card && !entry.timer && this.entries.get(messageId) === entry) this.entries.delete(messageId);
+    if (throwOnError && error) throw error;
+    return !error;
   }
 }
 

@@ -378,22 +378,34 @@ export class Router {
     // A dialog that opened and closed while the agent was idle (the folder trust prompt) is not a turn.
     if (empty && !turn.worked) {
       if (view) await view.ready;
-      if (view?.messageId) await this.feishu.updater.flush(view.messageId, cards.stubCard(`${session.name}：已处理。`));
+      if (view?.messageId) await this.feishu.updater.flush(view.messageId, cards.stubCard(`${session.name}：已处理。`)).catch(() => {});
       return;
     }
     if (followed) {
       const done = this.renderTurn(session, 'done', turn);
       if (view) await view.ready;
-      if (!view?.messageId) {
-        await this.post(done, session.key);
-        return;
+      let finalId = view?.messageId || null;
+      let delivered = false;
+      if (finalId) {
+        try {
+          await this.feishu.updater.flush(finalId, done, { throwOnError: true });
+          delivered = true;
+        } catch (err) {
+          // The card may have been deleted, or Feishu refused this edit. The reply must not be
+          // lost with it: post the finished card as a new message below.
+          log('warn', 'turn.card_failed', { session: session.name, messageId: finalId, message: err.message });
+        }
       }
-      await this.feishu.updater.flush(view.messageId, done);
-      // An edit does not ring the phone. After a long turn, one short line does.
-      if (long) {
+      if (!delivered) {
+        finalId = await this.post(done, session.key);
+        log('info', 'turn.card_reposted', { session: session.name, messageId: finalId });
+      }
+      // An edit does not ring the phone. After a long turn that edited a live card, one short
+      // line does. A card posted from scratch already rings, so it needs no extra line.
+      if (long && view?.messageId && delivered) {
         const preview = oneLine(turn.texts.at(-1) || '', 60);
         const line = `**${session.name}** 已结束（${fmtDuration(seconds)}）${preview ? `：${preview}` : ''}`;
-        this.feishu.sendText(this.chatId, line, { replyTo: view.messageId })
+        this.feishu.sendText(this.chatId, line, { replyTo: finalId })
           .then((id) => this.store.rememberMessage(id, session.key))
           .catch((err) => log('warn', 'turn.ping', { message: err.message }));
       }

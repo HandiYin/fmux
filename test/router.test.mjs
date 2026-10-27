@@ -93,6 +93,23 @@ test('followed turn: one card streams and then holds the reply; only a long turn
   assert.equal(h.router.views.size, 0);
 });
 
+test('a failed final card edit reposts the reply instead of losing it', async () => {
+  const s = session({ status: 'working', turn: { startedAt: Date.now(), texts: [], tools: 0 } });
+  const h = harness({ sessions: [s] });
+  h.store.set('attached', { key: '%1', name: 'work' });
+  await h.router.onStatus(s, 'idle');
+  await h.router.views.get('%1').ready;
+  assert.equal(h.cardsSent().length, 1);
+  h.feishu.updater.update = async () => { throw new Error('Request failed with status code 500'); };
+
+  s.status = 'idle';
+  await h.router.onTurnEnd(s, turn(3));
+  const cards = h.cardsSent();
+  assert.equal(cards.length, 2, 'the finished card was posted again');
+  assert.equal(cards[1].card.body.elements[0].content, 'all done');
+  assert.equal(h.router.views.size, 0);
+});
+
 test('followed long turn: the same card holds the reply, and one line rings the phone', async () => {
   const s = session({ status: 'working', turn: { startedAt: Date.now(), texts: [], tools: 0 } });
   const h = harness({ sessions: [s] });

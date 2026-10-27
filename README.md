@@ -41,8 +41,11 @@ For Codex using a shared app-server, give each conversation a unique name with `
 and keep tmux's automatic pane title updates enabled. fmux resolves the displayed name through
 Codex's session index, checks the thread ID and directory, and follows that exact rollout even
 when the conversation is old. It never selects a Codex transcript just because it was the most
-recently updated in the same directory. If identity is missing or ambiguous, the card explains
-that replies are unavailable and offers the terminal view.
+recently updated in the same directory. While a turn runs, Codex sometimes drops the name from
+the title (leaving only a spinner and the directory) or prefixes it with `Action Required`;
+fmux keeps reading the last confirmed rollout through those decorations instead of losing the
+reply. If identity is missing from the start or is ambiguous, the card explains that replies are
+unavailable and offers the terminal view.
 
 ## Use it from the phone
 

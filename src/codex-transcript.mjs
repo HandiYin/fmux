@@ -79,9 +79,16 @@ export function createCodexLocator({ home = process.env.CODEX_HOME || path.join(
     const cwd = (await cwdOf(pid)) || hint.cwd;
     if (!title || !cwd) return null;
     // Codex decorates the same title with a spinner while working and a dot on completion.
-    // Keep the literal form too: a real name starting with a marker must not silently resolve
-    // to a different thread. If both interpretations match, the ambiguity check below wins.
-    const titles = new Set([title, title.replace(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏●]\s+(?:\|\s+)?/u, '')]);
+    // While a dialog waits it prefixes "[ ! ] Action Required | ". Both decorate the same
+    // thread name; neither is a different conversation. Keep the literal form too: a real name
+    // starting with a marker must not silently resolve to a different thread. If both
+    // interpretations match, the ambiguity check below wins.
+    const action = title.replace(/^\[\s*[.!]\s*\]\s*Action Required\s*\|\s*/iu, '');
+    const titles = new Set();
+    for (const form of [title, action]) {
+      titles.add(form);
+      titles.add(form.replace(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏●]\s+(?:\|\s+)?/u, ''));
+    }
     const logDb = opened.find((f) => /^logs_\d+\.sqlite$/.test(path.basename(f)));
     const root = logDb ? path.dirname(logDb) : home;
     const directory = path.basename(cwd.replaceAll('\\', '/'));
