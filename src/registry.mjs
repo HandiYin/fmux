@@ -15,6 +15,8 @@ const SHELLS = new Set(['bash', 'zsh', 'fish', 'sh', 'dash', 'pwsh', 'powershell
 const INTERNAL_SESSION = /^__warm/;
 const CLAUDE_STATUS = { busy: 'working', idle: 'idle', shell: 'idle', waiting: 'blocked' };
 const MAX_TURN_TEXTS = 60;
+// A stale/zero offset must never make a restart allocate and parse a multi-hundred-MB rollout.
+const MAX_RESTORE_REPLAY = 8 * 1024 * 1024;
 
 function cleanTitle(title, sessionName) {
   const t = String(title || '').replace(/^[^\p{L}\p{N}]+/u, '').trim();
@@ -136,20 +138,31 @@ export class Registry extends EventEmitter {
       return false;
     }
     const offset = Number.isFinite(saved.offset) && saved.offset >= 0 ? saved.offset : 0;
+    let size;
+    try {
+      size = fs.statSync(saved.file).size;
+    } catch {
+      this.forgetTranscript(s);
+      return false;
+    }
+    // Keep a restart bounded even if the offset was never checkpointed (or state is old).
+    let start = offset;
+    if (start > size || size - start > MAX_RESTORE_REPLAY) start = Math.max(0, size - MAX_RESTORE_REPLAY);
+    if (start !== offset) log('warn', 'transcript.restore_clamped', { session: s.name, offset, size, start });
     s.transcript = saved.file;
-    s.tail = new Tail(saved.file, adapters[kind], { offset });
+    s.tail = new Tail(saved.file, adapters[kind], { offset: start });
     s.transcriptSavedAt = Date.now();
     s.bindingLostAt = 0;
-    try {
-      if (offset >= fs.statSync(saved.file).size) {
+    if (start >= size) {
+      try {
         const last = lastExchange(saved.file, adapters[kind]);
         s.lastText = last.text || '';
         s.lastPrompt = last.prompt || '';
+      } catch {
+        // the tail will report the file gone on its next read
       }
-    } catch {
-      // the tail will report the file gone on its next read
     }
-    log('info', 'transcript.restored', { session: s.name, title: s.paneTitle, file: path.basename(saved.file), offset });
+    log('info', 'transcript.restored', { session: s.name, title: s.paneTitle, file: path.basename(saved.file), offset: start });
     return true;
   }
 
