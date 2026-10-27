@@ -34,12 +34,16 @@ function newTurn(session) {
 //   changed()                      something the dashboard shows is different
 export class Registry extends EventEmitter {
   // `probe` is how the registry looks at processes and transcripts; tests replace it.
-  constructor({ tmux = realTmux, intervalMs = 2000, hide = [], probe = {} } = {}) {
+  // `store` keeps the last confirmed transcript per pane, so a hub restart during a Codex
+  // turn can resume the same rollout even while the pane title has only the spinner and cwd.
+  constructor({ tmux = realTmux, intervalMs = 2000, hide = [], probe = {}, store = null } = {}) {
     super();
     this.tmux = tmux;
     this.probe = { snapshot, findAgent, readClaudeMeta, locateTranscript, ...probe };
     this.intervalMs = intervalMs;
     this.hide = new Set([...hide, HUB_SESSION]);
+    this.store = store;
+    this.bindings = new Map(Object.entries(store?.get('transcripts') || {}));
     this.sessions = new Map();
     this.localActiveAt = 0;
     this.polls = 0;
@@ -85,6 +89,70 @@ export class Registry extends EventEmitter {
     return this.lookup(ref).match;
   }
 
+  // ---- last confirmed transcript per pane ----
+
+  rememberTranscript(s) {
+    if (s.kind !== 'codex' || !this.store || !s.transcript) return;
+    const entry = {
+      agentPid: s.agentPid,
+      tmuxSession: s.tmuxSession,
+      cwd: s.cwd,
+      file: s.transcript,
+      offset: s.tail?.offset || 0,
+      at: Date.now(),
+    };
+    const prior = this.bindings.get(s.key);
+    if (prior && prior.agentPid === entry.agentPid && prior.tmuxSession === entry.tmuxSession
+      && prior.cwd === entry.cwd && prior.file === entry.file && prior.offset === entry.offset) return;
+    this.bindings.set(s.key, entry);
+    this.store.set('transcripts', Object.fromEntries(this.bindings));
+  }
+
+  // Output arrives in batches; writing every poll would rewrite state.json every 2 s. The
+  // offset is a recovery hint, so a few seconds of replay (not loss) is the right trade.
+  checkpointTranscript(s) {
+    if (s.kind !== 'codex' || !this.store || !s.transcript || !s.tail) return;
+    const now = Date.now();
+    if (now - (s.transcriptSavedAt || 0) < 10000) return;
+    s.transcriptSavedAt = now;
+    this.rememberTranscript(s);
+  }
+
+  forgetTranscript(s) {
+    if (!this.bindings.delete(s.key)) return;
+    this.store?.set('transcripts', Object.fromEntries(this.bindings));
+  }
+
+  // After a hub restart the Codex title may be only a spinner and the cwd. Resume the rollout
+  // that this pane and agent confirmed earlier, from the last read offset, instead of waiting
+  // for the name to come back (which would skip the whole turn).
+  restoreTranscript(s, kind) {
+    if (kind !== 'codex' || !s.agentPid || s.transcript) return false;
+    const saved = this.bindings.get(s.key);
+    if (!saved) return false;
+    if (saved.agentPid !== s.agentPid || saved.tmuxSession !== s.tmuxSession || saved.cwd !== s.cwd
+      || !saved.file || !fs.existsSync(saved.file)) {
+      this.forgetTranscript(s);
+      return false;
+    }
+    const offset = Number.isFinite(saved.offset) && saved.offset >= 0 ? saved.offset : 0;
+    s.transcript = saved.file;
+    s.tail = new Tail(saved.file, adapters[kind], { offset });
+    s.transcriptSavedAt = Date.now();
+    s.bindingLostAt = 0;
+    try {
+      if (offset >= fs.statSync(saved.file).size) {
+        const last = lastExchange(saved.file, adapters[kind]);
+        s.lastText = last.text || '';
+        s.lastPrompt = last.prompt || '';
+      }
+    } catch {
+      // the tail will report the file gone on its next read
+    }
+    log('info', 'transcript.restored', { session: s.name, title: s.paneTitle, file: path.basename(saved.file), offset });
+    return true;
+  }
+
   // Polls never overlap: a caller that needs fresh state right now queues behind the running one.
   poll() {
     this.chain = (this.chain || Promise.resolve()).catch(() => {}).then(() => this.pollOnce());
@@ -119,6 +187,7 @@ export class Registry extends EventEmitter {
     }
     for (const [key, session] of this.sessions) {
       if (seen.has(key)) continue;
+      this.forgetTranscript(session);
       this.sessions.delete(key);
       this.emit('removed', session);
     }
@@ -143,6 +212,9 @@ export class Registry extends EventEmitter {
     const agent = await this.probe.findAgent(snap, pane.panePid, pane.tty);
     const kind = agent?.kind || 'shell';
     if (kind !== s.kind || (agent?.pid ?? null) !== s.agentPid) {
+      // A new session object may be the same pane after a hub restart: keep the saved
+      // transcript long enough for restoreTranscript() below to use it.
+      if (!isNew) this.forgetTranscript(s);
       s.kind = kind;
       s.agentPid = agent?.pid ?? null;
       s.agentSeenAt = isNew ? 0 : Date.now();
@@ -218,6 +290,7 @@ export class Registry extends EventEmitter {
       s.turn.quietPolls = events.length ? 0 : (s.turn.quietPolls || 0) + 1;
       if (sawTurnEnd || s.turn.quietPolls >= 2) this.endTurn(s);
     }
+    this.checkpointTranscript(s);
   }
 
   async followTranscript(s, kind, meta) {
@@ -226,6 +299,8 @@ export class Registry extends EventEmitter {
     const every = kind === 'claude' || kind === 'codex' ? 1 : s.transcript ? 15 : 3;
     if (this.polls % every !== 0) return;
     const file = await this.probe.locateTranscript(kind, s.agentPid, meta, { cwd: s.cwd, title: s.paneTitle });
+    // Both unknown: after a hub restart this may be a pane whose confirmed rollout is on disk.
+    if (!file && !s.transcript && kind === 'codex' && this.restoreTranscript(s, kind)) return;
     if (file === s.transcript) {
       s.bindingLostAt = 0;
       return;
@@ -236,17 +311,16 @@ export class Registry extends EventEmitter {
       // different conversation: keep reading the last confirmed rollout, otherwise every reply
       // produced during that window is skipped when the title comes back. A title that really
       // resolves to another thread returns that file above and rebinds immediately.
-      if (kind === 'codex' && s.transcript) {
-        if (!s.bindingLostAt) {
-          s.bindingLostAt = Date.now();
-          log('info', 'transcript.holding', { session: s.name, title: s.paneTitle, file: path.basename(s.transcript) });
-        }
+      if (kind === 'codex' && s.transcript && !s.bindingLostAt) {
+        s.bindingLostAt = Date.now();
+        log('info', 'transcript.holding', { session: s.name, title: s.paneTitle, file: path.basename(s.transcript) });
       }
       return;
     }
     if (kind === 'codex') {
       log('info', 'transcript.bound', { session: s.name, title: s.paneTitle, file: path.basename(file) });
       // A different thread: drop the previous conversation and start at the new file's position.
+      this.forgetTranscript(s);
       s.transcript = null;
       s.tail = null;
       s.lastText = '';
@@ -269,6 +343,7 @@ export class Registry extends EventEmitter {
       s.lastText = last.text || s.lastText;
       s.lastPrompt = last.prompt || s.lastPrompt;
     }
+    if (kind === 'codex') this.rememberTranscript(s);
   }
 
   commit(s, status, { silent = false, since = 0 } = {}) {

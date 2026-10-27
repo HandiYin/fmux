@@ -25,7 +25,7 @@ export async function runDaemon({ fake = false } = {}) {
     : await createFeishu({ appId: cfg.app.id, appSecret: await resolveSecret(cfg.app.secret), ownerOpenId: cfg.owner.openId, tenant: cfg.app.tenant });
 
   const store = new Store(path.join(cfg.stateDir, fake ? 'state.fake.json' : 'state.json'));
-  const registry = new Registry({ intervalMs: cfg.poll.intervalMs, hide: cfg.tmux.hide });
+  const registry = new Registry({ intervalMs: cfg.poll.intervalMs, hide: cfg.tmux.hide, store });
   const concierge = cfg.concierge.enabled
     ? new Concierge({
         bin: cfg.concierge.bin,

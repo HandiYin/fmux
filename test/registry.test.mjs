@@ -4,9 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { Registry } from '../src/registry.mjs';
+import { Store } from '../src/store.mjs';
 import { fakeTmux, pane } from './helpers.mjs';
 
-function setup({ kind = 'claude' } = {}) {
+function setup({ kind = 'claude', store = null } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fmux-reg-'));
   const file = path.join(dir, 't.jsonl');
   fs.writeFileSync(file, '');
@@ -14,6 +15,7 @@ function setup({ kind = 'claude' } = {}) {
   const meta = { status: 'idle', sessionId: 'x' };
   const registry = new Registry({
     tmux,
+    store,
     probe: {
       snapshot: () => ({ procs: new Map(), children: new Map() }),
       findAgent: () => (kind === 'shell' ? null : { kind, pid: 200 }),
@@ -175,6 +177,38 @@ test('Codex with no known identity from the start stays unbound until it can be 
   assert.equal(s.transcript, file);
   assert.equal(s.lastText, 'recovered');
   assert.doesNotMatch(s.note, /未定位到回复记录/);
+});
+
+test('a hub restart resumes the confirmed Codex rollout while the title is bare', async () => {
+  const store = new Store(null);
+  const { tmux, registry, file, append } = setup({ kind: 'codex', store });
+  const say = (text) => ({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] } });
+  append(say('before the restart'));
+  await registry.poll();
+  assert.equal(registry.resolve('work').lastText, 'before the restart');
+  assert.equal(store.get('transcripts')['%1'].file, file);
+
+  // A new hub process starts while Codex has only the spinner and the cwd in its title.
+  const output = [];
+  const restarted = new Registry({
+    tmux,
+    store,
+    probe: {
+      snapshot: () => ({ procs: new Map(), children: new Map() }),
+      findAgent: () => ({ kind: 'codex', pid: 200 }),
+      readClaudeMeta: () => null,
+      locateTranscript: () => null,
+    },
+  });
+  restarted.on('output', (_, events) => output.push(...events));
+  tmux.panes[0].title = '⠧ ubuntu';
+  append(say('while the hub was down'));
+  await restarted.poll();
+  const s = restarted.resolve('work');
+  assert.equal(s.transcript, file);
+  assert.equal(s.lastText, 'while the hub was down');
+  assert.doesNotMatch(s.note, /未定位到回复记录/);
+  assert.deepEqual(output.filter((ev) => ev.type === 'text').map((ev) => ev.text), ['while the hub was down']);
 });
 
 test('a pane that goes away is removed; names follow the pane layout', async () => {

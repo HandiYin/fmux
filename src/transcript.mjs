@@ -121,17 +121,20 @@ function parseLines(chunk, adapter) {
 
 // Follows a JSONL transcript from a byte offset and returns the events appended since the last read.
 export class Tail {
-  constructor(file, adapter, { fromStart = false } = {}) {
+  constructor(file, adapter, { fromStart = false, offset = null } = {}) {
     this.file = file;
     this.adapter = adapter;
     this.partial = '';
     this.offset = 0;
-    if (!fromStart) {
-      try {
-        this.offset = fs.statSync(file).size;
-      } catch {
-        this.offset = 0;
-      }
+    if (fromStart) return;
+    if (Number.isFinite(offset) && offset >= 0) {
+      this.offset = offset;
+      return;
+    }
+    try {
+      this.offset = fs.statSync(file).size;
+    } catch {
+      this.offset = 0;
     }
   }
 
