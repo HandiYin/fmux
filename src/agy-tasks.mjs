@@ -25,8 +25,25 @@ export function applyTaskEvent(tasks, ev) {
   if (ev.type === 'task_tick') {
     const existing = tasks.get(ev.taskId);
     if (existing) {
-      existing.summary = ev.summary || existing.summary;
+      if (ev.status === 'running') {
+        existing.status = 'running';
+        existing.endedAt = null;
+      }
+      if (ev.logFile && !existing.logFile) existing.logFile = ev.logFile;
+      if (ev.summary) existing.summary = ev.summary;
       existing.lastTickAt = ev.endedAt || Date.now();
+    } else if (ev.status === 'running') {
+      tasks.set(ev.taskId, {
+        id: ev.taskId,
+        shortId: ev.taskId.split('/').pop(),
+        kind: ev.taskId.includes('/task-') ? 'command' : 'subagent',
+        description: ev.summary || ev.taskId.split('/').pop(),
+        logFile: ev.logFile || '',
+        status: 'running',
+        startedAt: ev.endedAt || Date.now(),
+        endedAt: null,
+        summary: ev.summary || '',
+      });
     }
     return true;
   }

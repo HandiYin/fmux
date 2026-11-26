@@ -139,6 +139,25 @@ test('agy adapter parses user prompts, planner tool calls, background commands, 
     status: 'DONE',
     content: `stdout: {"content":"Tool is running as a background task with task id: ${CONV_ID}/task-999\\nTask Description: fake"}`,
   }), []);
+
+  // NotificationTimeoutSeconds ("still running after 900s") and manage_task RUNNING checks MUST keep tasks running!
+  const stillRunning = agyAdapter({
+    type: 'SYSTEM_MESSAGE',
+    created_at: '2026-11-26T12:30:32Z',
+    content: `<SYSTEM_MESSAGE>\n[Message] timestamp=2026-11-26T12:30:32Z sender=${CONV_ID}/task-110 priority=HIGH content=Background command is still running after 900s: npm test\n</SYSTEM_MESSAGE>`,
+  });
+  assert.equal(stillRunning[0].type, 'task_tick');
+  assert.equal(stillRunning[0].status, 'running');
+
+  const statusRunning = agyAdapter({
+    type: 'GENERIC',
+    status: 'DONE',
+    created_at: '2026-11-26T12:38:37Z',
+    content: `Task: ${CONV_ID}/task-110\nStatus: RUNNING\nLog: file://${logFile}\nLog output:\nstep 1000`,
+  });
+  assert.equal(statusRunning[0].type, 'task_tick');
+  assert.equal(statusRunning[0].status, 'running');
+  assert.equal(statusRunning[0].logFile, logFile);
 });
 
 test('Registry tracks agy background tasks across turn sleep and reactive wakeup', async () => {

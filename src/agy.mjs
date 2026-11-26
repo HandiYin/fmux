@@ -99,6 +99,22 @@ function parseGenericTasks(d) {
     return events;
   }
 
+  // Reconcile from `manage_task` status checks ("Task: <id>\nStatus: RUNNING|COMPLETED|...").
+  const statusMatch = content.match(/^Task:\s*([0-9a-f-]+\/task-\d+)\s*\r?\nStatus:\s*(\w+)/m);
+  if (statusMatch) {
+    const taskId = statusMatch[1].trim();
+    const st = statusMatch[2].toUpperCase();
+    const logMatch = content.match(/^Log:\s*file:\/\/([^\s\n]+)/m);
+    const logFile = logMatch ? logMatch[1].trim() : '';
+    if (st === 'RUNNING') {
+      events.push({ type: 'task_tick', taskId, status: 'running', logFile, endedAt: ts });
+    } else if (['COMPLETED', 'DONE', 'FAILED', 'CANCELED', 'CANCELLED', 'KILLED', 'ERROR'].includes(st)) {
+      const norm = st === 'FAILED' || st === 'ERROR' ? 'error' : (st === 'COMPLETED' || st === 'DONE' ? 'done' : 'killed');
+      events.push({ type: 'task_end', taskId, status: norm, endedAt: ts });
+    }
+    return events;
+  }
+
   // Attempting to kill an already-finished task reconciles stale running status.
   const notRunning = String(d.error || content).match(/cannot kill task "([^"]+)":\s*task is not running/i);
   if (notRunning) {
@@ -128,13 +144,20 @@ function parseSystemMessage(d) {
     return [{ type: 'task_end', taskId, status: failed ? 'error' : 'done', summary, endedAt: ts }];
   }
 
-  // Notification from a task sender (timer fired / task notification) or subagent UUID reply.
+  // Background task explicitly canceled:
+  const canceled = body.match(/Task id "([^"]+)" was canceled/i);
+  if (canceled) {
+    return [{ type: 'task_end', taskId: canceled[1], status: 'killed', summary: '已取消', endedAt: ts }];
+  }
+
+  // Notification from a task sender:
+  // "Background command is still running after 900s" (NotificationTimeoutSeconds) and recurring crons MUST stay running!
   if (sender.includes('/task-')) {
-    const recurring = /cron|recurring/i.test(body);
+    const stillRunning = /is still running|still running after|cron|recurring/i.test(body);
     return [{
-      type: recurring ? 'task_tick' : 'task_end',
+      type: stillRunning ? 'task_tick' : 'task_end',
       taskId: sender,
-      status: recurring ? 'running' : 'done',
+      status: stillRunning ? 'running' : 'done',
       summary: oneLine(body, 100),
       endedAt: ts,
     }];
