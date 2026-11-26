@@ -537,12 +537,18 @@
     padding: 5px 11px; border: 1px solid var(--red); background: var(--red-dim);
     font-family: var(--mono); font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; color: var(--red);
   }
-  .stop-btn { flex-shrink: 0; font-weight: 800; }
+  .stop-btn {
+    flex-shrink: 0; font-weight: 700;
+    background: var(--bg-rail); border-color: var(--line); color: var(--muted);
+    opacity: 0.65; cursor: not-allowed;
+  }
+  .stop-btn:hover { background: var(--bg-rail); border-color: var(--line); color: var(--muted); }
   .stop-btn.active-run {
+    opacity: 1; cursor: pointer; font-weight: 800;
     background: var(--red); border-color: var(--red); color: #fff;
     box-shadow: 0 0 14px rgba(255, 77, 79, 0.42);
   }
-  .stop-btn.active-run:hover { filter: brightness(1.1); }
+  .stop-btn.active-run:hover { background: var(--red); border-color: var(--red); color: #fff; filter: brightness(1.1); }
 
   .msg-bot-body { padding: 14px 18px; font-size: 14px; line-height: 1.72; color: var(--ink); word-break: break-word; }
   .msg-bot-body p { margin: 0 0 10px; }
@@ -913,8 +919,8 @@
       </div>
 
       <div class="ws-actions">
-        <button id="escBtn" class="btn danger" title="中断当前生成 / 取消刚发出的消息">■ STOP</button>
-        <button id="killBtn" class="btn ghost" title="销毁整个 tmux 会话">KILL</button>
+        <button id="escBtn" class="btn ghost" title="向终端发送 ESC">ESC</button>
+        <button id="killBtn" class="btn danger" title="销毁整个 tmux 会话">KILL</button>
       </div>
     </div>
 
@@ -955,7 +961,7 @@
         <span class="composer-prompt">&gt;_</span>
         <textarea id="input" rows="1" placeholder="输入指令后点击右侧 TRANSMIT 发送（Enter 换行，空输入按 Esc 停止）"></textarea>
       </div>
-      <button id="stopBtn" type="button" class="btn danger stop-btn" title="停止当前回合 / 取消发错的消息">■ STOP</button>
+      <button id="stopBtn" type="button" class="btn stop-btn" disabled title="仅在模型思考/生成中可点击停止">■ STOP</button>
       <button id="sendBtn" type="submit" class="btn solid">TRANSMIT</button>
     </form>
   </section>
@@ -2167,18 +2173,28 @@ function buildTurnHtml(s, t, i, isLast, isTurnActive, pend, stopNote) {
   if (isLast && isTurnActive && !pend && !stopNote) {
     const lastTool = t.tools?.at(-1);
     const actText = lastTool ? `RUNNING · ${lastTool.name}${lastTool.summary ? ` — ${lastTool.summary.slice(0, 60)}` : ''}` : 'AGENT THINKING / STREAMING…';
-    chunks.push(`<div class="live-pulse"><span class="dot"></span><span>${esc(actText)}</span><button type="button" class="btn xs danger js-stop-turn">■ 停止</button></div>`);
+    chunks.push(`<div class="live-pulse"><span class="dot"></span><span>${esc(actText)}</span></div>`);
   } else if (isLast && !t.done && !isTurnActive && !stopNote) {
     chunks.push(`<div class="stop-ack" style="border-color:var(--line-strong);background:var(--bg-rail);color:var(--muted)">⏹ TURN INTERRUPTED // 当前回合已停止</div>`);
   }
   return chunks.join('');
 }
 
+function syncStopButton(s) {
+  const pend = s && state.pendingSend && state.pendingSend.key === s.key ? state.pendingSend : null;
+  const stoppedHere = s ? (Boolean(s.stoppedAt) || state.stoppedKeys.has(s.key)) : false;
+  const active = Boolean(s && !stoppedHere && (s.status === 'working' || pend));
+  const btn = $('stopBtn');
+  btn.disabled = !active;
+  btn.classList.toggle('active-run', active);
+  btn.textContent = '■ STOP';
+  return active;
+}
+
 function paintChat(s, turns, dialog, { forceScroll = false } = {}) {
   const panel = $('panel');
   $('hlBar').style.display = 'flex';
   state.lastTurnCount.set(s.key, turns.length);
-  const last = turns.at(-1);
   const stoppedTurnLen = state.stoppedKeys.get(s.key);
   if (stoppedTurnLen !== undefined && turns.length > stoppedTurnLen) state.stoppedKeys.delete(s.key);
   if (state.pendingSend && state.pendingSend.key === s.key) {
@@ -2188,10 +2204,7 @@ function paintChat(s, turns, dialog, { forceScroll = false } = {}) {
   const pend = state.pendingSend && state.pendingSend.key === s.key ? state.pendingSend : null;
   if (state.stopNotice && Date.now() - state.stopNotice.at > 4000) state.stopNotice = null;
   const stopNote = state.stopNotice && state.stopNotice.key === s.key ? state.stopNotice : null;
-  const stoppedHere = Boolean(s.stoppedAt) || state.stoppedKeys.has(s.key);
-  const isTurnActive = !stoppedHere && Boolean(s.status === 'working' || pend);
-  $('stopBtn').classList.toggle('active-run', isTurnActive);
-  $('stopBtn').textContent = isTurnActive ? '■ 停止' : '■ STOP';
+  const isTurnActive = syncStopButton(s);
 
   const viewId = `chat:${s.key}`;
   const switched = panel.dataset.view !== viewId;
@@ -2278,7 +2291,7 @@ function paintChat(s, turns, dialog, { forceScroll = false } = {}) {
     tailWrap.dataset.sig = tailSig;
     const tailParts = [];
     if (pend) {
-      tailParts.push(`<div class="turn-block"><div class="msg-user-label">OPERATOR // SENT TO TMUX</div><div class="msg-user">${esc(pend.text)}</div><div class="pending-ack"><span>⏳ 已注入 tmux（${esc(s.name)}），等待模型确认接收…</span><button type="button" class="btn xs danger js-stop-turn">■ 立即停止</button></div></div>`);
+      tailParts.push(`<div class="turn-block"><div class="msg-user-label">OPERATOR // SENT TO TMUX</div><div class="msg-user">${esc(pend.text)}</div><div class="pending-ack"><span>⏳ 已注入 tmux（${esc(s.name)}），等待模型确认接收…</span></div></div>`);
     }
     if (stopNote) {
       tailParts.push(`<div class="stop-ack">■ 已向 ${esc(s.name)} 发送中断指令（${esc(stopNote.keyHint)}）</div>`);
@@ -2406,6 +2419,7 @@ async function renderWorkspace({ forceScroll = false } = {}) {
   const count = s.runningTasks || 0;
   $('taskBadge').textContent = String(count);
   $('taskBadge').style.display = count ? '' : 'none';
+  syncStopButton(s);
   document.querySelectorAll('#wsSubtabs .subtab').forEach((b) => b.classList.toggle('active', b.dataset.tab === state.tab));
 
   // Instant 0ms paint from sessionCache on tab/session switch so UI never blinks waiting for network!
@@ -2706,8 +2720,8 @@ document.querySelectorAll('#wsSubtabs .subtab').forEach((b) => {
     renderWorkspace({ forceScroll: true });
   };
 });
-$('escBtn').onclick = () => stopSession();
-$('stopBtn').onclick = () => stopSession();
+$('escBtn').onclick = () => sendKeys(['esc']);
+$('stopBtn').onclick = () => { if (!$('stopBtn').disabled) stopSession(); };
 $('killBtn').onclick = async () => { const s = selectedSession(); if (s && confirm(`确认终止 tmux 会话 ${s.name}？`)) await api(`/api/session/${encodeURIComponent(s.key)}/kill`, { method: 'POST' }); };
 $('logoutBtn').onclick = async () => { await fetch('/auth/logout', { method: 'POST' }); location.reload(); };
 
@@ -2743,7 +2757,7 @@ $('input').addEventListener('input', () => {
   el.style.height = `${Math.min(130, el.scrollHeight)}px`;
 });
 $('input').addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !$('input').value) { e.preventDefault(); stopSession(); }
+  if (e.key === 'Escape' && !$('input').value && !$('stopBtn').disabled) { e.preventDefault(); stopSession(); }
 });
 
 $('newBtn').onclick = async () => {
