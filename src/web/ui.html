@@ -2804,7 +2804,7 @@ function renderSessions() {
     if (stEl.className !== stCls) stEl.className = stCls;
     if (stEl.textContent !== stText) stEl.textContent = stText;
     const bgTag = s.runningTasks > 0 ? `<span class="u-chip st-background">BG:${s.runningTasks}</span>` : '';
-    const qLen = getEffectiveQueue(s).length;
+    const qLen = getEffectiveQueue(s).filter((x) => x.state === 'queued').length;
     const qTag = qLen > 0 ? `<span class="u-chip st-blocked">QUEUE:${qLen}</span>` : '';
     const metaHtml = `<span class="u-chip">${esc(KIND_LABEL[s.kind] || s.kind)}</span>${s.model ? `<span class="u-chip chip-model">${esc(s.model)}</span>` : ''}${bgTag}${qTag}`;
     const metaEl = card.querySelector('.u-meta');
@@ -2990,8 +2990,13 @@ async function queueAction(sessionKey, payload, { restoreToInput = false } = {})
       inp.focus();
     }
     renderSessions();
-    renderQueueTray(selectedSession());
-    syncStopButton(selectedSession());
+    const cur = selectedSession();
+    renderQueueTray(cur);
+    syncStopButton(cur);
+    if (cur && cur.key === sessionKey && state.tab === 'chat') {
+      const c = getSessionCache(cur.key);
+      if (c.turns) paintChat(cur, c.turns, c.dialog, { forceScroll: payload.action === 'flush' || payload.action === 'resume' });
+    }
   } catch (err) {
     alert(err.message);
   }
@@ -3000,30 +3005,28 @@ async function queueAction(sessionKey, payload, { restoreToInput = false } = {})
 function renderQueueTray(s) {
   const tray = $('queueTray');
   if (!tray) return;
-  const items = getEffectiveQueue(s);
-  if (!s || !items.length) {
+  // Only show the Candidate Queue tray when there are actually queued items waiting to enter the session.
+  // Messages sent immediately to an idle session (state === 'injected') render directly up in the chat stream!
+  const queuedItems = getEffectiveQueue(s).filter((x) => x.state === 'queued');
+  if (!s || !queuedItems.length) {
     tray.style.display = 'none';
     return;
   }
   tray.style.display = 'flex';
-  const paused = Boolean(s.queuePaused && items.some((x) => x.state === 'queued'));
+  const paused = Boolean(s.queuePaused);
   tray.classList.toggle('paused', paused);
   tray.classList.toggle('collapsed', state.queueCollapsed);
   const togTxt = state.queueCollapsed ? '+' : '−';
   if ($('queueToggleBtn').textContent !== togTxt) $('queueToggleBtn').textContent = togTxt;
 
-  const queuedItems = items.filter((x) => x.state === 'queued');
-  const enteringCount = items.length - queuedItems.length;
   const titleTxt = paused
-    ? `CANDIDATE QUEUE // ${items.length} (PAUSED)`
-    : `CANDIDATE QUEUE // ${items.length} PENDING`;
+    ? `CANDIDATE QUEUE // ${queuedItems.length} (PAUSED)`
+    : `CANDIDATE QUEUE // ${queuedItems.length} QUEUED`;
   if ($('queueTitle').textContent !== titleTxt) $('queueTitle').textContent = titleTxt;
 
   const hintTxt = paused
     ? '因手动 STOP 已暂停自动派发 · 点击 RESUME 恢复或逐条撤回/编辑'
-    : (enteringCount && !queuedItems.length
-      ? '已发往 tmux 终端 · 写入会话记录后自动移出队列'
-      : '尚未进入会话的候选消息按序排列 · 当前回合结束后自动依序送入');
+    : '尚未进入会话的候选消息按序排队 · 当前回合结束后自动依序送入对话流';
   if ($('queueHint').textContent !== hintTxt) $('queueHint').textContent = hintTxt;
 
   $('queueResumeBtn').style.display = paused ? '' : 'none';
@@ -3033,13 +3036,13 @@ function renderQueueTray(s) {
   const listEl = $('queueList');
   const existing = new Map();
   listEl.querySelectorAll(':scope > .queue-item').forEach((el) => existing.set(el.dataset.qid, el));
-  const keepIds = new Set(items.map((x) => x.id));
+  const keepIds = new Set(queuedItems.map((x) => x.id));
   for (const [id, el] of existing) if (!keepIds.has(id)) el.remove();
 
   const firstQueuedId = queuedItems[0]?.id || '';
   const lastQueuedId = queuedItems.at(-1)?.id || '';
 
-  items.forEach((item, idx) => {
+  queuedItems.forEach((item, idx) => {
     let row = existing.get(item.id);
     if (!row) {
       row = document.createElement('div');
@@ -3049,8 +3052,7 @@ function renderQueueTray(s) {
     } else if (listEl.children[idx] !== row) {
       listEl.insertBefore(row, listEl.children[idx] || null);
     }
-    const isEntering = item.state === 'injected';
-    const rowCls = `queue-item${isEntering ? ' entering' : ''}`;
+    const rowCls = 'queue-item';
     if (row.className !== rowCls) row.className = rowCls;
 
     const rankEl = row.querySelector('.q-rank');
@@ -3058,8 +3060,8 @@ function renderQueueTray(s) {
     if (rankEl.textContent !== rankTxt) rankEl.textContent = rankTxt;
 
     const chipEl = row.querySelector('.q-chip');
-    const chipCls = `q-chip ${isEntering ? 'entering' : (paused ? 'paused' : '')}`.trim();
-    const chipTxt = isEntering ? 'ENTERING · 进会话中' : (paused ? 'PAUSED · 已暂停' : 'QUEUED · 排队待发');
+    const chipCls = `q-chip ${paused ? 'paused' : ''}`.trim();
+    const chipTxt = paused ? 'PAUSED · 已暂停' : 'QUEUED · 排队待发';
     if (chipEl.className !== chipCls) chipEl.className = chipCls;
     if (chipEl.textContent !== chipTxt) chipEl.textContent = chipTxt;
 
@@ -3071,21 +3073,18 @@ function renderQueueTray(s) {
     }
 
     const ageEl = row.querySelector('.q-age');
-    const refTs = isEntering ? (item.injectedAt || item.createdAt) : item.createdAt;
-    const ageTxt = fmtSec((Date.now() - (refTs || Date.now())) / 1000);
+    const ageTxt = fmtSec((Date.now() - (item.createdAt || Date.now())) / 1000);
     if (ageEl.textContent !== ageTxt) ageEl.textContent = ageTxt;
 
     const actEl = row.querySelector('.q-actions');
     const isOptimistic = String(item.id).startsWith('opt-');
-    const canMoveUp = !isEntering && !isOptimistic && item.id !== firstQueuedId && queuedItems.length > 1;
-    const canMoveDown = !isEntering && !isOptimistic && item.id !== lastQueuedId && queuedItems.length > 1;
-    const actSig = `${item.state}|${isOptimistic}|${canMoveUp}|${canMoveDown}|${s.status === 'blocked'}`;
+    const canMoveUp = !isOptimistic && item.id !== firstQueuedId && queuedItems.length > 1;
+    const canMoveDown = !isOptimistic && item.id !== lastQueuedId && queuedItems.length > 1;
+    const actSig = `${isOptimistic}|${canMoveUp}|${canMoveDown}|${s.status === 'blocked'}`;
     if (actEl.dataset.sig !== actSig) {
       actEl.dataset.sig = actSig;
       if (isOptimistic) {
         actEl.innerHTML = '<span class="q-age">SYNC…</span>';
-      } else if (isEntering) {
-        actEl.innerHTML = '<button type="button" class="btn xs ghost" data-qact="remove" title="从显示队列隐藏">✕</button>';
       } else {
         const injectBtn = s.status !== 'blocked'
           ? '<button type="button" class="btn xs cyan" data-qact="flush" title="立即注入终端会话（不等当前回合结束）">INJECT ↗</button>'
@@ -3117,7 +3116,8 @@ function paintChat(s, turns, dialog, { forceScroll = false } = {}) {
   state.lastTurnCount.set(s.key, turns.length);
   const stoppedTurnLen = state.stoppedKeys.get(s.key);
   if (stoppedTurnLen !== undefined && turns.length > stoppedTurnLen) state.stoppedKeys.delete(s.key);
-  const pend = null;
+  const enteringItems = getEffectiveQueue(s).filter((x) => x.state === 'injected');
+  const pend = enteringItems.length ? enteringItems : null;
   if (state.stopNotice && Date.now() - state.stopNotice.at > 4000) state.stopNotice = null;
   const stopNote = state.stopNotice && state.stopNotice.key === s.key ? state.stopNotice : null;
   const isTurnActive = syncStopButton(s);
@@ -3201,14 +3201,14 @@ function paintChat(s, turns, dialog, { forceScroll = false } = {}) {
     }
   }
 
-  // 3) Tail notices (optimistic pending send / stop notice)
+  // 3) Tail notices (direct-sent messages entering session + stop notice)
   const tailWrap = $('chatTail');
-  const tailSig = JSON.stringify([pend?.text || '', pend?.at || 0, stopNote?.at || 0]);
+  const tailSig = JSON.stringify([enteringItems.map((x) => [x.id, x.text]), stopNote?.at || 0]);
   if (tailWrap.dataset.sig !== tailSig) {
     tailWrap.dataset.sig = tailSig;
     const tailParts = [];
-    if (pend) {
-      tailParts.push(`<div class="turn-block"><div class="msg-user-label">OPERATOR // SENT TO TMUX</div><div class="msg-user">${esc(pend.text)}</div><div class="pending-ack"><span>⏳ 已注入 tmux（${esc(s.name)}），等待模型确认接收…</span></div></div>`);
+    for (const item of enteringItems) {
+      tailParts.push(`<div class="turn-block"><div class="msg-user-label">OPERATOR // SENT TO SESSION</div><div class="msg-user">${esc(item.text)}</div><div class="pending-ack"><span>⏳ 已送入会话（${esc(s.name)}），等待模型响应…</span></div></div>`);
     }
     if (stopNote) {
       tailParts.push(`<div class="stop-ack">■ 已向 ${esc(s.name)} 发送中断指令（${esc(stopNote.keyHint)}）</div>`);
@@ -4009,6 +4009,10 @@ $('composer').onsubmit = async (e) => {
   renderSessions();
   renderQueueTray(s);
   syncStopButton(s);
+  if (!willWait && state.tab === 'chat') {
+    const c = getSessionCache(s.key);
+    if (c.turns) paintChat(s, c.turns, c.dialog, { forceScroll: true });
+  }
 
   try {
     const res = await api(`/api/session/${encodeURIComponent(s.key)}/send`, {
@@ -4025,16 +4029,26 @@ $('composer').onsubmit = async (e) => {
     }
     state.boostPollUntil = Date.now() + 60000;
     renderSessions();
-    renderQueueTray(selectedSession());
-    syncStopButton(selectedSession());
-    setTimeout(() => renderWorkspace({ forceScroll: true }), 650);
+    const cur = selectedSession();
+    renderQueueTray(cur);
+    syncStopButton(cur);
+    if (cur && cur.key === s.key && state.tab === 'chat') {
+      const c = getSessionCache(cur.key);
+      if (c.turns) paintChat(cur, c.turns, c.dialog, { forceScroll: !res.queued });
+    }
+    setTimeout(() => renderWorkspace({ forceScroll: !res.queued }), 650);
   } catch (err) {
     const rem = (state.optimisticQueue.get(s.key) || []).filter((x) => x.id !== optId);
     if (rem.length) state.optimisticQueue.set(s.key, rem);
     else state.optimisticQueue.delete(s.key);
     renderSessions();
-    renderQueueTray(selectedSession());
-    syncStopButton(selectedSession());
+    const cur = selectedSession();
+    renderQueueTray(cur);
+    syncStopButton(cur);
+    if (cur && cur.key === s.key && state.tab === 'chat') {
+      const c = getSessionCache(cur.key);
+      if (c.turns) paintChat(cur, c.turns, c.dialog);
+    }
     alert(err.message);
   }
 };
