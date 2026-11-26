@@ -90,6 +90,19 @@ export class OpsEngine extends EventEmitter {
     };
   }
 
+  renameSessionRef(oldName, newName) {
+    if (!oldName || !newName || oldName === newName) return;
+    let touched = false;
+    for (const hb of this.data.heartbeats) {
+      if (hb.targetRef === oldName) { hb.targetRef = newName; touched = true; }
+    }
+    for (const g of this.data.goals) {
+      if (g.workerRef === oldName) { g.workerRef = newName; touched = true; }
+      if (g.supervisorRef === oldName) { g.supervisorRef = newName; touched = true; }
+    }
+    if (touched) this.changed();
+  }
+
   // ---- 1. Heartbeat Scheduled Tasks ----
 
   addHeartbeat({

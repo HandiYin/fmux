@@ -383,6 +383,18 @@ export class GpuRegistry extends EventEmitter {
     return { released: removed };
   }
 
+  renameSessionRef(oldName, newName) {
+    if (!oldName || !newName || oldName === newName) return;
+    let touched = false;
+    for (const l of this.leases) {
+      if (l.session === oldName) { l.session = newName; touched = true; }
+    }
+    if (touched) {
+      this.save();
+      this.emit('changed');
+    }
+  }
+
   snapshot() {
     const now = Date.now();
     const leases = this.leases.map((l) => ({

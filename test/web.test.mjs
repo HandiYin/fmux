@@ -387,6 +387,26 @@ test('agy model catalog, live footer parser, and WebMUX /model & /effort switchi
       method: 'POST', headers, body: JSON.stringify({ effort: 'low' }),
     });
     assert.equal(busyRes.status, 409);
+
+    // Rename both tmux session (including UTF-8 Chinese/English) and inner agy conversation (/rename),
+    // while automatically updating registered GPU leases!
+    s.status = 'idle';
+    await fetch(`${base}/api/gpu/register`, {
+      method: 'POST', headers, body: JSON.stringify({ cluster: 'local', gpus: '0', session: 'work', task: 'v3 train' }),
+    });
+    const rnRes = await (await fetch(`${base}/api/session/%251/rename`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ tmuxName: 'vision-手部融合', sessionTitle: 'Hand Fusion v3 Reconstruction' }),
+    })).json();
+    assert.equal(rnRes.ok, true);
+    assert.equal(rnRes.name, 'vision-手部融合');
+    assert.equal(rnRes.title, 'Hand Fusion v3 Reconstruction');
+    assert.deepEqual(h.tmux.renamed.at(-1), ['work', 'vision-手部融合']);
+    assert.deepEqual(h.tmux.sent.at(-1), ['%1', '/rename Hand Fusion v3 Reconstruction']);
+
+    const stAfter = await (await fetch(`${base}/api/state`, { headers })).json();
+    assert.equal(stAfter.gpu.leases[0].session, 'vision-手部融合');
   } finally {
     await web.close();
   }

@@ -124,3 +124,67 @@ export async function handoff(router, { from, to, comment = '', ...options }) {
     next: `${target.name}'s reply will arrive in the chat as its own card`,
   };
 }
+
+const RENAMEABLE_AGENTS = new Set(['agy', 'dsh', 'claude', 'codex']);
+
+export async function renameSessionBoth(router, session, { tmuxName = '', sessionTitle = '' } = {}) {
+  const nextTmux = String(tmuxName || '').trim();
+  const nextTitle = String(sessionTitle || '').replace(/[\r\n\t]+/g, ' ').replace(/@/g, ' ').trim();
+  if (!nextTmux && !nextTitle) throw new Error('请填写新的 tmux 会话名或内部对话标题');
+
+  const oldTmux = session.tmuxSession;
+  const oldName = session.name;
+  let renamedTmux = false;
+  let renamedAgent = false;
+  let warning = '';
+
+  if (nextTmux && nextTmux !== oldTmux) {
+    const conflict = [...router.registry.sessions.values()].some((s) => s.tmuxSession === nextTmux && s.tmuxSession !== oldTmux);
+    if (conflict) throw new Error(`已存在名为 ${nextTmux} 的 tmux 会话`);
+    await router.tmux.renameSession(oldTmux, nextTmux);
+    for (const s of router.registry.sessions.values()) {
+      if (s.tmuxSession !== oldTmux) continue;
+      const wasSingle = s.name === oldTmux;
+      s.tmuxSession = nextTmux;
+      s.name = wasSingle ? nextTmux : `${nextTmux}:${s.windowIndex}.${s.paneIndex}`;
+      router.registry.codexBindings?.checkpoint?.(s);
+    }
+    const attached = router.store?.get?.('attached');
+    if (attached && attached.name === oldName) {
+      router.store.set('attached', { ...attached, name: session.name });
+    }
+    router.ops?.renameSessionRef?.(oldName, session.name);
+    router.gpu?.renameSessionRef?.(oldName, session.name);
+    renamedTmux = true;
+    log('info', 'session.rename_tmux', { from: oldTmux, to: nextTmux });
+  }
+
+  if (nextTitle && nextTitle !== session.title) {
+    if (!RENAMEABLE_AGENTS.has(session.kind)) {
+      if (!renamedTmux) throw new Error(`${session.kind} 会话不支持内部 /rename 对话标题`);
+      warning = `${session.kind} 会话无内部对话标题，已仅重命名 tmux 会话`;
+    } else if (session.status === 'working') {
+      if (!renamedTmux) throw new Error('当前 Agent 正在思考/运行中，请先等待完成或点击 STOP 后再重命名内部对话标题');
+      warning = 'tmux 会话已重命名；Agent 正在运行中，内部对话标题需等回合结束后再改';
+    } else {
+      await router.tmux.sendText(session.key, `/rename ${nextTitle}`, { keys: true });
+      session.title = nextTitle;
+      router.touchAttached(session);
+      renamedAgent = true;
+      log('info', 'session.rename_agent', { session: session.name, kind: session.kind, title: nextTitle });
+    }
+  }
+
+  await sleep(renamedAgent ? 550 : 120);
+  await router.registry.poll().catch(() => {});
+  return {
+    ok: true,
+    key: session.key,
+    name: session.name,
+    tmuxSession: session.tmuxSession,
+    title: session.title,
+    renamedTmux,
+    renamedAgent,
+    ...(warning ? { warning } : {}),
+  };
+}

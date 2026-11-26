@@ -31,7 +31,12 @@ export function fakeTmux(panes = []) {
       tmux.keys.push([id, keys]);
     },
     created: [],
+    renamed: [],
     newSession: async (spec) => { tmux.created.push(spec); },
+    renameSession: async (oldName, newName) => {
+      tmux.renamed.push([oldName, newName]);
+      for (const p of tmux.panes) if (p.sessionName === oldName) p.sessionName = newName;
+    },
     killSession: async (name) => { tmux.killed.push(name); },
   };
   return tmux;

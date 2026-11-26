@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { agyTranscriptPath, defaultAgyHome } from './agent-files.mjs';
 import { readTailSlice } from './jsonl.mjs';
@@ -358,4 +359,26 @@ export function inferEffortFromModel(model) {
   const dash = s.match(/-(low|medium|high|xhigh|max)$/i);
   if (dash) return dash[1].toLowerCase();
   return '';
+}
+
+let agyMetaCache = { mtimeMs: 0, titles: new Map() };
+
+export function readAgyConversationTitle(convId, home = defaultAgyHome()) {
+  if (!convId) return '';
+  const metaFile = path.join(home, 'cache', 'conversation_metadata.json');
+  try {
+    const st = fs.statSync(metaFile);
+    if (st.mtimeMs !== agyMetaCache.mtimeMs) {
+      const parsed = JSON.parse(fs.readFileSync(metaFile, 'utf8'));
+      const titles = new Map();
+      for (const [id, entry] of Object.entries(parsed?.conversations || {})) {
+        const t = entry?.summary?.Title;
+        if (typeof t === 'string' && t.trim()) titles.set(id.toLowerCase(), t.trim());
+      }
+      agyMetaCache = { mtimeMs: st.mtimeMs, titles };
+    }
+    return agyMetaCache.titles.get(String(convId).toLowerCase()) || '';
+  } catch {
+    return '';
+  }
 }

@@ -26,6 +26,8 @@ const USAGE = `fmuxctl — control the running fmux
   fmuxctl gpu ls [--json]                 show live local/gongji GPUs and all registered leases by cluster
   fmuxctl gpu register --cluster local|gongji|volc --gpus 0|1|8 --session NAME --task DESC [--job-id ID] [--model NAME] [--host HOST] [--ttl 240]
   fmuxctl gpu release <lease-id> | --job-id ID | --session NAME [--cluster C]
+  fmuxctl rename <session> [new-tmux-name] [--title TITLE]
+                                          rename the tmux session and/or inner agent conversation (/rename)
   fmuxctl kill <session> --yes            end the tmux session
   fmuxctl notify <text…> [--title T]      send a card to the owner's chat
   fmuxctl dashboard                       post a fresh session dashboard card
@@ -120,6 +122,14 @@ async function main() {
       const resume = take(args, '--resume') || (has(args, '--continue') ? 'last' : 'new');
       const params = { agent: take(args, '--agent') || 'claude', cwd: take(args, '--cwd') || '~', prompt: take(args, '--prompt') || '', attach: !has(args, '--no-attach'), yolo: !has(args, '--no-yolo'), resume };
       return console.log(JSON.stringify(await call('new', { name: args[0], ...params }), null, 2));
+    }
+    case 'rename': {
+      const sessionTitle = take(args, '--title') || '';
+      const tmuxName = take(args, '--tmux') || args[1] || '';
+      if (!args[0] || (!tmuxName && !sessionTitle)) {
+        throw new Error('usage: fmuxctl rename <session> [new-tmux-name] [--title "Conversation Title"]');
+      }
+      return console.log(JSON.stringify(await call('rename', { ref: args[0], tmuxName, sessionTitle }), null, 2));
     }
     case 'kill':
       if (!has(args, '--yes')) throw new Error('refusing to kill without --yes');

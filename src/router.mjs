@@ -4,7 +4,7 @@ import { handleBotMenu, handleCardAction } from './router/actions.mjs';
 import { parseCommand, runCommand, saveResources } from './router/commands.mjs';
 import { createControlApi } from './router/control-api.mjs';
 import { LiveCardManager } from './router/live-cards.mjs';
-import { autoTrust, createSession, handoff, newSessionForm } from './router/sessions.mjs';
+import { autoTrust, createSession, handoff, newSessionForm, renameSessionBoth } from './router/sessions.mjs';
 import { findDialog } from './screen.mjs';
 import * as realTmux from './tmux.mjs';
 import { fmtDuration, log, oneLine, sleep } from './util.mjs';
@@ -123,6 +123,7 @@ export class Router {
   sendTasks(session) { return this.liveCards.sendTasks(session); }
   newSessionForm(error) { return newSessionForm(this, error); }
   createSession(opts) { return createSession(this, opts); }
+  renameSession(session, opts) { return renameSessionBoth(this, session, opts); }
   autoTrust(key, opts) { return autoTrust(this, key, opts); }
   handoff(opts) { return handoff(this, opts); }
 

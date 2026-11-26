@@ -172,7 +172,7 @@ export async function sendKeys(paneId, keys) {
   }
 }
 
-export const SESSION_NAME_RE = /^[A-Za-z0-9_-]{1,40}$/;
+export const SESSION_NAME_RE = /^[\p{L}\p{N}_-]{1,48}$/u;
 
 async function hasServer() {
   try {
@@ -184,7 +184,7 @@ async function hasServer() {
 }
 
 export async function newSession({ name, cwd, command }) {
-  if (!SESSION_NAME_RE.test(name)) throw new Error('会话名只能用字母、数字、_ 和 -（最长 40）');
+  if (!SESSION_NAME_RE.test(name)) throw new Error('会话名只能用中英文、数字、_ 和 -（最长 48）');
   // -P -F: print the id of the new pane, which is the surest way to address it afterwards.
   const args = ['new-session', '-d', '-P', '-F', '#{pane_id}', '-s', name, '-x', '160', '-y', '48', '-c', cwd];
   // Under systemd, a tmux server started from here would live in the hub's control group and
@@ -201,6 +201,11 @@ export async function newSession({ name, cwd, command }) {
     const paneId = /^%\d+$/.test(out.trim()) ? out.trim() : `=${name}:`;
     await sendText(paneId, command);
   }
+}
+
+export async function renameSession(oldName, newName) {
+  if (!SESSION_NAME_RE.test(newName)) throw new Error('tmux 会话名只能用中英文、数字、_ 和 -（最长 48，不含空格或冒号）');
+  await tmux(['rename-session', '-t', `=${oldName}`, newName]);
 }
 
 export async function killSession(name) {

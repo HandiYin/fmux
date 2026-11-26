@@ -4,7 +4,7 @@ import * as cards from '../cards.mjs';
 // Local control API exposed over the Unix socket / named pipe for fmuxctl and the concierge.
 export function createControlApi(router) {
   const summary = (s) => ({
-    name: s.name, key: s.key, unitId: s.unitId || 0, kind: s.kind, status: s.status,
+    name: s.name, tmuxSession: s.tmuxSession || s.name, key: s.key, unitId: s.unitId || 0, kind: s.kind, status: s.status,
     since: new Date(s.statusSince).toISOString(), stoppedAt: s.stoppedAt || 0, note: s.note,
     cwd: s.cwd, title: s.title, model: s.model || '', modelFamily: s.modelFamily || '', effort: s.effort || '', attached: router.attachedKey() === s.key,
     runningTasks: runningTasks(s).length,
@@ -64,6 +64,10 @@ export function createControlApi(router) {
       const session = router.need(ref);
       await router.tmux.killSession(session.tmuxSession);
       return { killed: session.tmuxSession };
+    },
+    rename: async ({ ref, tmuxName = '', sessionTitle = '' }) => {
+      const session = router.need(ref);
+      return router.renameSession(session, { tmuxName, sessionTitle });
     },
     notify: async ({ title = 'fmux', text }) => ({ messageId: await router.post(cards.infoCard({ title, text })) }),
     dashboard: async () => ({ messageId: await router.sendDashboard() }),

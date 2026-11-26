@@ -148,6 +148,9 @@ WebMUX 内置了类似 Agentboard 的语义荧光高亮（`✓ RESULT`、`! PROB
 
 如需修改某个 Agent 的默认参数，在 `config.json` 中覆写 `agents.<type>.flags` 或 `command` 即可。
 
+- **在线切换模型与思考强度（`agy` / `dsh` / `claude` / `codex`）**：输入框上方提供常驻模型与 `THINKING` 档位栏（`LOW / MED / HIGH / XHIGH`），点击即可在不丢失上下文的情况下向 tmux 会话下发 `/model` 与 `/effort` 并实时回读底栏状态。
+- **一键重命名 tmux 会话与内部对话标题**：点击会话顶栏 **`RENAME`**（或直接点击会话标题，或运行 `fmuxctl rename <会话> <新tmux名> --title "<新对话标题>"`），可同时修改左侧 **tmux 会话名**（支持中英文、数字、`_`、`-`，并自动同步已登记的 GPU 租约、Heartbeat 与 Goal 引用）以及 Agent 内部的 **`/rename` 对话标题**，左侧固定编号不会因此改变。
+
 ---
 
 ## 6. 统一 GPU 看板（`04 // GPU`）与 Agent 联动

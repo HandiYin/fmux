@@ -963,6 +963,7 @@
       </div>
 
       <div class="ws-actions">
+        <button id="renameBtn" class="btn ghost" title="重命名 tmux 会话与内部 Agent 对话标题">RENAME</button>
         <button id="escBtn" class="btn ghost" title="向终端发送 ESC">ESC</button>
         <button id="killBtn" class="btn danger" title="销毁整个 tmux 会话">KILL</button>
       </div>
@@ -1311,6 +1312,34 @@
       <button type="button" class="btn ghost" onclick="document.getElementById('modelDialog').close()">CLOSE</button>
     </div>
   </div>
+</dialog>
+
+<!-- Modal: Rename tmux Session & Agent Conversation -->
+<dialog id="renameDialog">
+  <div class="modal-stripe"></div>
+  <form id="renameForm" class="modal-body">
+    <div style="font-family:var(--mono);font-size:10px;letter-spacing:0.2em;color:var(--cyan);margin-bottom:4px">PRTS // RENAME UNIT &amp; SESSION</div>
+    <h3 style="margin:0 0 12px;font-size:17px">重命名 tmux 会话与对话标题</h3>
+    <label class="field"><span>TMUX SESSION NAME（左侧列表显示名，支持中英文/数字/<code>_</code>/<code>-</code>）</span>
+      <input id="rnTmux" maxlength="48" placeholder="例如 vision-v3 或 机器人仿真" />
+    </label>
+    <div id="rnAgentWrap">
+      <label class="field">
+        <span style="display:flex;justify-content:space-between;align-items:center">
+          <span>AGENT SESSION TITLE（同步执行 <code>/rename</code> 修改内部对话标题）</span>
+          <button id="rnSyncBtn" type="button" class="btn xs cyan" style="padding:1px 6px">= 同上</button>
+        </span>
+        <input id="rnTitle" maxlength="120" placeholder="例如 OmniFusion v3 多视角重建（留空则不改内部标题）" />
+      </label>
+      <div id="rnBusyHint" style="display:none;font-family:var(--mono);font-size:10.5px;color:var(--amber);margin:-4px 0 10px">
+        ⚠ 当前 Agent 正在运行中：tmux 会话名可立即修改，内部对话标题需等回合结束后再改。
+      </div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">
+      <button type="button" class="btn ghost" onclick="document.getElementById('renameDialog').close()">CANCEL</button>
+      <button id="rnSubmitBtn" type="submit" class="btn solid">SAVE RENAME</button>
+    </div>
+  </form>
 </dialog>
 
 <script>
@@ -2969,6 +2998,61 @@ document.querySelectorAll('#wsSubtabs .subtab').forEach((b) => {
 });
 $('escBtn').onclick = () => sendKeys(['esc']);
 $('stopBtn').onclick = () => { if (!$('stopBtn').disabled) stopSession(); };
+
+function openRenameDialog() {
+  const s = selectedSession();
+  if (!s) return;
+  $('rnTmux').value = s.tmuxSession || s.name || '';
+  const canAgentRename = ['agy', 'dsh', 'claude', 'codex'].includes(s.kind);
+  $('rnAgentWrap').style.display = canAgentRename ? '' : 'none';
+  $('rnTitle').value = canAgentRename ? (s.title || '') : '';
+  $('rnTitle').disabled = s.status === 'working';
+  $('rnSyncBtn').disabled = s.status === 'working';
+  $('rnBusyHint').style.display = (canAgentRename && s.status === 'working') ? '' : 'none';
+  $('renameDialog').showModal();
+  setTimeout(() => { $('rnTmux').focus(); $('rnTmux').select(); }, 30);
+}
+$('renameBtn').onclick = () => openRenameDialog();
+$('wsTitle').style.cursor = 'pointer';
+$('wsTitle').title = '点击重命名 tmux 会话与内部对话标题';
+$('wsTitle').onclick = () => openRenameDialog();
+$('rnSyncBtn').onclick = () => { $('rnTitle').value = $('rnTmux').value.trim(); };
+$('renameForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const s = selectedSession();
+  if (!s) return;
+  const tmuxName = $('rnTmux').value.trim();
+  const canAgentRename = ['agy', 'dsh', 'claude', 'codex'].includes(s.kind) && s.status !== 'working';
+  const rawTitle = canAgentRename ? $('rnTitle').value.trim() : '';
+  const curTmux = s.tmuxSession || s.name;
+  const sendTmux = tmuxName && tmuxName !== curTmux ? tmuxName : '';
+  const sendTitle = rawTitle && rawTitle !== (s.title || '') ? rawTitle : '';
+  if (!sendTmux && !sendTitle) {
+    $('renameDialog').close();
+    return;
+  }
+  $('rnSubmitBtn').disabled = true;
+  $('rnSubmitBtn').textContent = 'SAVING...';
+  try {
+    const res = await api(`/api/session/${encodeURIComponent(s.key)}/rename`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tmuxName: sendTmux, sessionTitle: sendTitle }),
+    });
+    if (res.name) s.name = res.name;
+    if (res.tmuxSession) s.tmuxSession = res.tmuxSession;
+    if (res.title !== undefined) s.title = res.title;
+    $('renameDialog').close();
+    if (res.warning) alert(res.warning);
+    renderSessions();
+    renderWorkspace();
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    $('rnSubmitBtn').disabled = false;
+    $('rnSubmitBtn').textContent = 'SAVE RENAME';
+  }
+};
 $('modelPickBtn').onclick = () => openModelDialog(false);
 $('wsModel').style.cursor = 'pointer';
 $('wsModel').title = '点击切换模型与思考强度';

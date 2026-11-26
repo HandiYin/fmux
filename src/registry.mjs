@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { inferEffortFromModel, parseAgyFooter } from './agy.mjs';
+import { inferEffortFromModel, parseAgyFooter, readAgyConversationTitle } from './agy.mjs';
 import { applyTaskEvent, convIdFromTranscript, runningTasks, seedTasksFromTranscript, taskNote } from './agy-tasks.mjs';
 import { CodexBindingStore } from './codex-bindings.mjs';
 import { pick } from './match.mjs';
@@ -219,6 +219,10 @@ export class Registry extends EventEmitter {
     const meta = kind === 'claude' ? this.probe.readClaudeMeta(s.agentPid) : null;
 
     await this.followTranscript(s, kind, meta);
+    if (kind === 'agy' && s.transcript) {
+      const agyTitle = readAgyConversationTitle(convIdFromTranscript(s.transcript));
+      if (agyTitle) s.title = agyTitle;
+    }
     const events = s.tail ? s.tail.read() : [];
     const sawTurnEnd = this.applyTranscriptEvents(s, events);
 

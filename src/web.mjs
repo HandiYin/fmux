@@ -167,6 +167,8 @@ export function startWebServer({
   const opsEngine = ops || router.ops || new OpsEngine({ router, stateDir: '' });
   const ownedGpu = !gpu && !router.gpu;
   const gpuRegistry = gpu || router.gpu || new GpuRegistry({ registry: router.registry, stateDir: '' });
+  router.ops ??= opsEngine;
+  router.gpu ??= gpuRegistry;
 
   const hlCfg = cfg.highlight || {};
   const highlighter = customHighlighter || createHighlighter({
@@ -632,6 +634,20 @@ export function startWebServer({
           await router.attach(session, { announce: false });
           broadcast();
           sendJson(res, 200, { attached: session.name });
+          return;
+        }
+        if (req.method === 'POST' && action === 'rename') {
+          const body = await readJsonBody(req);
+          try {
+            const out = await router.renameSession(session, {
+              tmuxName: body.tmuxName ?? '',
+              sessionTitle: body.sessionTitle ?? '',
+            });
+            broadcast();
+            sendJson(res, 200, out);
+          } catch (err) {
+            sendJson(res, /运行中/.test(err.message) ? 409 : 400, { error: err.message });
+          }
           return;
         }
         if (req.method === 'POST' && action === 'kill') {
