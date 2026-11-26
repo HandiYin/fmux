@@ -3,10 +3,11 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { AgentboardBridge } from './agentboard.mjs';
 import { listTasks, readTaskLog } from './agy-tasks.mjs';
 import { createFeishuOidc, parseCookies } from './feishu-oidc.mjs';
-import { analyzeHighlights } from './highlight.mjs';
+import { GpuRegistry } from './gpu.mjs';
+import { createHighlighter } from './highlight.mjs';
+import { OpsEngine } from './ops.mjs';
 import { findDialog } from './screen.mjs';
 import { adapters, lastTurns } from './transcript.mjs';
 import { log } from './util.mjs';
@@ -122,7 +123,7 @@ function renderOidcLoginGate({ appId, tenant }) {
           <h1>FMUX 战术控制台</h1>
         </div>
       </div>
-      <p>需要通过 <strong>${brand} OIDC</strong> 校验操作员身份（<code>owner.openId</code>），验证通过后方可接入本地 Agent 会话、后台任务流与内置 Agentboard。</p>
+      <p>需要通过 <strong>${brand} OIDC</strong> 校验操作员身份（<code>owner.openId</code>），验证通过后方可访问 Agent 会话、Heartbeat 调度、长期目标与 GPU 看板。</p>
       <a class="btn" href="/auth/login"><span>AUTHORIZE // ${brand.toUpperCase()} OIDC</span><span>→</span></a>
       <div class="meta"><span>APP: ${String(appId || 'UNSET').replace(/[<>&"]/g, '')}</span><span>SECURITY: OWNER_ONLY</span></div>
     </div>
@@ -131,9 +132,18 @@ function renderOidcLoginGate({ appId, tenant }) {
 </html>`;
 }
 
-// Lightweight HTTP + SSE server sharing the live Registry & Router state,
-// with Feishu OIDC auth and embedded Primatix-Intelligence/agentboard proxy.
-export function startWebServer({ router, cfg, getAppSecret, oidc: customOidc = null, agentboard: customAgentboard = null, fetchImpl }) {
+// Lightweight HTTP + SSE server sharing the live Registry, Router, OpsEngine, and GpuRegistry,
+// with Feishu OIDC auth and DeepSeek Flash message highlighting.
+export function startWebServer({
+  router,
+  cfg,
+  ops = null,
+  gpu = null,
+  getAppSecret,
+  oidc: customOidc = null,
+  highlighter: customHighlighter = null,
+  fetchImpl,
+}) {
   const webCfg = cfg.web || {};
   const host = webCfg.host || '127.0.0.1';
   const port = webCfg.port ?? 18790;
@@ -152,13 +162,19 @@ export function startWebServer({ router, cfg, getAppSecret, oidc: customOidc = n
     fetchImpl,
   }) : null);
 
-  const abCfg = webCfg.agentboard || {};
-  const agentboard = customAgentboard || new AgentboardBridge({
-    enabled: abCfg.enabled !== false,
-    port: abCfg.port ?? 8789,
-    url: abCfg.url || '',
-    python: abCfg.python || 'python3',
-    autoStart: abCfg.autoStart !== false,
+  const ownedOps = !ops && !router.ops;
+  const opsEngine = ops || router.ops || new OpsEngine({ router, stateDir: '' });
+  const ownedGpu = !gpu && !router.gpu;
+  const gpuRegistry = gpu || router.gpu || new GpuRegistry({ registry: router.registry, stateDir: '' });
+
+  const hlCfg = cfg.highlight || {};
+  const highlighter = customHighlighter || createHighlighter({
+    stateDir: cfg.stateDir && cfg.stateDir !== '/nonexistent' ? cfg.stateDir : '',
+    baseUrl: hlCfg.baseUrl || 'https://api.deepseek.com/v1',
+    model: hlCfg.model || 'deepseek-chat',
+    apiKey: hlCfg.apiKey || '',
+    enabled: hlCfg.enabled !== false,
+    fetchImpl,
   });
 
   const sseClients = new Set();
@@ -167,7 +183,8 @@ export function startWebServer({ router, cfg, getAppSecret, oidc: customOidc = n
     sessions: await router.api.ls(),
     status: await router.api.status(),
     agents: Object.keys(cfg.agents || {}),
-    agentboard: { enabled: agentboard.enabled, available: agentboard.isAvailable() },
+    ops: opsEngine.snapshot(),
+    gpu: gpuRegistry.snapshot(),
     oidcEnabled,
     now: Date.now(),
   });
@@ -187,8 +204,10 @@ export function startWebServer({ router, cfg, getAppSecret, oidc: customOidc = n
     pushTimer.unref?.();
   };
 
-  const events = ['added', 'removed', 'status', 'output', 'task_update', 'turn_end', 'changed'];
-  for (const name of events) router.registry.on(name, broadcast);
+  const regEvents = ['added', 'removed', 'status', 'output', 'task_update', 'turn_end', 'changed'];
+  for (const name of regEvents) router.registry.on(name, broadcast);
+  opsEngine.on('changed', broadcast);
+  gpuRegistry.on('changed', broadcast);
 
   const keepalive = setInterval(() => {
     for (const res of sseClients) res.write(': ping\n\n');
@@ -216,22 +235,18 @@ export function startWebServer({ router, cfg, getAppSecret, oidc: customOidc = n
   }
 
   function authorize(req, url, res) {
-    // 1. Check Feishu OIDC session first when enabled.
     if (oidc) {
       const sess = oidc.getSession(req);
       if (sess) return { ok: true, mode: 'oidc', user: { openId: sess.openId, name: sess.name, avatarUrl: sess.avatarUrl } };
     }
-    // 2. Check static token when configured.
     if (token) {
       const tok = checkToken(req, url, res);
       if (tok === 'redirected') return { ok: false, handled: true };
       if (tok === true) return { ok: true, mode: 'token', user: { openId: cfg.owner?.openId || '', name: 'Operator', avatarUrl: '' } };
     }
-    // 3. No auth configured: open (localhost mode).
     if (!oidc && !token) {
       return { ok: true, mode: 'local', user: { openId: cfg.owner?.openId || '', name: 'DOCTOR // LOCAL', avatarUrl: '' } };
     }
-    // 4. Unauthorized: serve PRTS OIDC login gate for browser root, JSON 401 for APIs.
     if (oidc && req.method === 'GET' && url.pathname === '/') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
       res.end(renderOidcLoginGate({ appId: cfg.app?.id, tenant: cfg.app?.tenant }));
@@ -275,18 +290,6 @@ export function startWebServer({ router, cfg, getAppSecret, oidc: customOidc = n
         return;
       }
 
-      // Embedded Primatix-Intelligence/agentboard reverse proxy (protected by auth above!)
-      if (url.pathname === '/agentboard') {
-        res.writeHead(302, { Location: '/agentboard/' });
-        res.end();
-        return;
-      }
-      if (url.pathname.startsWith('/agentboard/')) {
-        const subpath = url.pathname.slice('/agentboard'.length) + (url.search || '');
-        await agentboard.proxy(req, res, subpath);
-        return;
-      }
-
       if (req.method === 'GET' && url.pathname === '/api/state') {
         sendJson(res, 200, { ...(await snapshot()), user: auth.user, authMode: auth.mode });
         return;
@@ -311,7 +314,7 @@ export function startWebServer({ router, cfg, getAppSecret, oidc: customOidc = n
 
       if (req.method === 'POST' && url.pathname === '/api/highlight') {
         const body = await readJsonBody(req);
-        sendJson(res, 200, analyzeHighlights(body.text || '', { marksOnly: Boolean(body.marks_only) }));
+        sendJson(res, 200, highlighter.request(body.text || '', { marksOnly: Boolean(body.marks_only) }));
         return;
       }
 
@@ -338,6 +341,82 @@ export function startWebServer({ router, cfg, getAppSecret, oidc: customOidc = n
         return;
       }
 
+      // ---- 1. Heartbeat Scheduled Tasks API ----
+      if (req.method === 'GET' && url.pathname === '/api/ops') {
+        sendJson(res, 200, opsEngine.snapshot());
+        return;
+      }
+      if (req.method === 'POST' && url.pathname === '/api/heartbeats') {
+        const body = await readJsonBody(req);
+        sendJson(res, 200, opsEngine.addHeartbeat(body));
+        return;
+      }
+      const hbMatch = url.pathname.match(/^\/api\/heartbeats\/([^/]+)(?:\/([a-z]+))?$/);
+      if (hbMatch) {
+        const id = decodeURIComponent(hbMatch[1]);
+        const sub = hbMatch[2];
+        if (req.method === 'PATCH' && !sub) {
+          sendJson(res, 200, opsEngine.updateHeartbeat(id, await readJsonBody(req)));
+          return;
+        }
+        if (req.method === 'DELETE' && !sub) {
+          sendJson(res, 200, opsEngine.deleteHeartbeat(id));
+          return;
+        }
+        if (req.method === 'POST' && sub === 'run') {
+          sendJson(res, 200, await opsEngine.runHeartbeat(id, { manual: true }));
+          return;
+        }
+      }
+
+      // ---- 2. Long-Horizon Goals API ----
+      if (req.method === 'POST' && url.pathname === '/api/goals') {
+        sendJson(res, 200, opsEngine.addGoal(await readJsonBody(req)));
+        return;
+      }
+      const goalMatch = url.pathname.match(/^\/api\/goals\/([^/]+)(?:\/([a-z]+))?$/);
+      if (goalMatch) {
+        const id = decodeURIComponent(goalMatch[1]);
+        const sub = goalMatch[2];
+        if (req.method === 'PATCH' && !sub) {
+          sendJson(res, 200, opsEngine.updateGoal(id, await readJsonBody(req)));
+          return;
+        }
+        if (req.method === 'DELETE' && !sub) {
+          sendJson(res, 200, opsEngine.deleteGoal(id));
+          return;
+        }
+        if (req.method === 'POST' && sub === 'supervise') {
+          sendJson(res, 200, await opsEngine.superviseGoal(id, { manual: true }));
+          return;
+        }
+      }
+
+      // ---- 3. Unified GPU Registry & Dashboard API ----
+      if (req.method === 'GET' && url.pathname === '/api/gpu') {
+        sendJson(res, 200, gpuRegistry.snapshot());
+        return;
+      }
+      if (req.method === 'POST' && url.pathname === '/api/gpu/poll') {
+        await gpuRegistry.poll();
+        sendJson(res, 200, gpuRegistry.snapshot());
+        return;
+      }
+      if (req.method === 'POST' && url.pathname === '/api/gpu/register') {
+        sendJson(res, 200, gpuRegistry.register(await readJsonBody(req)));
+        return;
+      }
+      if (req.method === 'POST' && url.pathname === '/api/gpu/heartbeat') {
+        const { id, ...rest } = await readJsonBody(req);
+        sendJson(res, 200, gpuRegistry.heartbeat(id, rest));
+        return;
+      }
+      if (req.method === 'POST' && url.pathname === '/api/gpu/release') {
+        sendJson(res, 200, gpuRegistry.release(await readJsonBody(req)));
+        return;
+      }
+
+      // ---- Session-specific APIs ----
       const sessionMatch = url.pathname.match(/^\/api\/session\/([^/]+)\/([a-z]+)$/);
       if (sessionMatch) {
         const key = decodeURIComponent(sessionMatch[1]);
@@ -419,20 +498,21 @@ export function startWebServer({ router, cfg, getAppSecret, oidc: customOidc = n
     server.listen(port, host, () => {
       const addr = server.address();
       const actualPort = typeof addr === 'object' && addr ? addr.port : port;
-      log('info', 'web.listening', { host, port: actualPort, oidc: oidcEnabled, token: Boolean(token), agentboard: agentboard.enabled });
-      if (!oidcEnabled && !token && host !== '127.0.0.1' && host !== 'localhost' && host !== '::1') {
-        log('warn', 'web.unauthenticated_non_loopback', { host });
-      }
+      log('info', 'web.listening', { host, port: actualPort, oidc: oidcEnabled, token: Boolean(token) });
       resolve({
         server,
         host,
         port: actualPort,
-        agentboard,
+        ops: opsEngine,
+        gpu: gpuRegistry,
         close: () => {
           clearInterval(keepalive);
           clearTimeout(pushTimer);
-          agentboard.stop();
-          for (const name of events) router.registry.off(name, broadcast);
+          if (ownedOps) opsEngine.stop();
+          if (ownedGpu) gpuRegistry.stop();
+          for (const name of regEvents) router.registry.off(name, broadcast);
+          opsEngine.off('changed', broadcast);
+          gpuRegistry.off('changed', broadcast);
           for (const client of sseClients) client.end();
           sseClients.clear();
           return new Promise((done) => server.close(() => done()));

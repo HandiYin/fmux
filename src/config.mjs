@@ -35,7 +35,7 @@ const DEFAULTS = {
     peekMinutes: 10,
   },
   web: {
-    // Built-in HTTP + SSE web UI (Arknights PRTS console + embedded Agentboard).
+    // Built-in HTTP + SSE web UI (Arknights PRTS console: Sessions, Heartbeat, Goals, GPU).
     enabled: false,
     host: '127.0.0.1',
     port: 18790,
@@ -50,26 +50,22 @@ const DEFAULTS = {
       allowedOpenIds: [],
       sessionHours: 24,
     },
-    agentboard: {
-      // Embedded Primatix-Intelligence/agentboard kanban board mounted at /agentboard/ behind auth.
-      enabled: true,
-      port: 8789,
-      url: '',
-      python: 'python3',
-      autoStart: true,
-    },
   },
-  // How a new session starts each agent. {name} is the tmux session name, {id} a conversation id.
-  // `continue` resumes the latest conversation of the directory, `resume` a chosen one.
-  // {flags} is filled with `flags` unless the session is created with "no -d / --yolo".
+  highlight: {
+    // DeepSeek API fast model for Agentboard-style message highlights & TL;DR.
+    // Reads apiKey from config, DEEPSEEK_API_KEY env, or ~/.dsh/.credentials.yaml automatically.
+    enabled: true,
+    baseUrl: 'https://api.deepseek.com/v1',
+    model: 'deepseek-chat',
+    apiKey: '',
+  },
+  // How a new session starts each agent inside tmux. All coding agents default to full-permission (yolo) mode.
   agents: {
     claude: {
-      // -d is Claude Code's debug mode. The auto permission mode is what skips the prompts.
-      flags: '-d --permission-mode auto',
+      flags: '--dangerously-skip-permissions',
       command: 'claude {flags} -n {name}',
       continue: 'claude {flags} -c',
       resume: 'claude {flags} -r {id}',
-      // Answer Claude Code's "do you trust this folder" prompt: the owner chose the directory.
       autoTrust: true,
     },
     codex: { flags: '--yolo', command: 'codex {flags}', continue: 'codex {flags} resume --last', resume: 'codex {flags} resume {id}' },
@@ -79,6 +75,14 @@ const DEFAULTS = {
       continue: 'agy {flags} -c',
       resume: 'agy {flags} -r {id}',
       promptFlag: '-i',
+    },
+    dsh: {
+      // dsh-tui uses ~/.dsh-tui/permission.json ("danger-full-access") for full-permission DeepSeek sessions.
+      flags: '',
+      command: 'dsh-tui',
+      continue: 'dsh-tui -c',
+      resume: 'dsh-tui --resume {id}',
+      promptFlag: '--',
     },
     pi: { flags: '', command: 'pi', continue: 'pi -c' },
     shell: { flags: '', command: '' },

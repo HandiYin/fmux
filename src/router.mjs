@@ -14,8 +14,8 @@ const TICK_MS = 3000;
 
 // Decides where each chat message and card click goes, and turns session events into cards.
 export class Router {
-  constructor({ feishu, registry, concierge = null, store, cfg, tmux = realTmux, history = { recentConversations, lookupConversation } }) {
-    Object.assign(this, { feishu, registry, concierge, store, cfg, tmux, history });
+  constructor({ feishu, registry, concierge = null, store, cfg, tmux = realTmux, history = { recentConversations, lookupConversation }, ops = null, gpu = null }) {
+    Object.assign(this, { feishu, registry, concierge, store, cfg, tmux, history, ops, gpu });
     this.liveCards = new LiveCardManager(this);
     this.live = this.liveCards.entries;
     this.views = new Map(); // session key -> live turn card of a followed session

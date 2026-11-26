@@ -83,5 +83,23 @@ export function createControlApi(router) {
       const messageId = await (tasks ? router.sendTasks(session) : terminal ? router.sendTerminal(session) : router.sendPeek(session));
       return { messageId };
     },
+    'gpu.ls': async () => {
+      if (!router.gpu) throw new Error('GPU registry is not initialized');
+      await router.gpu.poll();
+      return router.gpu.snapshot();
+    },
+    'gpu.register': async (params) => {
+      if (!router.gpu) throw new Error('GPU registry is not initialized');
+      return router.gpu.register(params);
+    },
+    'gpu.heartbeat': async ({ id, ...rest }) => {
+      if (!router.gpu) throw new Error('GPU registry is not initialized');
+      return router.gpu.heartbeat(id, rest);
+    },
+    'gpu.release': async (params) => {
+      if (!router.gpu) throw new Error('GPU registry is not initialized');
+      return router.gpu.release(params);
+    },
+    'ops.ls': async () => (router.ops ? router.ops.snapshot() : { heartbeats: [], goals: [] }),
   };
 }

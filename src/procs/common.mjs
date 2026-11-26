@@ -1,13 +1,15 @@
 const JS_RUNTIMES = new Set(['node', 'MainThread', 'bun', 'deno']);
-const AGENTS = new Set(['claude', 'codex', 'pi', 'agy']);
+const AGENTS = new Set(['claude', 'codex', 'pi', 'agy', 'dsh']);
 const SCRIPT_SUBCOMMANDS = {
   codex: ['app-server', 'exec', 'mcp-server', 'mcp', 'proto'],
   agy: ['acp', 'agent', 'agents', 'changelog', 'help', 'install', 'mcp', 'mic-serve', 'models', 'plugin', 'plugins', 'remote-control', 'update'],
+  dsh: ['headless', 'run', 'cli', 'doctor', 'plugin', 'update', 'version', 'help', 'migrate'],
 };
 const SCRIPT_FLAGS = {
   claude: ['-p', '--print'],
   pi: ['-p', '--print'],
   agy: ['-p', '--print', '--prompt'],
+  dsh: ['-p', '--dump-config', '--dump-config-schema', '--dump-default-config'],
 };
 
 // The first word of a command line. On Windows it can be a quoted path with spaces.
@@ -32,12 +34,14 @@ export function classify(comm, args = '') {
   if (AGENTS.has(comm)) return comm;
   if (AGENTS.has(name)) return name;
   if (comm === 'antigravity' || name === 'antigravity') return 'agy';
+  if (comm === 'dsh-tui' || name === 'dsh-tui' || comm === 'dst' || name === 'dst') return 'dsh';
   if (first.includes('/claude/versions/')) return 'claude';
   if (JS_RUNTIMES.has(comm) || JS_RUNTIMES.has(name)) {
     if (/pi-coding-agent|\/bin\/pi(["\s]|$)/.test(line)) return 'pi';
     if (/@openai\/codex|\/bin\/codex(["\s]|$)/.test(line)) return 'codex';
     if (/claude-code|\/bin\/claude(["\s]|$)/.test(line)) return 'claude';
     if (/antigravity-cli|\/bin\/agy(["\s]|$)/.test(line)) return 'agy';
+    if (/@deepseek-ai\/dsh|deepseek-harness|dsh-tui|\/bin\/dst(["\s]|$)/.test(line)) return 'dsh';
   }
   return null;
 }

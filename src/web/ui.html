@@ -55,7 +55,6 @@
     --sans: "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   }
 
-  /* ---- Rhodes Island Day Mode (Clinical Lab Alabaster & Obsidian) ---- */
   html[data-theme="day"] {
     --bg: #eceff4;
     --bg-rail: #e2e7ef;
@@ -129,8 +128,7 @@
     background: var(--bg-rail); border-bottom: 1px solid var(--line);
     display: flex; align-items: center; justify-content: space-between;
     font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; color: var(--muted);
-    padding-top: env(safe-area-inset-top);
-    user-select: none;
+    padding-top: env(safe-area-inset-top); user-select: none;
   }
   .rail-left, .rail-right { display: flex; align-items: center; gap: 16px; }
   .rail-pill { display: inline-flex; align-items: center; gap: 6px; }
@@ -143,48 +141,37 @@
   header {
     height: 54px; padding: 0 18px;
     background: var(--bg-header); border-bottom: 1px solid var(--line-strong);
-    display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
     position: relative; z-index: 10;
   }
-  header::before {
-    content: ""; position: absolute; left: 0; bottom: -1px; width: 140px; height: 2px;
-    background: var(--ink);
-  }
+  header::before { content: ""; position: absolute; left: 0; bottom: -1px; width: 140px; height: 2px; background: var(--ink); }
   header::after {
     content: ""; position: absolute; right: 0; bottom: -1px; width: 84px; height: 2px;
     background: repeating-linear-gradient(-45deg, var(--amber) 0 6px, transparent 6px 12px);
   }
 
-  .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
-  .brand-mark { width: 28px; height: 28px; flex-shrink: 0; }
+  .brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
+  .brand-mark { width: 26px; height: 26px; flex-shrink: 0; }
   .brand-mark .outer { stroke: var(--ink); }
   .brand-mark .inner { stroke: var(--cyan); }
   .brand-mark .core { fill: var(--cyan); }
-  .brand-title {
-    font-family: var(--mono); font-weight: 800; font-size: 15px; letter-spacing: 0.16em;
-    color: var(--ink); line-height: 1.1;
-  }
-  .brand-sub {
-    font-family: var(--mono); font-size: 9px; letter-spacing: 0.22em; color: var(--muted);
-    margin-top: 2px;
-  }
+  .brand-title { font-family: var(--mono); font-weight: 800; font-size: 14.5px; letter-spacing: 0.16em; color: var(--ink); line-height: 1.1; }
+  .brand-sub { font-family: var(--mono); font-size: 9px; letter-spacing: 0.2em; color: var(--muted); margin-top: 2px; }
 
-  /* Iconic Arknights Slanted Parallelogram Mode Tabs */
-  .mode-nav { display: flex; align-items: center; gap: 6px; }
+  .mode-nav { display: flex; align-items: center; gap: 5px; }
   .mode-btn {
     position: relative; border: 1px solid var(--line-strong); background: transparent;
-    color: var(--ink-2); padding: 7px 18px; cursor: pointer;
+    color: var(--ink-2); padding: 7px 14px; cursor: pointer;
     transform: skewX(-14deg); transition: all 0.16s ease;
-    font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+    font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
   }
-  .mode-btn > span { display: inline-flex; align-items: center; gap: 8px; transform: skewX(14deg); }
+  .mode-btn > span { display: inline-flex; align-items: center; gap: 6px; transform: skewX(14deg); }
   .mode-btn .num { color: var(--muted); font-size: 10px; }
+  .mode-btn .m-cnt { background: var(--cyan-dim); color: var(--cyan); padding: 0 4px; font-size: 9.5px; }
   .mode-btn:hover { border-color: var(--ink); color: var(--ink); background: var(--panel-2); }
-  .mode-btn.active {
-    background: var(--inv-bg); border-color: var(--inv-bg); color: var(--inv-fg);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22);
-  }
+  .mode-btn.active { background: var(--inv-bg); border-color: var(--inv-bg); color: var(--inv-fg); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22); }
   .mode-btn.active .num { color: var(--cyan); }
+  .mode-btn.active .m-cnt { background: var(--cyan); color: #fff; }
 
   .header-right { display: flex; align-items: center; gap: 7px; }
   .op-badge {
@@ -195,7 +182,6 @@
   .op-avatar { width: 20px; height: 20px; object-fit: cover; border: 1px solid var(--cyan); }
   .op-dot { width: 8px; height: 8px; background: var(--cyan); margin-left: 4px; }
 
-  /* Industrial Buttons */
   .btn {
     font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
     text-transform: uppercase; border: 1px solid var(--line-strong);
@@ -208,6 +194,8 @@
   .btn.solid:hover { background: var(--cyan); border-color: var(--cyan); color: #fff; }
   .btn.cyan { background: var(--cyan-dim); border-color: var(--cyan); color: var(--cyan); }
   .btn.cyan:hover { background: var(--cyan); color: #fff; }
+  .btn.green { background: var(--green-dim); border-color: var(--green); color: var(--green); }
+  .btn.green:hover { background: var(--green); color: #fff; }
   .btn.amber { background: var(--amber-dim); border-color: var(--amber); color: var(--amber); }
   .btn.amber:hover { background: var(--amber); color: #fff; }
   .btn.danger { background: var(--red-dim); border-color: var(--red); color: var(--red); }
@@ -217,26 +205,20 @@
 
   /* ---- Primary Viewports ---- */
   #viewSessions { flex: 1; display: grid; grid-template-columns: 316px 1fr; min-height: 0; position: relative; }
-  #viewBoard { flex: 1; display: none; flex-direction: column; min-height: 0; position: relative; }
-  #viewBoard iframe { flex: 1; width: 100%; border: 0; background: var(--bg); }
+  .ops-view { flex: 1; display: none; flex-direction: column; min-height: 0; overflow-y: auto; padding: 20px 26px; gap: 18px; }
 
   /* ---- Left Unit Roster ---- */
   aside {
-    border-right: 1px solid var(--line-strong);
-    background: var(--bg-aside);
+    border-right: 1px solid var(--line-strong); background: var(--bg-aside);
     display: flex; flex-direction: column; min-height: 0;
   }
-  .roster-stats {
-    display: grid; grid-template-columns: repeat(3, 1fr);
-    border-bottom: 1px solid var(--line); background: var(--bg-rail);
-  }
+  .roster-stats { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid var(--line); background: var(--bg-rail); }
   .stat-cell { padding: 10px 12px; border-right: 1px solid var(--line); }
   .stat-cell:last-child { border-right: 0; }
   .stat-num { font-family: var(--mono); font-size: 18px; font-weight: 800; line-height: 1; color: var(--ink); }
   .stat-num.cyan { color: var(--cyan); }
   .stat-num.green { color: var(--green); }
   .stat-lbl { font-family: var(--mono); font-size: 9px; letter-spacing: 0.16em; color: var(--muted); margin-top: 4px; }
-
   .roster-head {
     padding: 9px 14px; border-bottom: 1px solid var(--line);
     display: flex; justify-content: space-between; align-items: center;
@@ -250,23 +232,13 @@
     cursor: pointer; transition: all 0.15s ease;
     clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
   }
-  .unit-card::before {
-    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--muted);
-  }
-  .unit-card::after {
-    content: ""; position: absolute; right: 0; top: 0; width: 12px; height: 12px;
-    background: linear-gradient(225deg, var(--line-strong) 48%, transparent 50%);
-    pointer-events: none;
-  }
+  .unit-card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--muted); }
+  .unit-card::after { content: ""; position: absolute; right: 0; top: 0; width: 12px; height: 12px; background: linear-gradient(225deg, var(--line-strong) 48%, transparent 50%); pointer-events: none; }
   .unit-card.st-working::before { background: var(--green); }
   .unit-card.st-background::before { background: var(--cyan); }
   .unit-card.st-blocked::before { background: var(--amber); }
-
   .unit-card:hover { border-color: var(--line-strong); transform: translateX(2px); }
-  .unit-card.active {
-    background: var(--inv-bg); color: var(--inv-fg); border-color: var(--inv-bg);
-    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
-  }
+  .unit-card.active { background: var(--inv-bg); color: var(--inv-fg); border-color: var(--inv-bg); box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28); }
   .unit-card.active .u-preview, .unit-card.active .u-idx { color: var(--inv-muted); }
   .unit-card.active .u-chip { background: rgba(128, 140, 160, 0.16); border-color: rgba(128, 140, 160, 0.35); color: var(--inv-fg); }
   .unit-card.active .u-chip.st-background { background: #0077b6; color: #fff; border-color: #0077b6; }
@@ -286,13 +258,12 @@
   .u-chip.st-working { color: var(--green); border-color: var(--green); background: var(--green-dim); }
   .u-chip.st-background { color: var(--cyan); border-color: var(--cyan); background: var(--cyan-dim); }
   .u-chip.st-blocked { color: var(--amber); border-color: var(--amber); background: var(--amber-dim); }
+  .u-chip.st-error { color: var(--red); border-color: var(--red); background: var(--red-dim); }
   .u-chip.linked { background: var(--cyan); color: #fff; border-color: var(--cyan); }
   .u-preview { margin-top: 7px; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   /* ---- Right Tactical Workspace ---- */
-  section.workspace {
-    display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; overflow: hidden;
-  }
+  section.workspace { display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; overflow: hidden; }
   .ws-watermark {
     position: absolute; right: 24px; bottom: 72px; pointer-events: none; user-select: none;
     font-family: var(--mono); font-size: 120px; font-weight: 900; letter-spacing: 0.08em;
@@ -300,8 +271,7 @@
   }
 
   .ws-header {
-    padding: 11px 20px; background: var(--bg-elev);
-    border-bottom: 1px solid var(--line-strong);
+    padding: 11px 20px; background: var(--bg-elev); border-bottom: 1px solid var(--line-strong);
     display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
     position: relative; z-index: 2;
   }
@@ -322,7 +292,7 @@
 
   .ws-actions { display: flex; align-items: center; gap: 6px; }
 
-  /* ---- Highlight Toolbar (Agentboard-style, visible in COMM tab) ---- */
+  /* ---- Highlight Toolbar ---- */
   .hl-bar {
     display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
     padding: 6px 20px; background: var(--bg-rail); border-bottom: 1px solid var(--line);
@@ -335,7 +305,7 @@
   .hl-key { padding: 1px 6px; font-size: 10px; font-weight: 700; letter-spacing: 0.05em; }
   .hl-off .hl-legend { opacity: 0.35; }
 
-  /* ---- Main Scroll Area + Floating Corner Async Mini-HUD ---- */
+  /* ---- Panel Wrap + TOP-RIGHT Floating Async Mini-HUD (right below .hl-bar!) ---- */
   .panel-wrap { flex: 1; position: relative; min-height: 0; display: flex; flex-direction: column; }
   .panel {
     flex: 1; overflow-y: auto; padding: 20px 24px 28px;
@@ -343,14 +313,14 @@
     position: relative; z-index: 1;
   }
 
-  /* Compact Corner Floating Async Mini-HUD inside COMM */
   .corner-bg {
-    position: absolute; right: 18px; bottom: 14px; z-index: 6;
-    width: 310px; max-width: calc(100% - 36px);
+    position: absolute; right: 18px; top: 12px; z-index: 6;
+    width: 320px; max-width: calc(100% - 36px);
     background: var(--bg-elev); border: 1px solid var(--cyan);
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.36);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.32);
     clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
     font-family: var(--mono);
+    backdrop-filter: blur(8px);
   }
   .corner-bg-head {
     display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -361,7 +331,7 @@
   .corner-bg-dot { width: 7px; height: 7px; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); animation: blink 1.4s ease-in-out infinite; }
   .corner-bg-dot.idle { animation: none; background: var(--green); box-shadow: none; }
   @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-  .corner-bg-body { padding: 7px 10px; display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; }
+  .corner-bg-body { padding: 7px 10px; display: flex; flex-direction: column; gap: 6px; max-height: 250px; overflow-y: auto; }
   .corner-bg.collapsed .corner-bg-body { display: none; }
   .corner-task {
     padding: 6px 8px; background: var(--panel); border: 1px solid var(--line);
@@ -378,27 +348,16 @@
     max-height: 96px; overflow: auto; border: 1px solid var(--line);
   }
 
-  /* ---- Hazard Dialog ---- */
-  .hazard-box {
-    border: 1px solid var(--amber); background: var(--amber-dim);
-    padding: 14px 16px; position: relative;
-  }
-  .hazard-box::before {
-    content: ""; position: absolute; left: 0; top: 0; right: 0; height: 4px;
-    background: repeating-linear-gradient(-45deg, var(--amber) 0 10px, var(--bg-elev) 10px 20px);
-  }
+  /* ---- Chat Messages, Highlights & Math ---- */
+  .hazard-box { border: 1px solid var(--amber); background: var(--amber-dim); padding: 14px 16px; position: relative; }
+  .hazard-box::before { content: ""; position: absolute; left: 0; top: 0; right: 0; height: 4px; background: repeating-linear-gradient(-45deg, var(--amber) 0 10px, var(--bg-elev) 10px 20px); }
   .hazard-title { font-family: var(--mono); font-size: 11px; font-weight: 800; letter-spacing: 0.16em; color: var(--amber); margin-bottom: 6px; }
   .hazard-q { font-size: 13px; color: var(--ink); margin-bottom: 10px; white-space: pre-wrap; }
 
-  /* ---- Chat Messages + Highlights + Math ---- */
   .turn-block { display: flex; flex-direction: column; gap: 10px; }
-  .msg-user-label {
-    align-self: flex-end; font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.16em;
-    color: var(--muted); margin-bottom: -6px;
-  }
+  .msg-user-label { align-self: flex-end; font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.16em; color: var(--muted); margin-bottom: -6px; }
   .msg-user {
-    align-self: flex-end; max-width: min(760px, 84%);
-    background: var(--inv-bg); color: var(--inv-fg);
+    align-self: flex-end; max-width: min(760px, 84%); background: var(--inv-bg); color: var(--inv-fg);
     padding: 11px 16px; font-size: 14px; line-height: 1.6;
     clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
     white-space: pre-wrap; word-break: break-word; font-weight: 500;
@@ -408,55 +367,32 @@
     background: var(--bg-bot); border: 1px solid var(--line-strong);
     position: relative; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
   }
-  .msg-bot-wrap::before {
-    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--cyan);
-  }
+  .msg-bot-wrap::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--cyan); }
   .msg-bot-head {
     display: flex; justify-content: space-between; align-items: center;
     padding: 6px 14px 6px 16px; border-bottom: 1px solid var(--line);
     font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; color: var(--muted);
     background: var(--bg-rail);
   }
-  .tldr-box {
-    padding: 10px 16px; border-bottom: 1px solid var(--line-strong);
-    background: var(--cyan-dim); font-size: 13px; line-height: 1.6; color: var(--ink);
-  }
-  .tldr-head {
-    font-family: var(--mono); font-size: 10px; font-weight: 800; letter-spacing: 0.16em;
-    color: var(--cyan); margin-bottom: 4px;
-  }
+  .hl-status { color: var(--cyan); margin-left: 8px; }
+  .tldr-box { padding: 10px 16px; border-bottom: 1px solid var(--line-strong); background: var(--cyan-dim); font-size: 13px; line-height: 1.6; color: var(--ink); }
+  .tldr-head { font-family: var(--mono); font-size: 10px; font-weight: 800; letter-spacing: 0.16em; color: var(--cyan); margin-bottom: 4px; }
   .tldr-box ul { margin: 4px 0 0; padding-left: 18px; }
   .tldr-off .tldr-box { display: none; }
 
-  .msg-bot-body {
-    padding: 14px 18px; font-size: 14px; line-height: 1.72; color: var(--ink);
-    word-break: break-word;
-  }
+  .msg-bot-body { padding: 14px 18px; font-size: 14px; line-height: 1.72; color: var(--ink); word-break: break-word; }
   .msg-bot-body p { margin: 0 0 10px; }
   .msg-bot-body p:last-child { margin-bottom: 0; }
-  .msg-bot-body h1, .msg-bot-body h2, .msg-bot-body h3, .msg-bot-body h4 {
-    margin: 14px 0 8px; font-weight: 700; color: var(--ink); letter-spacing: 0.02em;
-  }
+  .msg-bot-body h1, .msg-bot-body h2, .msg-bot-body h3, .msg-bot-body h4 { margin: 14px 0 8px; font-weight: 700; color: var(--ink); }
   .msg-bot-body h1 { font-size: 17px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
   .msg-bot-body h2 { font-size: 15.5px; }
   .msg-bot-body h3 { font-size: 14.5px; color: var(--cyan); }
   .msg-bot-body ul, .msg-bot-body ol { margin: 6px 0 10px; padding-left: 22px; }
   .msg-bot-body li { margin: 3px 0; }
-  .msg-bot-body blockquote {
-    margin: 8px 0; padding: 6px 12px; border-left: 2px solid var(--amber);
-    background: var(--amber-dim); color: var(--ink-2);
-  }
-  .msg-bot-body code.inline {
-    font-family: var(--mono); font-size: 12.5px; padding: 1px 6px;
-    background: var(--inline-code-bg); border: 1px solid var(--line);
-    color: var(--inline-code-fg);
-  }
+  .msg-bot-body blockquote { margin: 8px 0; padding: 6px 12px; border-left: 2px solid var(--amber); background: var(--amber-dim); color: var(--ink-2); }
+  .msg-bot-body code.inline { font-family: var(--mono); font-size: 12.5px; padding: 1px 6px; background: var(--inline-code-bg); border: 1px solid var(--line); color: var(--inline-code-fg); }
 
-  /* Agentboard-style 4-category semantic highlights */
-  .msg-bot-body mark {
-    color: inherit; background: none; padding: 1px 4px;
-    -webkit-box-decoration-break: clone; box-decoration-break: clone;
-  }
+  .msg-bot-body mark { color: inherit; background: none; padding: 1px 4px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
   .hk-result { color: var(--hk-res-fg) !important; background: var(--hk-res-bg) !important; }
   .hk-problem { color: var(--hk-prob-fg) !important; background: var(--hk-prob-bg) !important; border-bottom: 1.5px solid var(--red); }
   .hk-action { color: var(--hk-act-fg) !important; background: var(--hk-act-bg) !important; border-bottom: 1.5px solid var(--amber); font-weight: 600; }
@@ -471,39 +407,33 @@
   .hl-fade .msg-bot-body.has-hl { color: var(--muted); }
   .hl-fade .msg-bot-body.has-hl .code-frame, .hl-fade .msg-bot-body.has-hl .math-block { color: var(--ink); }
 
-  /* Math Blocks (KaTeX + offline fallback) */
-  .math-block {
-    margin: 12px 0; padding: 12px 16px; overflow-x: auto; text-align: center;
-    background: var(--bg-rail); border: 1px solid var(--line); border-left: 2px solid var(--cyan);
-  }
+  .math-block { margin: 12px 0; padding: 12px 16px; overflow-x: auto; text-align: center; background: var(--bg-rail); border: 1px solid var(--line); border-left: 2px solid var(--cyan); }
   .math-inline { padding: 0 2px; }
   .math-fallback { font-family: "Cambria Math", "STIX Two Math", Georgia, serif; font-style: italic; font-size: 1.05em; }
   .math-block .math-fallback { font-size: 1.15em; }
 
   .code-frame { margin: 10px 0; border: 1px solid var(--line-strong); background: var(--code-bg); }
-  .code-bar {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 4px 10px; background: var(--code-bar); border-bottom: 1px solid rgba(255,255,255,0.08);
-    font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; color: #8c98aa;
-  }
-  .code-copy {
-    border: 1px solid rgba(255,255,255,0.16); background: transparent; color: #c7d2e0;
-    font-family: var(--mono); font-size: 10px; padding: 2px 7px; cursor: pointer;
-  }
+  .code-bar { display: flex; justify-content: space-between; align-items: center; padding: 4px 10px; background: var(--code-bar); border-bottom: 1px solid rgba(255,255,255,0.08); font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; color: #8c98aa; }
+  .code-copy { border: 1px solid rgba(255,255,255,0.16); background: transparent; color: #c7d2e0; font-family: var(--mono); font-size: 10px; padding: 2px 7px; cursor: pointer; }
   .code-copy:hover { border-color: var(--cyan); color: var(--cyan); }
-  .code-frame pre {
-    margin: 0; padding: 11px 13px; overflow-x: auto;
-    font-family: var(--mono); font-size: 12.5px; line-height: 1.55; color: var(--code-fg);
-  }
+  .code-frame pre { margin: 0; padding: 11px 13px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.55; color: var(--code-fg); }
 
-  /* ---- Full Async Ops Tab ---- */
-  .ops-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+  /* ---- Full Async Ops / Heartbeat / Goals / GPU Cards ---- */
+  .section-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    padding-bottom: 12px; border-bottom: 1px solid var(--line-strong);
+  }
+  .section-title { font-family: var(--mono); font-size: 18px; font-weight: 800; letter-spacing: 0.1em; color: var(--ink); }
+  .section-sub { font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: 0.08em; margin-top: 3px; }
+
+  .ops-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; }
   .op-card {
     position: relative; background: var(--panel); border: 1px solid var(--line-strong);
-    padding: 13px 15px; cursor: pointer; transition: all 0.15s; overflow: hidden;
-    clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+    padding: 15px 17px; transition: all 0.15s; overflow: hidden;
+    clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
   }
-  .op-card:hover { border-color: var(--ink); background: var(--panel-2); }
+  .op-card.clickable { cursor: pointer; }
+  .op-card.clickable:hover { border-color: var(--ink); background: var(--panel-2); }
   .op-card.selected { border-color: var(--cyan); background: var(--cyan-dim); }
   .op-card.running::after {
     content: ""; position: absolute; left: 0; bottom: 0; height: 2px; width: 40%;
@@ -512,71 +442,78 @@
   }
   @keyframes scanbar { from { transform: translateX(-100%); } to { transform: translateX(350%); } }
   .op-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-family: var(--mono); }
-  .op-code { font-size: 13px; font-weight: 800; color: var(--ink); }
-  .op-desc { margin-top: 8px; font-size: 12.5px; color: var(--ink-2); line-height: 1.5; word-break: break-word; }
+  .op-code { font-size: 13.5px; font-weight: 800; color: var(--ink); }
+  .op-desc { margin-top: 8px; font-size: 13px; color: var(--ink-2); line-height: 1.55; word-break: break-word; white-space: pre-wrap; }
   .op-foot {
-    margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line);
-    display: flex; justify-content: space-between; align-items: center;
+    margin-top: 12px; padding-top: 9px; border-top: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;
     font-family: var(--mono); font-size: 10.5px; color: var(--muted);
+  }
+
+  /* Progress & GPU Meters */
+  .meter-wrap { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+  .meter-head { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 10.5px; color: var(--ink-2); }
+  .meter-track { height: 7px; background: var(--bg-rail); border: 1px solid var(--line); overflow: hidden; }
+  .meter-fill { height: 100%; background: var(--cyan); transition: width 0.25s; }
+  .meter-fill.green { background: var(--green); }
+  .meter-fill.amber { background: var(--amber); }
+  .meter-fill.red { background: var(--red); }
+
+  .gpu-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+  .kpi-box {
+    background: var(--panel); border: 1px solid var(--line-strong); border-left: 3px solid var(--cyan);
+    padding: 12px 15px; font-family: var(--mono);
+  }
+  .kpi-val { font-size: 24px; font-weight: 800; color: var(--ink); line-height: 1.1; }
+  .kpi-lbl { font-size: 10px; letter-spacing: 0.14em; color: var(--muted); margin-top: 5px; }
+
+  .lease-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; background: var(--panel); border: 1px solid var(--line-strong); }
+  .lease-table th, .lease-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+  .lease-table th { background: var(--bg-rail); font-size: 10px; letter-spacing: 0.14em; color: var(--muted); }
+  .cli-hint {
+    background: var(--code-bg); color: var(--code-fg); border: 1px solid var(--line-strong);
+    padding: 10px 14px; font-family: var(--mono); font-size: 11.5px;
+    display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;
   }
 
   /* ---- Framed Console / Log Box ---- */
   .console-frame { border: 1px solid var(--line-strong); background: var(--code-bg); display: flex; flex-direction: column; }
-  .console-bar {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 7px 12px; background: var(--code-bar); border-bottom: 1px solid rgba(255,255,255,0.08);
-    font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; color: #22bbff;
-  }
-  .terminal-box {
-    background: var(--code-bg); color: var(--code-fg); padding: 14px 16px;
-    font-family: var(--mono); font-size: 12.5px; line-height: 1.55;
-    overflow: auto; white-space: pre-wrap; word-break: break-all;
-    min-height: 240px; max-height: 54vh; margin: 0;
-  }
+  .console-bar { display: flex; justify-content: space-between; align-items: center; padding: 7px 12px; background: var(--code-bar); border-bottom: 1px solid rgba(255,255,255,0.08); font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; color: #22bbff; }
+  .terminal-box { background: var(--code-bg); color: var(--code-fg); padding: 14px 16px; font-family: var(--mono); font-size: 12.5px; line-height: 1.55; overflow: auto; white-space: pre-wrap; word-break: break-all; min-height: 240px; max-height: 54vh; margin: 0; }
   .keybar { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; background: var(--bg-rail); border-top: 1px solid var(--line); }
 
-  /* ---- Bottom Command Composer ---- */
+  /* ---- Composer ---- */
   .composer {
     display: flex; align-items: flex-end; gap: 10px;
-    padding: 12px 20px; background: var(--bg-elev);
-    border-top: 1px solid var(--line-strong);
-    padding-bottom: max(12px, env(safe-area-inset-bottom));
-    position: relative; z-index: 2;
+    padding: 12px 20px; background: var(--bg-elev); border-top: 1px solid var(--line-strong);
+    padding-bottom: max(12px, env(safe-area-inset-bottom)); position: relative; z-index: 2;
   }
-  .composer-box {
-    flex: 1; display: flex; align-items: center; background: var(--bg);
-    border: 1px solid var(--line-strong); padding: 2px 12px; transition: border-color 0.15s;
-  }
+  .composer-box { flex: 1; display: flex; align-items: center; background: var(--bg); border: 1px solid var(--line-strong); padding: 2px 12px; }
   .composer-box:focus-within { border-color: var(--cyan); }
   .composer-prompt { font-family: var(--mono); color: var(--cyan); font-weight: 800; margin-right: 10px; user-select: none; }
-  .composer textarea {
-    flex: 1; resize: none; min-height: 38px; max-height: 130px; padding: 9px 0;
-    border: 0; background: transparent; color: var(--ink); font: 14px var(--sans); outline: none;
-  }
+  .composer textarea { flex: 1; resize: none; min-height: 38px; max-height: 130px; padding: 9px 0; border: 0; background: transparent; color: var(--ink); font: 14px var(--sans); outline: none; }
 
-  .empty {
-    margin: auto; text-align: center; padding: 36px 20px;
-    font-family: var(--mono); font-size: 12px; letter-spacing: 0.14em; color: var(--muted);
-  }
+  .empty { margin: auto; text-align: center; padding: 36px 20px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.14em; color: var(--muted); }
   .empty strong { display: block; font-size: 15px; color: var(--ink-2); margin-bottom: 6px; }
 
-  /* ---- Deploy Modal ---- */
+  /* ---- Modals ---- */
   dialog {
     border: 1px solid var(--ink); background: var(--bg-elev); color: var(--ink);
-    width: min(480px, 92vw); padding: 0; overflow: hidden;
+    width: min(500px, 92vw); padding: 0; overflow: hidden;
     clip-path: polygon(0 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 18px 100%, 0 calc(100% - 18px));
   }
   dialog::backdrop { background: rgba(4, 6, 10, 0.72); backdrop-filter: blur(4px); }
   .modal-stripe { height: 4px; background: repeating-linear-gradient(-45deg, var(--amber) 0 10px, var(--bg-elev) 10px 20px); }
   .modal-body { padding: 20px 22px; }
-  .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; color: var(--muted); }
-  .field input, .field select {
-    padding: 9px 11px; border: 1px solid var(--line-strong); background: var(--bg); color: var(--ink);
+  .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 11px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; color: var(--muted); }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .field input, .field select, .field textarea {
+    padding: 8px 10px; border: 1px solid var(--line-strong); background: var(--bg); color: var(--ink);
     font: 13.5px var(--sans); outline: none;
   }
-  .field input:focus, .field select:focus { border-color: var(--cyan); }
+  .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--cyan); }
 
-  @media (max-width: 860px) {
+  @media (max-width: 920px) {
     .prts-rail { display: none; }
     header { height: auto; flex-wrap: wrap; padding: 10px 12px; gap: 8px; }
     #viewSessions { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
@@ -584,11 +521,11 @@
     .roster-stats, .roster-head { display: none; }
     .session-list { flex-direction: row; overflow-x: auto; overflow-y: hidden; padding: 8px 10px; }
     .unit-card { min-width: 220px; max-width: 250px; flex-shrink: 0; }
-    .panel { padding: 14px; }
+    .panel, .ops-view { padding: 14px; }
     .ws-header, .hl-bar { padding: 8px 12px; }
     .composer { padding: 10px 12px; }
     .ws-watermark { display: none; }
-    .corner-bg { right: 10px; bottom: 10px; width: 260px; }
+    .corner-bg { right: 10px; top: 8px; width: 260px; }
   }
 </style>
 </head>
@@ -602,7 +539,7 @@
   </div>
   <div class="rail-right">
     <span id="clock" class="rail-accent">--:--:--</span>
-    <span>PROTOCOL: SSE/OIDC</span>
+    <span>YOLO TMUX · DEEPSEEK HL</span>
   </div>
 </div>
 
@@ -621,7 +558,9 @@
 
   <nav class="mode-nav">
     <button class="mode-btn active" data-mode="sessions"><span><b class="num">01</b>SESSIONS</span></button>
-    <button id="boardModeBtn" class="mode-btn" data-mode="board"><span><b class="num">02</b>AGENTBOARD</span></button>
+    <button class="mode-btn" data-mode="heartbeat"><span><b class="num">02</b>HEARTBEAT<b id="navHbCnt" class="m-cnt" style="display:none">0</b></span></button>
+    <button class="mode-btn" data-mode="goals"><span><b class="num">03</b>GOALS<b id="navGoalCnt" class="m-cnt" style="display:none">0</b></span></button>
+    <button class="mode-btn" data-mode="gpu"><span><b class="num">04</b>GPU<b id="navGpuCnt" class="m-cnt" style="display:none">0</b></span></button>
   </nav>
 
   <div class="header-right">
@@ -633,6 +572,7 @@
   </div>
 </header>
 
+<!-- 01 // SESSIONS -->
 <main id="viewSessions">
   <aside>
     <div class="roster-stats">
@@ -673,8 +613,8 @@
     <div id="hlBar" class="hl-bar" style="display:none">
       <div class="hl-controls">
         <label class="hl-toggle"><input type="checkbox" id="chkTldr" />TL;DR 摘要</label>
-        <label class="hl-toggle"><input type="checkbox" id="chkHl" />HIGHLIGHTS 重点高亮</label>
-        <label class="hl-toggle"><input type="checkbox" id="chkFade" />FADE REST 弱化其余</label>
+        <label class="hl-toggle"><input type="checkbox" id="chkHl" />HIGHLIGHTS (DeepSeek)</label>
+        <label class="hl-toggle"><input type="checkbox" id="chkFade" />FADE REST</label>
       </div>
       <div class="hl-legend">
         <span class="hl-key hk-result">✓ RESULT</span>
@@ -685,11 +625,7 @@
     </div>
 
     <div class="panel-wrap">
-      <div id="panel" class="panel">
-        <div class="empty"><strong>PRTS TERMINAL READY</strong>SELECT AN AGENT UNIT FROM THE ROSTER</div>
-      </div>
-
-      <!-- Compact Corner Async Ops Mini-HUD for COMM tab -->
+      <!-- Top-Right Async Mini-HUD directly below the Highlight bar -->
       <div id="cornerBg" class="corner-bg" style="display:none">
         <div class="corner-bg-head">
           <span class="corner-bg-title"><span id="cornerDot" class="corner-bg-dot"></span><span id="cornerTitle">ASYNC // 0</span></span>
@@ -699,6 +635,10 @@
           </div>
         </div>
         <div id="cornerBody" class="corner-bg-body"></div>
+      </div>
+
+      <div id="panel" class="panel">
+        <div class="empty"><strong>PRTS TERMINAL READY</strong>SELECT AN AGENT UNIT FROM THE ROSTER</div>
       </div>
     </div>
 
@@ -712,34 +652,157 @@
   </section>
 </main>
 
-<section id="viewBoard">
-  <iframe id="boardFrame" title="Embedded Agentboard"></iframe>
+<!-- 02 // HEARTBEAT -->
+<section id="viewHeartbeat" class="ops-view">
+  <div class="section-bar">
+    <div>
+      <div class="section-title">02 // HEARTBEAT SCHEDULER</div>
+      <div class="section-sub">定时任务调度中心 · 自动向指定会话或新建全权限（YOLO）Agent 下发周期任务</div>
+    </div>
+    <button id="addHbBtn" class="btn solid">+ NEW HEARTBEAT</button>
+  </div>
+  <div id="hbList" class="ops-grid"></div>
 </section>
 
+<!-- 03 // LONG-HORIZON GOALS -->
+<section id="viewGoals" class="ops-view">
+  <div class="section-bar">
+    <div>
+      <div class="section-title">03 // LONG-HORIZON GOALS</div>
+      <div class="section-sub">长期目标与监督中心 · 指定执行会话 + 监督对话（Supervisor）持续巡检推进</div>
+    </div>
+    <button id="addGoalBtn" class="btn solid">+ NEW GOAL</button>
+  </div>
+  <div id="goalList" class="ops-grid"></div>
+</section>
+
+<!-- 04 // GPU REGISTER -->
+<section id="viewGpu" class="ops-view">
+  <div class="section-bar">
+    <div>
+      <div class="section-title">04 // GPU COMPUTE REGISTER</div>
+      <div class="section-sub">统一 GPU 计算资源注册入口与实时遥测看板 · 汇聚本机 nvidia-smi 与全会话登记的本地/集群 GPU</div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button id="pollGpuBtn" class="btn ghost">SYNC NVIDIA-SMI</button>
+      <button id="addGpuBtn" class="btn solid">+ REGISTER GPU</button>
+    </div>
+  </div>
+  <div id="gpuKpis" class="gpu-kpis"></div>
+  <div class="cli-hint">
+    <span>AGENT 统一注册命令：<code>fmuxctl gpu register --gpus 0 --session &lt;会话名&gt; --task "&lt;训练/推理任务&gt;" --host local</code></span>
+    <button id="copyGpuCli" class="btn xs cyan" type="button">COPY CLI</button>
+  </div>
+  <div style="font-family:var(--mono);font-size:11px;letter-spacing:0.16em;color:var(--muted)">LOCAL HARDWARE TELEMETRY</div>
+  <div id="gpuLocalList" class="ops-grid"></div>
+  <div style="font-family:var(--mono);font-size:11px;letter-spacing:0.16em;color:var(--muted);margin-top:6px">REGISTERED GPU LEASES (ALL CONVERSATIONS &amp; CLUSTERS)</div>
+  <div id="gpuLeaseWrap"></div>
+</section>
+
+<!-- Modal: Deploy New Session (Always tmux + full yolo permissions) -->
 <dialog id="newDialog">
   <div class="modal-stripe"></div>
   <form id="newForm" class="modal-body">
-    <div style="font-family:var(--mono);font-size:10px;letter-spacing:0.2em;color:var(--cyan);margin-bottom:4px">PRTS // DEPLOYMENT PROTOCOL</div>
-    <h3 style="margin:0 0 16px;font-size:17px;letter-spacing:0.04em">部署 / 恢复 Agent 会话</h3>
+    <div style="font-family:var(--mono);font-size:10px;letter-spacing:0.2em;color:var(--cyan);margin-bottom:4px">PRTS // DEPLOY TMUX UNIT (FULL PERMISSION / YOLO)</div>
+    <h3 style="margin:0 0 14px;font-size:17px">部署 / 恢复全权限 Agent 会话</h3>
     <label class="field">RESUME ARCHIVE
       <select id="fResume"><option value="new">NEW SESSION // 新建对话</option><option value="last">CONTINUE LAST // 继续目录最近对话</option></select>
     </label>
-    <label class="field">AGENT CLASS
+    <label class="field">AGENT CLASS (TMUX + YOLO DEFAULT)
       <select id="fAgent"></select>
     </label>
     <label class="field">WORKING DIRECTORY<input id="fCwd" value="~" /></label>
     <label class="field">CALLSIGN (OPTIONAL)<input id="fName" placeholder="留空自动分配代号" /></label>
     <label class="field">INITIAL DIRECTIVE (OPTIONAL)<input id="fPrompt" placeholder="可选的首条指令" /></label>
-    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
-      <button type="button" id="cancelNew" class="btn ghost">CANCEL</button>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">
+      <button type="button" class="btn ghost" onclick="document.getElementById('newDialog').close()">CANCEL</button>
       <button type="submit" class="btn solid">DEPLOY &amp; LINK</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Modal: New Heartbeat -->
+<dialog id="hbDialog">
+  <div class="modal-stripe"></div>
+  <form id="hbForm" class="modal-body">
+    <div style="font-family:var(--mono);font-size:10px;letter-spacing:0.2em;color:var(--cyan);margin-bottom:4px">PRTS // CREATE HEARTBEAT</div>
+    <h3 style="margin:0 0 14px;font-size:17px">新建定时任务</h3>
+    <label class="field">TASK NAME<input id="hbName" required placeholder="例如：每30分钟巡检训练日志" /></label>
+    <div class="field-row">
+      <label class="field">SCHEDULE MODE
+        <select id="hbKind"><option value="interval">固定间隔（分钟）</option><option value="cron">Cron 表达式（5段）</option></select>
+      </label>
+      <label class="field" id="hbEveryWrap">EVERY MINUTES<input id="hbEvery" type="number" min="1" value="30" /></label>
+      <label class="field" id="hbCronWrap" style="display:none">CRON (m h dom mon dow)<input id="hbCron" placeholder="*/15 * * * *" /></label>
+    </div>
+    <div class="field-row">
+      <label class="field">TARGET MODE
+        <select id="hbTargetMode"><option value="session">发往已有会话</option><option value="spawn">自动新建 tmux 全权限会话</option></select>
+      </label>
+      <label class="field" id="hbRefWrap">TARGET SESSION<select id="hbRef"></select></label>
+      <label class="field" id="hbAgentWrap" style="display:none">AGENT (YOLO)
+        <select id="hbAgent"><option value="agy">AGY</option><option value="dsh">DSH (DeepSeek)</option><option value="claude">CLAUDE</option><option value="codex">CODEX</option><option value="pi">PI</option></select>
+      </label>
+    </div>
+    <label class="field" id="hbCwdWrap" style="display:none">WORKSPACE CWD<input id="hbCwd" value="~" /></label>
+    <label class="field">PROMPT / DIRECTIVE<textarea id="hbPrompt" rows="3" required placeholder="写明定时触发时要 Agent 执行的指令"></textarea></label>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">
+      <button type="button" class="btn ghost" onclick="document.getElementById('hbDialog').close()">CANCEL</button>
+      <button type="submit" class="btn solid">ACTIVATE</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Modal: New Goal -->
+<dialog id="goalDialog">
+  <div class="modal-stripe"></div>
+  <form id="goalForm" class="modal-body">
+    <div style="font-family:var(--mono);font-size:10px;letter-spacing:0.2em;color:var(--cyan);margin-bottom:4px">PRTS // LONG-HORIZON GOAL</div>
+    <h3 style="margin:0 0 14px;font-size:17px">设定长期目标与监督会话</h3>
+    <label class="field">GOAL TITLE<input id="gTitle" required placeholder="例如：把模型测试精度提升到 92%+" /></label>
+    <label class="field">OBJECTIVE<textarea id="gObj" rows="2" placeholder="目标背景与核心任务"></textarea></label>
+    <label class="field">ACCEPTANCE CRITERIA<input id="gCrit" placeholder="验收标准 / 达成条件" /></label>
+    <div class="field-row">
+      <label class="field">WORKER SESSION<select id="gWorker"></select></label>
+      <label class="field">SUPERVISOR SESSION (监督对话)<select id="gSuper"></select></label>
+    </div>
+    <label class="field">AUTO SUPERVISION INTERVAL (MINUTES, 0=MANUAL)<input id="gEvery" type="number" min="0" value="30" /></label>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">
+      <button type="button" class="btn ghost" onclick="document.getElementById('goalDialog').close()">CANCEL</button>
+      <button type="submit" class="btn solid">CREATE GOAL</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Modal: Register GPU -->
+<dialog id="gpuDialog">
+  <div class="modal-stripe"></div>
+  <form id="gpuForm" class="modal-body">
+    <div style="font-family:var(--mono);font-size:10px;letter-spacing:0.2em;color:var(--cyan);margin-bottom:4px">PRTS // REGISTER GPU COMPUTE LEASE</div>
+    <h3 style="margin:0 0 14px;font-size:17px">登记占用的 GPU 资源</h3>
+    <div class="field-row">
+      <label class="field">HOST / CLUSTER<input id="gpuHost" value="local" placeholder="local 或远程节点名" /></label>
+      <label class="field">GPU IDS (COMMA)<input id="gpuIds" value="0" required placeholder="0 或 0,1,2,3" /></label>
+    </div>
+    <div class="field-row">
+      <label class="field">OWNER SESSION<select id="gpuSess"></select></label>
+      <label class="field">GPU MODEL (OPTIONAL)<input id="gpuModel" placeholder="如 RTX 4090 / H100" /></label>
+    </div>
+    <label class="field">TASK DESCRIPTION<input id="gpuTask" required placeholder="正在运行的训练/评估/推理任务" /></label>
+    <div class="field-row">
+      <label class="field">VRAM ESTIMATE (GB)<input id="gpuMem" type="number" step="0.5" placeholder="可选" /></label>
+      <label class="field">LEASE TTL (MINUTES, 0=NO EXPIRY)<input id="gpuTtl" type="number" min="0" value="240" /></label>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">
+      <button type="button" class="btn ghost" onclick="document.getElementById('gpuDialog').close()">CANCEL</button>
+      <button type="submit" class="btn solid">REGISTER</button>
     </div>
   </form>
 </dialog>
 
 <script>
 const STATUS_LABEL = { working: 'ACTIVE', background: 'BG-OPS', blocked: 'WAIT-OP', idle: 'STANDBY', shell: 'SHELL' };
-const KIND_LABEL = { agy: 'AGY', claude: 'CLAUDE', codex: 'CODEX', pi: 'PI', shell: 'SHELL' };
+const KIND_LABEL = { agy: 'AGY', dsh: 'DSH', claude: 'CLAUDE', codex: 'CODEX', pi: 'PI', shell: 'SHELL' };
 const LS = {
   get: (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
   set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
@@ -747,9 +810,10 @@ const LS = {
 
 const state = {
   sessions: [], status: null, agents: [], user: null, authMode: 'local',
-  agentboard: { enabled: true }, selectedKey: null, mode: 'sessions',
-  tab: 'chat', selectedTaskId: null, boardLoaded: false,
-  cornerCollapsed: false, cornerExpandedTaskId: null, cornerLogCache: '',
+  ops: { heartbeats: [], goals: [] },
+  gpu: { hostName: 'local', localGpus: [], leases: [], summary: {} },
+  selectedKey: null, mode: 'sessions', tab: 'chat', selectedTaskId: null,
+  cornerCollapsed: false, cornerExpandedTaskId: null,
   theme: (() => { try { return localStorage.getItem('fmux_theme') || 'night'; } catch { return 'night'; } })(),
   hl: { on: LS.get('fmux_hl_on', true), fade: LS.get('fmux_hl_fade', false), tldr: LS.get('fmux_hl_tldr', false), cache: new Map() },
 };
@@ -764,6 +828,7 @@ const fmtSec = (sec) => {
   const s = sec % 60;
   return m < 60 ? `${pad2(m)}:${pad2(s)}` : `${Math.floor(m / 60)}h${pad2(m % 60)}m`;
 };
+const fmtTime = (ms) => (ms ? new Date(ms).toTimeString().slice(0, 8) : '--:--:--');
 
 function updateClock() { $('clock').textContent = new Date().toTimeString().slice(0, 8); }
 updateClock();
@@ -775,15 +840,11 @@ function applyTheme(mode) {
   document.documentElement.dataset.theme = state.theme;
   $('themeBtn').textContent = state.theme === 'day' ? '☾ NIGHT' : '☀ DAY';
   try { localStorage.setItem('fmux_theme', state.theme); } catch {}
-  try { $('boardFrame').contentWindow?.postMessage({ type: 'prts-theme', theme: state.theme }, '*'); } catch {}
 }
 applyTheme(state.theme);
 $('themeBtn').onclick = () => applyTheme(state.theme === 'day' ? 'night' : 'day');
-$('boardFrame').addEventListener('load', () => {
-  try { $('boardFrame').contentWindow?.postMessage({ type: 'prts-theme', theme: state.theme }, '*'); } catch {}
-});
 
-// ---- Highlight Controls Sync ----
+// ---- Highlight Controls ----
 function syncHlClasses() {
   document.body.classList.toggle('hl-off', !state.hl.on);
   document.body.classList.toggle('hl-fade', state.hl.on && state.hl.fade);
@@ -798,7 +859,7 @@ $('chkHl').onchange = () => { state.hl.on = $('chkHl').checked; LS.set('fmux_hl_
 $('chkFade').onchange = () => { state.hl.fade = $('chkFade').checked; LS.set('fmux_hl_fade', state.hl.fade); syncHlClasses(); };
 $('chkTldr').onchange = () => { state.hl.tldr = $('chkTldr').checked; LS.set('fmux_hl_tldr', state.hl.tldr); syncHlClasses(); applyAllHighlights(); };
 
-// ---- LaTeX Math Rendering (KaTeX + clean offline fallback) ----
+// ---- LaTeX Math Rendering (KaTeX + offline fallback) ----
 const GREEK = {
   alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ε', varepsilon: 'ε', zeta: 'ζ', eta: 'η',
   theta: 'θ', lambda: 'λ', mu: 'μ', nu: 'ν', xi: 'ξ', pi: 'π', rho: 'ρ', sigma: 'σ', tau: 'τ',
@@ -821,9 +882,7 @@ function fallbackMath(tex) {
 }
 function renderMathTex(tex, displayMode) {
   if (window.katex?.renderToString) {
-    try {
-      return window.katex.renderToString(tex.trim(), { displayMode, throwOnError: false, strict: false });
-    } catch {}
+    try { return window.katex.renderToString(tex.trim(), { displayMode, throwOnError: false, strict: false }); } catch {}
   }
   return fallbackMath(tex);
 }
@@ -837,25 +896,17 @@ window.__onKatexReady = () => {
 function renderMarkdown(raw) {
   const src = String(raw || '').replace(/\r\n/g, '\n');
   const blocks = [];
-  const stashBlock = (html) => {
-    const id = blocks.length;
-    blocks.push(html);
-    return `\u0000BLOCK_${id}\u0000`;
-  };
+  const stashBlock = (html) => { const id = blocks.length; blocks.push(html); return `\u0000BLOCK_${id}\u0000`; };
 
-  // 1. Protect fenced code blocks first.
   let text = src.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (_, lang, code) => {
     const id = blocks.length;
     return stashBlock(`<div class="code-frame"><div class="code-bar"><span>${esc((lang || 'TEXT').toUpperCase())}</span><button type="button" class="code-copy" data-copy="${id}">COPY</button></div><pre data-code="${id}">${esc(code.replace(/\n$/, ''))}</pre></div>`);
   });
-
-  // 2. Protect display math ($$...$$ and \[...\]) before Markdown line parsing.
   text = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, tex) =>
     stashBlock(`<div class="math-block" data-tex="${esc(tex)}" data-display="1">${renderMathTex(tex, true)}</div>`));
   text = text.replace(/\\\[([\s\S]+?)\\\]/g, (_, tex) =>
     stashBlock(`<div class="math-block" data-tex="${esc(tex)}" data-display="1">${renderMathTex(tex, true)}</div>`));
 
-  // 3. Inline parser protecting inline code and inline math ($...$, \(...\)).
   const inline = (line) => {
     const inlines = [];
     const stashIn = (html) => { const i = inlines.length; inlines.push(html); return `\u0001IN_${i}\u0001`; };
@@ -888,11 +939,7 @@ function renderMarkdown(raw) {
       out.push(`<li>${inline(line.replace(/^\s*[-*]\s+/, ''))}</li>`);
       continue;
     }
-    if (line.startsWith('> ')) {
-      closeList();
-      out.push(`<blockquote>${inline(line.slice(2))}</blockquote>`);
-      continue;
-    }
+    if (line.startsWith('> ')) { closeList(); out.push(`<blockquote>${inline(line.slice(2))}</blockquote>`); continue; }
     closeList();
     out.push(`<p>${inline(line)}</p>`);
   }
@@ -900,7 +947,7 @@ function renderMarkdown(raw) {
   return out.join('');
 }
 
-// ---- Agentboard-style TreeWalker Highlight Wrapping (skips code & KaTeX math) ----
+// ---- DeepSeek Async Highlighting (TreeWalker skipping code & KaTeX) ----
 function hlWrap(root, quote, kind) {
   const map = [];
   let txt = '';
@@ -912,16 +959,8 @@ function hlWrap(root, quote, kind) {
     const n = tw.currentNode;
     for (let i = 0; i < n.length; i++) {
       const c = n.data[i];
-      if (/\s/.test(c)) {
-        if (sp) continue;
-        sp = true;
-        txt += ' ';
-        map.push([n, i]);
-      } else {
-        sp = false;
-        txt += c;
-        map.push([n, i]);
-      }
+      if (/\s/.test(c)) { if (sp) continue; sp = true; txt += ' '; map.push([n, i]); }
+      else { sp = false; txt += c; map.push([n, i]); }
     }
   }
   const at = txt.indexOf(quote);
@@ -938,8 +977,7 @@ function hlWrap(root, quote, kind) {
     if (n.parentElement?.closest('mark')) continue;
     try {
       const r = document.createRange();
-      r.setStart(n, a);
-      r.setEnd(n, b);
+      r.setStart(n, a); r.setEnd(n, b);
       const m = document.createElement('mark');
       m.className = `hk-${kind}${first ? ' first' : ''}`;
       first = false;
@@ -949,36 +987,48 @@ function hlWrap(root, quote, kind) {
   return true;
 }
 
-async function applyAllHighlights() {
-  if (!state.hl.on && !state.hl.tldr) return;
-  const nodes = document.querySelectorAll('.msg-bot-wrap[data-raw]:not([data-hl-done])');
-  for (const wrap of nodes) {
-    const raw = wrap.dataset.raw || '';
-    if (raw.length < 40) { wrap.dataset.hlDone = '1'; continue; }
-    let got = state.hl.cache.get(raw);
-    if (!got) {
-      try {
-        got = await api('/api/highlight', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: raw }),
-        });
-        state.hl.cache.set(raw, got);
-      } catch {
-        continue;
+async function loadHighlightFor(wrap, tries = 0) {
+  if (!wrap.isConnected || wrap.dataset.hlDone || (!state.hl.on && !state.hl.tldr)) return;
+  const raw = wrap.dataset.raw || '';
+  if (raw.length < 40) { wrap.dataset.hlDone = '1'; return; }
+  const badge = wrap.querySelector('.hl-status');
+  let got = state.hl.cache.get(raw);
+  if (!got) {
+    try {
+      const res = await api('/api/highlight', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: raw }),
+      });
+      if (res.pending) {
+        if (badge) badge.textContent = '· DEEPSEEK HIGHLIGHTING…';
+        if (tries < 25) setTimeout(() => loadHighlightFor(wrap, tries + 1), 2200);
+        else if (badge) badge.textContent = '';
+        return;
       }
-    }
-    if (!wrap.isConnected) continue;
-    wrap.dataset.hlDone = '1';
-    if (got.tldr) {
-      const head = wrap.querySelector('.msg-bot-head');
-      head?.insertAdjacentHTML('afterend', `<div class="tldr-box"><div class="tldr-head">PRTS // TL;DR EXECUTIVE SUMMARY</div>${renderMarkdown(got.tldr)}</div>`);
-    }
-    const body = wrap.querySelector('.msg-bot-body');
-    if (body && got.marks?.length) {
-      let wrapped = 0;
-      for (const x of got.marks) if (hlWrap(body, x.q, x.k)) wrapped++;
-      if (wrapped > 0) body.classList.add('has-hl');
+      got = res;
+      state.hl.cache.set(raw, got);
+    } catch {
+      if (badge) badge.textContent = '';
+      return;
     }
   }
+  if (!wrap.isConnected) return;
+  wrap.dataset.hlDone = '1';
+  if (badge) badge.textContent = got.source?.startsWith('deepseek') ? '· DEEPSEEK HL' : '';
+  if (got.tldr && !wrap.querySelector('.tldr-box')) {
+    const head = wrap.querySelector('.msg-bot-head');
+    head?.insertAdjacentHTML('afterend', `<div class="tldr-box"><div class="tldr-head">PRTS // TL;DR EXECUTIVE SUMMARY</div>${renderMarkdown(got.tldr)}</div>`);
+  }
+  const body = wrap.querySelector('.msg-bot-body');
+  if (body && got.marks?.length) {
+    let wrapped = 0;
+    for (const x of got.marks) if (hlWrap(body, x.q, x.k)) wrapped++;
+    if (wrapped > 0) body.classList.add('has-hl');
+  }
+}
+
+function applyAllHighlights() {
+  if (!state.hl.on && !state.hl.tldr) return;
+  document.querySelectorAll('.msg-bot-wrap[data-raw]:not([data-hl-done])').forEach((w) => loadHighlightFor(w));
 }
 
 async function api(path, opts) {
@@ -989,19 +1039,18 @@ async function api(path, opts) {
   return data;
 }
 
-function selectedSession() {
-  return state.sessions.find((s) => s.key === state.selectedKey) || null;
-}
+function selectedSession() { return state.sessions.find((s) => s.key === state.selectedKey) || null; }
 
 function setMode(mode) {
   state.mode = mode;
   document.querySelectorAll('.mode-btn').forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
   $('viewSessions').style.display = mode === 'sessions' ? 'grid' : 'none';
-  $('viewBoard').style.display = mode === 'board' ? 'flex' : 'none';
-  if (mode === 'board' && !state.boardLoaded) {
-    state.boardLoaded = true;
-    $('boardFrame').src = '/agentboard/';
-  }
+  $('viewHeartbeat').style.display = mode === 'heartbeat' ? 'flex' : 'none';
+  $('viewGoals').style.display = mode === 'goals' ? 'flex' : 'none';
+  $('viewGpu').style.display = mode === 'gpu' ? 'flex' : 'none';
+  if (mode === 'heartbeat') renderHeartbeats();
+  if (mode === 'goals') renderGoals();
+  if (mode === 'gpu') renderGpu();
 }
 document.querySelectorAll('.mode-btn').forEach((b) => { b.onclick = () => setMode(b.dataset.mode); });
 
@@ -1009,12 +1058,17 @@ function renderHeader() {
   const attached = state.status?.attached;
   $('attachedRail').textContent = attached ? `FEISHU ROUTE: ${attached.toUpperCase()}` : 'FEISHU ROUTE: CONCIERGE';
   $('detachBtn').style.display = attached ? '' : 'none';
-  $('boardModeBtn').style.display = state.agentboard?.enabled === false ? 'none' : '';
   if (state.user) {
     $('opBadge').style.display = '';
     $('opBadge').innerHTML = `${state.user.avatarUrl ? `<img class="op-avatar" src="${esc(state.user.avatarUrl)}" alt="" />` : '<span class="op-dot"></span>'}<span>${esc(state.user.name || 'OPERATOR')}</span>`;
   }
   $('logoutBtn').style.display = state.authMode === 'oidc' ? '' : 'none';
+  const hbActive = (state.ops?.heartbeats || []).filter((h) => h.enabled).length;
+  const gActive = (state.ops?.goals || []).filter((g) => g.status === 'active').length;
+  const gpuActive = (state.gpu?.summary?.localBusy || 0) + (state.gpu?.summary?.activeLeases || 0);
+  $('navHbCnt').textContent = String(hbActive); $('navHbCnt').style.display = hbActive ? '' : 'none';
+  $('navGoalCnt').textContent = String(gActive); $('navGoalCnt').style.display = gActive ? '' : 'none';
+  $('navGpuCnt').textContent = String(gpuActive); $('navGpuCnt').style.display = gpuActive ? '' : 'none';
 }
 
 function renderSessions() {
@@ -1061,14 +1115,11 @@ function renderSessions() {
   });
 }
 
-// ---- Compact Corner Async Mini-HUD inside COMM tab ----
+// ---- Top-Right Async Mini-HUD directly below Highlight bar ----
 async function renderCornerBg(s) {
   const box = $('cornerBg');
   const tasks = s?.tasks || [];
-  if (state.tab !== 'chat' || !tasks.length) {
-    box.style.display = 'none';
-    return;
-  }
+  if (state.tab !== 'chat' || !tasks.length) { box.style.display = 'none'; return; }
   box.style.display = '';
   box.classList.toggle('collapsed', state.cornerCollapsed);
   $('cornerToggle').textContent = state.cornerCollapsed ? '+' : '−';
@@ -1104,15 +1155,8 @@ async function renderCornerBg(s) {
     };
   });
 }
-
-$('cornerToggle').onclick = () => {
-  state.cornerCollapsed = !state.cornerCollapsed;
-  renderCornerBg(selectedSession());
-};
-$('cornerJump').onclick = () => {
-  state.tab = 'tasks';
-  renderWorkspace();
-};
+$('cornerToggle').onclick = () => { state.cornerCollapsed = !state.cornerCollapsed; renderCornerBg(selectedSession()); };
+$('cornerJump').onclick = () => { state.tab = 'tasks'; renderWorkspace(); };
 
 async function renderWorkspace() {
   if (state.mode !== 'sessions') return;
@@ -1155,17 +1199,15 @@ async function renderWorkspace() {
         parts.push(`<div class="hazard-box"><div class="hazard-title">PRTS ALERT // CONFIRMATION REQUIRED</div><div class="hazard-q">${esc(screenData.dialog.question || '')}</div><div class="keybar" style="padding:0;background:transparent;border:0">${opts}<button class="btn ghost" data-key="esc">ESC</button></div></div>`);
       }
       if (!turns.length) {
-        parts.push(`<div class="empty"><strong>${s.kind === 'shell' ? 'SHELL UNIT' : 'NO RECORDS'}</strong>${s.kind === 'shell' ? 'SWITCH TO TTY TAB FOR LIVE TERMINAL OUTPUT' : 'SEND A DIRECTIVE BELOW TO BEGIN'}</div>`);
+        parts.push(`<div class="empty"><strong>${s.kind === 'shell' || s.kind === 'dsh' ? `${(KIND_LABEL[s.kind] || s.kind).toUpperCase()} UNIT` : 'NO RECORDS'}</strong>${s.kind === 'shell' || s.kind === 'dsh' ? 'SWITCH TO TTY TAB FOR LIVE TERMINAL OUTPUT OR SEND A MESSAGE BELOW' : 'SEND A DIRECTIVE BELOW TO BEGIN'}</div>`);
       } else {
         for (let i = 0; i < turns.length; i++) {
           const t = turns[i];
           const chunks = [];
-          if (t.prompt) {
-            chunks.push(`<div class="msg-user-label">OPERATOR // T-${pad2(i + 1)}</div><div class="msg-user">${esc(t.prompt)}</div>`);
-          }
+          if (t.prompt) chunks.push(`<div class="msg-user-label">OPERATOR // T-${pad2(i + 1)}</div><div class="msg-user">${esc(t.prompt)}</div>`);
           if (t.texts?.length) {
             const fullText = t.texts.join('\n\n');
-            chunks.push(`<div class="msg-bot-wrap" data-raw="${esc(fullText)}"><div class="msg-bot-head"><span>${esc((KIND_LABEL[s.kind] || s.kind).toUpperCase())} // ${esc(s.model || 'RESPONSE')}</span><span>${t.done ? 'DONE' : 'STREAMING'}</span></div><div class="msg-bot-body">${renderMarkdown(fullText)}</div></div>`);
+            chunks.push(`<div class="msg-bot-wrap" data-raw="${esc(fullText)}"><div class="msg-bot-head"><span>${esc((KIND_LABEL[s.kind] || s.kind).toUpperCase())} // ${esc(s.model || 'RESPONSE')}<span class="hl-status"></span></span><span>${t.done ? 'DONE' : 'STREAMING'}</span></div><div class="msg-bot-body">${renderMarkdown(fullText)}</div></div>`);
           }
           parts.push(`<div class="turn-block">${chunks.join('')}</div>`);
         }
@@ -1180,7 +1222,7 @@ async function renderWorkspace() {
           setTimeout(() => { btn.textContent = 'COPY'; }, 1200);
         };
       });
-      await applyAllHighlights();
+      applyAllHighlights();
       await renderCornerBg(s);
       panel.scrollTop = panel.scrollHeight;
     } else if (state.tab === 'tasks') {
@@ -1196,28 +1238,17 @@ async function renderWorkspace() {
         const sel = t.id === data.selectedTaskId ? ' selected' : '';
         const dur = fmtSec(((t.endedAt || Date.now()) - t.startedAt) / 1000);
         const stClass = t.status === 'running' ? 'st-background' : t.status === 'done' ? 'st-working' : 'st-blocked';
-        return `<div class="op-card ${esc(t.status)}${sel}" data-tid="${esc(t.id)}">
-          <div class="op-top">
-            <span class="op-code">OP-${pad2(idx + 1)} // ${esc(t.shortId)}</span>
-            <span class="u-chip ${stClass}">${esc(t.status)}</span>
-          </div>
+        return `<div class="op-card clickable ${esc(t.status)}${sel}" data-tid="${esc(t.id)}">
+          <div class="op-top"><span class="op-code">OP-${pad2(idx + 1)} // ${esc(t.shortId)}</span><span class="u-chip ${stClass}">${esc(t.status)}</span></div>
           <div class="op-desc">${esc(t.description)}</div>
-          <div class="op-foot">
-            <span>${esc(t.kind.toUpperCase())}${t.summary ? ` · ${esc(t.summary)}` : ''}</span>
-            <span>ELAPSED ${dur}</span>
-          </div>
+          <div class="op-foot"><span>${esc(t.kind.toUpperCase())}${t.summary ? ` · ${esc(t.summary)}` : ''}</span><span>ELAPSED ${dur}</span></div>
         </div>`;
       }).join('');
       const logBox = data.selectedTaskId
-        ? `<div class="console-frame">
-            <div class="console-bar"><span>LIVE STREAM // ${esc(data.selectedTaskId)}</span><button id="refreshTasks" class="btn xs ghost">SYNC</button></div>
-            <pre class="terminal-box">${esc(data.log || '(awaiting log output...)')}</pre>
-          </div>`
+        ? `<div class="console-frame"><div class="console-bar"><span>LIVE STREAM // ${esc(data.selectedTaskId)}</span><button id="refreshTasks" class="btn xs ghost">SYNC</button></div><pre class="terminal-box">${esc(data.log || '(awaiting log output...)')}</pre></div>`
         : '';
       panel.innerHTML = `<div class="ops-grid">${tiles}</div>${logBox}`;
-      panel.querySelectorAll('.op-card').forEach((el) => {
-        el.onclick = () => { state.selectedTaskId = el.dataset.tid; renderWorkspace(); };
-      });
+      panel.querySelectorAll('.op-card').forEach((el) => { el.onclick = () => { state.selectedTaskId = el.dataset.tid; renderWorkspace(); }; });
       const rt = $('refreshTasks');
       if (rt) rt.onclick = () => renderWorkspace();
     } else {
@@ -1238,12 +1269,178 @@ async function renderWorkspace() {
   }
 }
 
+// ---- 02 // HEARTBEAT VIEW ----
+function renderHeartbeats() {
+  const list = state.ops?.heartbeats || [];
+  const wrap = $('hbList');
+  if (!list.length) {
+    wrap.innerHTML = '<div class="empty"><strong>NO HEARTBEAT SCHEDULES</strong>点击右上角 + NEW HEARTBEAT 设定定时任务</div>';
+    return;
+  }
+  wrap.innerHTML = list.map((hb) => {
+    const sched = hb.scheduleKind === 'cron' ? `CRON: ${hb.cron}` : `EVERY ${hb.everyMinutes}m`;
+    const target = hb.targetMode === 'spawn' ? `SPAWN ${hb.agent.toUpperCase()} (${hb.cwd})` : `SESSION: ${hb.targetRef || 'AUTO'}`;
+    const stClass = !hb.enabled ? '' : hb.lastStatus === 'error' ? 'st-error' : 'st-working';
+    return `<div class="op-card ${hb.enabled ? 'running' : ''}">
+      <div class="op-top">
+        <span class="op-code">${esc(hb.name)}</span>
+        <span class="u-chip ${stClass}">${hb.enabled ? 'ACTIVE' : 'PAUSED'}</span>
+      </div>
+      <div class="u-meta">
+        <span class="u-chip st-background">${esc(sched)}</span>
+        <span class="u-chip">${esc(target)}</span>
+      </div>
+      <div class="op-desc">${esc(hb.prompt)}</div>
+      <div class="op-foot">
+        <span>LAST: ${fmtTime(hb.lastRunAt)}${hb.lastNote ? ` · ${esc(hb.lastNote)}` : ''}</span>
+        <div style="display:flex;gap:5px">
+          <button class="btn xs cyan" data-hbrun="${esc(hb.id)}">RUN NOW</button>
+          <button class="btn xs ghost" data-hbtog="${esc(hb.id)}" data-en="${hb.enabled ? '0' : '1'}">${hb.enabled ? 'PAUSE' : 'ENABLE'}</button>
+          <button class="btn xs danger" data-hbdel="${esc(hb.id)}">DEL</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  wrap.querySelectorAll('[data-hbrun]').forEach((b) => {
+    b.onclick = async () => { b.disabled = true; try { await api(`/api/heartbeats/${b.dataset.hbrun}/run`, { method: 'POST' }); } catch (e) { alert(e.message); } finally { b.disabled = false; } };
+  });
+  wrap.querySelectorAll('[data-hbtog]').forEach((b) => {
+    b.onclick = () => api(`/api/heartbeats/${b.dataset.hbtog}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: b.dataset.en === '1' }) });
+  });
+  wrap.querySelectorAll('[data-hbdel]').forEach((b) => {
+    b.onclick = () => { if (confirm('删除这个定时任务？')) api(`/api/heartbeats/${b.dataset.hbdel}`, { method: 'DELETE' }); };
+  });
+}
+
+// ---- 03 // LONG-HORIZON GOALS VIEW ----
+function renderGoals() {
+  const list = state.ops?.goals || [];
+  const wrap = $('goalList');
+  if (!list.length) {
+    wrap.innerHTML = '<div class="empty"><strong>NO LONG-HORIZON GOALS</strong>点击右上角 + NEW GOAL 设定长期目标与监督会话</div>';
+    return;
+  }
+  wrap.innerHTML = list.map((g) => {
+    const stClass = g.status === 'achieved' ? 'st-working' : g.status === 'blocked' ? 'st-blocked' : g.status === 'active' ? 'st-background' : '';
+    const notesHtml = (g.notes || []).slice(0, 3).map((n) => `<div style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:4px">[${fmtTime(n.at)} · ${esc(n.by)}] ${esc(n.text)}</div>`).join('');
+    return `<div class="op-card ${g.status === 'active' ? 'running' : ''}">
+      <div class="op-top">
+        <span class="op-code">${esc(g.title)}</span>
+        <span class="u-chip ${stClass}">${esc(g.status)}</span>
+      </div>
+      <div class="u-meta">
+        <span class="u-chip">WORKER: ${esc(g.workerRef || 'UNSET')}</span>
+        <span class="u-chip st-background">SUPERVISOR: ${esc(g.supervisorRef || 'UNSET')}</span>
+        ${g.checkEveryMinutes > 0 ? `<span class="u-chip">CHECK / ${g.checkEveryMinutes}m</span>` : ''}
+      </div>
+      ${g.objective ? `<div class="op-desc">${esc(g.objective)}</div>` : ''}
+      ${g.criteria ? `<div style="margin-top:6px;font-family:var(--mono);font-size:11px;color:var(--amber)">CRITERIA: ${esc(g.criteria)}</div>` : ''}
+      <div class="meter-wrap">
+        <div class="meter-head"><span>PROGRESS</span><span>${g.progress}%</span></div>
+        <div class="meter-track"><div class="meter-fill ${g.progress >= 100 ? 'green' : ''}" style="width:${g.progress}%"></div></div>
+      </div>
+      ${notesHtml}
+      <div class="op-foot">
+        <div style="display:flex;gap:5px;flex-wrap:wrap">
+          <button class="btn xs cyan" data-gsup="${esc(g.id)}">SUPERVISE CHECK →</button>
+          <button class="btn xs ghost" data-gnote="${esc(g.id)}">+ NOTE</button>
+          <button class="btn xs green" data-gprog="${esc(g.id)}" data-cur="${g.progress}">PROGRESS</button>
+          <button class="btn xs amber" data-gstat="${esc(g.id)}" data-next="${g.status === 'achieved' ? 'active' : 'achieved'}">${g.status === 'achieved' ? 'REOPEN' : 'ACHIEVE'}</button>
+          <button class="btn xs danger" data-gdel="${esc(g.id)}">DEL</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  wrap.querySelectorAll('[data-gsup]').forEach((b) => {
+    b.onclick = async () => { try { const r = await api(`/api/goals/${b.dataset.gsup}/supervise`, { method: 'POST' }); alert(`已向监督会话 ${r.supervisor} 下发巡检指令`); } catch (e) { alert(e.message); } };
+  });
+  wrap.querySelectorAll('[data-gnote]').forEach((b) => {
+    b.onclick = () => { const note = prompt('添加检查点备注：'); if (note) api(`/api/goals/${b.dataset.gnote}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note }) }); };
+  });
+  wrap.querySelectorAll('[data-gprog]').forEach((b) => {
+    b.onclick = () => { const p = prompt('输入进度百分比 (0-100)：', b.dataset.cur); if (p !== null && !Number.isNaN(Number(p))) api(`/api/goals/${b.dataset.gprog}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ progress: Number(p) }) }); };
+  });
+  wrap.querySelectorAll('[data-gstat]').forEach((b) => {
+    b.onclick = () => api(`/api/goals/${b.dataset.gstat}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: b.dataset.next, ...(b.dataset.next === 'achieved' ? { progress: 100 } : {}) }) });
+  });
+  wrap.querySelectorAll('[data-gdel]').forEach((b) => {
+    b.onclick = () => { if (confirm('删除这个长期目标？')) api(`/api/goals/${b.dataset.gdel}`, { method: 'DELETE' }); };
+  });
+}
+
+// ---- 04 // GPU REGISTER VIEW ----
+function renderGpu() {
+  const g = state.gpu || { localGpus: [], leases: [], summary: {} };
+  const sum = g.summary || {};
+  $('gpuKpis').innerHTML = `
+    <div class="kpi-box"><div class="kpi-val">${pad2(sum.localCount || 0)}</div><div class="kpi-lbl">LOCAL GPUS (${esc(g.hostName || 'HOST')})</div></div>
+    <div class="kpi-box"><div class="kpi-val" style="color:var(--green)">${pad2(sum.localBusy || 0)}</div><div class="kpi-lbl">LOCAL BUSY</div></div>
+    <div class="kpi-box"><div class="kpi-val" style="color:var(--cyan)">${pad2(sum.activeLeases || 0)}</div><div class="kpi-lbl">ACTIVE LEASES</div></div>
+    <div class="kpi-box"><div class="kpi-val" style="color:var(--amber)">${pad2(sum.registeredGpus || 0)}</div><div class="kpi-lbl">REGISTERED GPUS</div></div>`;
+
+  const localWrap = $('gpuLocalList');
+  if (!g.localGpus?.length) {
+    localWrap.innerHTML = '<div class="empty"><strong>NO LOCAL NVIDIA GPU DETECTED</strong>仍可通过下方统一注册接口登记远程算力节点 GPU</div>';
+  } else {
+    localWrap.innerHTML = g.localGpus.map((card) => {
+      const memPct = card.memoryTotalMb ? Math.round((card.memoryUsedMb / card.memoryTotalMb) * 100) : 0;
+      const utilCls = card.utilization >= 85 ? 'amber' : 'green';
+      const memCls = memPct >= 85 ? 'red' : '';
+      const procs = (card.processes || []).map((p) =>
+        `<span class="u-chip ${p.session ? 'st-background' : ''}">PID ${p.pid} ${esc(p.processName)} (${p.usedMemoryMb}MiB${p.session ? ` · ${esc(p.session)}` : ''})</span>`).join('');
+      return `<div class="op-card ${card.utilization >= 10 ? 'running' : ''}">
+        <div class="op-top">
+          <span class="op-code">GPU ${card.index} // ${esc(card.name)}</span>
+          <span class="u-chip ${card.temperatureC >= 80 ? 'st-error' : 'st-working'}">${card.temperatureC}°C · ${Math.round(card.powerW)}W</span>
+        </div>
+        <div class="meter-wrap">
+          <div class="meter-head"><span>COMPUTE UTIL</span><span>${card.utilization}%</span></div>
+          <div class="meter-track"><div class="meter-fill ${utilCls}" style="width:${card.utilization}%"></div></div>
+        </div>
+        <div class="meter-wrap">
+          <div class="meter-head"><span>VRAM</span><span>${(card.memoryUsedMb / 1024).toFixed(1)} / ${(card.memoryTotalMb / 1024).toFixed(1)} GiB (${memPct}%)</span></div>
+          <div class="meter-track"><div class="meter-fill ${memCls}" style="width:${memPct}%"></div></div>
+        </div>
+        <div class="u-meta" style="margin-top:10px">${procs || '<span class="u-chip">NO ACTIVE COMPUTE PID</span>'}</div>
+      </div>`;
+    }).join('');
+  }
+
+  const leaseWrap = $('gpuLeaseWrap');
+  if (!g.leases?.length) {
+    leaseWrap.innerHTML = '<div class="empty"><strong>NO REGISTERED GPU LEASES</strong>所有对话均可通过 fmuxctl gpu register 或 + REGISTER GPU 登记</div>';
+  } else {
+    leaseWrap.innerHTML = `<table class="lease-table">
+      <thead><tr><th>ID</th><th>HOST</th><th>GPUS</th><th>SESSION</th><th>TASK</th><th>STATUS</th><th>TTL</th><th>ACTION</th></tr></thead>
+      <tbody>${g.leases.map((l) => {
+        const rem = l.expiresAt ? (l.expired ? 'EXPIRED' : `${Math.max(0, Math.round((l.expiresAt - Date.now()) / 60000))}m`) : '∞';
+        return `<tr>
+          <td>${esc(l.id)}</td>
+          <td>${esc(l.host)}${l.model ? ` (${esc(l.model)})` : ''}</td>
+          <td><span class="u-chip st-background">${esc(l.gpus.join(','))}</span></td>
+          <td>${esc(l.session || '-')}</td>
+          <td>${esc(l.task)}${l.memoryGb ? ` · ${l.memoryGb}GB` : ''}</td>
+          <td><span class="u-chip ${l.expired ? 'st-error' : 'st-working'}">${l.expired ? 'EXPIRED' : esc(l.status)}</span></td>
+          <td>${rem}</td>
+          <td><button class="btn xs danger" data-gpurel="${esc(l.id)}">RELEASE</button></td>
+        </tr>`;
+      }).join('')}</tbody></table>`;
+    leaseWrap.querySelectorAll('[data-gpurel]').forEach((b) => {
+      b.onclick = () => api('/api/gpu/release', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: b.dataset.gpurel }) });
+    });
+  }
+}
+
+// ---- Actions & Dialog Wiring ----
+function fillSessionSelect(el, allowEmpty = true) {
+  const opts = state.sessions.map((s) => `<option value="${esc(s.name)}">${esc(s.name)} (${esc((KIND_LABEL[s.kind] || s.kind).toUpperCase())})</option>`).join('');
+  el.innerHTML = (allowEmpty ? '<option value="">（未指定）</option>' : '') + opts;
+}
+
 async function sendKeys(keys) {
   const s = selectedSession();
   if (!s) return;
-  await api(`/api/session/${encodeURIComponent(s.key)}/keys`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keys }),
-  });
+  await api(`/api/session/${encodeURIComponent(s.key)}/keys`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keys }) });
   setTimeout(renderWorkspace, 350);
 }
 
@@ -1251,11 +1448,7 @@ document.querySelectorAll('.subtab').forEach((b) => { b.onclick = () => { state.
 $('attachBtn').onclick = async () => { const s = selectedSession(); if (s) await api(`/api/session/${encodeURIComponent(s.key)}/attach`, { method: 'POST' }); };
 $('detachBtn').onclick = async () => { await api('/api/detach', { method: 'POST' }); };
 $('escBtn').onclick = () => sendKeys(['esc']);
-$('killBtn').onclick = async () => {
-  const s = selectedSession();
-  if (!s || !confirm(`确认终止 tmux 会话 ${s.name}？`)) return;
-  await api(`/api/session/${encodeURIComponent(s.key)}/kill`, { method: 'POST' });
-};
+$('killBtn').onclick = async () => { const s = selectedSession(); if (s && confirm(`确认终止 tmux 会话 ${s.name}？`)) await api(`/api/session/${encodeURIComponent(s.key)}/kill`, { method: 'POST' }); };
 $('logoutBtn').onclick = async () => { await fetch('/auth/logout', { method: 'POST' }); location.reload(); };
 
 $('composer').onsubmit = async (e) => {
@@ -1265,46 +1458,115 @@ $('composer').onsubmit = async (e) => {
   if (!s || !text) return;
   $('input').value = '';
   try {
-    const res = await api(`/api/session/${encodeURIComponent(s.key)}/send`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
-    });
+    const res = await api(`/api/session/${encodeURIComponent(s.key)}/send`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
     if (res.blocked) alert('目标会话正在等待确认，请先响应对话框或切换至 TTY 按键。');
     setTimeout(renderWorkspace, 400);
   } catch (err) { alert(err.message); }
 };
-$('input').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('composer').requestSubmit(); }
-});
+$('input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('composer').requestSubmit(); } });
 
 $('newBtn').onclick = async () => {
-  $('fAgent').innerHTML = (state.agents.length ? state.agents : ['agy', 'claude', 'codex', 'pi', 'shell'])
-    .map((a) => `<option value="${esc(a)}">${esc(a.toUpperCase())}</option>`).join('');
+  const agentList = state.agents.length ? state.agents : ['agy', 'dsh', 'claude', 'codex', 'pi', 'shell'];
+  $('fAgent').innerHTML = agentList.map((a) => `<option value="${esc(a)}">${esc((KIND_LABEL[a] || a).toUpperCase())}</option>`).join('');
   try {
     const { conversations } = await api('/api/history');
-    $('fResume').innerHTML = '<option value="new">NEW SESSION // 新建对话</option><option value="last">CONTINUE LAST // 继续目录最近对话</option>'
+    $('fResume').innerHTML = '<option value="new">NEW SESSION // 新建全权限会话</option><option value="last">CONTINUE LAST // 继续目录最近对话</option>'
       + conversations.map((c) => `<option value="${esc(c.agent)}:${esc(c.id)}">${esc(c.agent.toUpperCase())} · ${esc(c.title.slice(0, 38))}</option>`).join('');
   } catch {}
   $('newDialog').showModal();
 };
-$('cancelNew').onclick = () => $('newDialog').close();
 $('newForm').onsubmit = async (e) => {
   e.preventDefault();
   try {
     const created = await api('/api/sessions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        resume: $('fResume').value,
-        agent: $('fAgent').value,
-        cwd: $('fCwd').value.trim() || '~',
-        name: $('fName').value.trim(),
-        prompt: $('fPrompt').value.trim(),
-      }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resume: $('fResume').value, agent: $('fAgent').value, cwd: $('fCwd').value.trim() || '~', name: $('fName').value.trim(), prompt: $('fPrompt').value.trim(), yolo: true }),
     });
     state.selectedKey = created.key;
     setMode('sessions');
     $('newDialog').close();
     renderWorkspace();
+  } catch (err) { alert(err.message); }
+};
+
+$('hbKind').onchange = () => {
+  const isCron = $('hbKind').value === 'cron';
+  $('hbEveryWrap').style.display = isCron ? 'none' : '';
+  $('hbCronWrap').style.display = isCron ? '' : 'none';
+};
+$('hbTargetMode').onchange = () => {
+  const isSpawn = $('hbTargetMode').value === 'spawn';
+  $('hbRefWrap').style.display = isSpawn ? 'none' : '';
+  $('hbAgentWrap').style.display = isSpawn ? '' : 'none';
+  $('hbCwdWrap').style.display = isSpawn ? '' : 'none';
+};
+$('addHbBtn').onclick = () => { fillSessionSelect($('hbRef'), true); $('hbDialog').showModal(); };
+$('hbForm').onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    await api('/api/heartbeats', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: $('hbName').value.trim(),
+        scheduleKind: $('hbKind').value,
+        everyMinutes: Number($('hbEvery').value),
+        cron: $('hbCron').value.trim(),
+        targetMode: $('hbTargetMode').value,
+        targetRef: $('hbRef').value,
+        agent: $('hbAgent').value,
+        cwd: $('hbCwd').value.trim() || '~',
+        prompt: $('hbPrompt').value.trim(),
+      }),
+    });
+    $('hbForm').reset();
+    $('hbDialog').close();
+  } catch (err) { alert(err.message); }
+};
+
+$('addGoalBtn').onclick = () => { fillSessionSelect($('gWorker'), true); fillSessionSelect($('gSuper'), true); $('goalDialog').showModal(); };
+$('goalForm').onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    await api('/api/goals', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: $('gTitle').value.trim(),
+        objective: $('gObj').value.trim(),
+        criteria: $('gCrit').value.trim(),
+        workerRef: $('gWorker').value,
+        supervisorRef: $('gSuper').value,
+        checkEveryMinutes: Number($('gEvery').value || 0),
+      }),
+    });
+    $('goalForm').reset();
+    $('goalDialog').close();
+  } catch (err) { alert(err.message); }
+};
+
+$('pollGpuBtn').onclick = () => api('/api/gpu/poll', { method: 'POST' });
+$('copyGpuCli').onclick = () => {
+  navigator.clipboard?.writeText('fmuxctl gpu register --gpus 0 --session <session> --task "<task>" --host local');
+  $('copyGpuCli').textContent = 'COPIED';
+  setTimeout(() => { $('copyGpuCli').textContent = 'COPY CLI'; }, 1200);
+};
+$('addGpuBtn').onclick = () => { fillSessionSelect($('gpuSess'), true); $('gpuDialog').showModal(); };
+$('gpuForm').onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    await api('/api/gpu/register', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        host: $('gpuHost').value.trim() || 'local',
+        gpus: $('gpuIds').value.trim(),
+        session: $('gpuSess').value,
+        model: $('gpuModel').value.trim(),
+        task: $('gpuTask').value.trim(),
+        memoryGb: $('gpuMem').value ? Number($('gpuMem').value) : null,
+        ttlMinutes: Number($('gpuTtl').value || 0),
+      }),
+    });
+    $('gpuForm').reset();
+    $('gpuDialog').close();
   } catch (err) { alert(err.message); }
 };
 
@@ -1317,20 +1579,25 @@ function connectSSE() {
     state.sessions = data.sessions || [];
     state.status = data.status || null;
     state.agents = data.agents || [];
+    if (data.ops) state.ops = data.ops;
+    if (data.gpu) state.gpu = data.gpu;
     if (data.user) state.user = data.user;
     if (data.authMode) state.authMode = data.authMode;
-    if (data.agentboard) state.agentboard = data.agentboard;
     renderSessions();
-    renderWorkspace();
+    if (state.mode === 'sessions') renderWorkspace();
+    else if (state.mode === 'heartbeat') renderHeartbeats();
+    else if (state.mode === 'goals') renderGoals();
+    else if (state.mode === 'gpu') renderGpu();
   });
 }
 
 setInterval(() => {
-  if (state.mode !== 'sessions') return;
-  const s = selectedSession();
-  if (!s) return;
-  if (state.tab === 'term' || (state.tab === 'tasks' && s.runningTasks > 0)) renderWorkspace();
-  else if (state.tab === 'chat' && s.runningTasks > 0) renderCornerBg(s);
+  if (state.mode === 'sessions') {
+    const s = selectedSession();
+    if (!s) return;
+    if (state.tab === 'term' || (state.tab === 'tasks' && s.runningTasks > 0)) renderWorkspace();
+    else if (state.tab === 'chat' && s.runningTasks > 0) renderCornerBg(s);
+  }
 }, 2500);
 
 connectSSE();

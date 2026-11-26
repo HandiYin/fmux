@@ -4,6 +4,8 @@ import { CONFIG_PATH, ROOT, loadConfig, resolveSecret } from './config.mjs';
 import { Concierge } from './concierge.mjs';
 import { startControl } from './control.mjs';
 import { createFakeFeishu, createFeishu } from './feishu.mjs';
+import { GpuRegistry } from './gpu.mjs';
+import { OpsEngine } from './ops.mjs';
 import { Registry } from './registry.mjs';
 import { Router } from './router.mjs';
 import { Store } from './store.mjs';
@@ -41,7 +43,10 @@ export async function runDaemon({ fake = false, web = false } = {}) {
         env: { ...process.env, ...(process.platform === 'win32' ? {} : { PATH: `${path.join(ROOT, 'bin')}:${process.env.PATH}` }), FMUX_SOCK: cfg.socket, FMUX_ROOT: ROOT, FMUX_CONFIG: CONFIG_PATH },
       })
     : null;
-  const router = new Router({ feishu, registry, concierge, store, cfg });
+  const gpu = new GpuRegistry({ registry, stateDir: cfg.stateDir });
+  const router = new Router({ feishu, registry, concierge, store, cfg, gpu });
+  const ops = new OpsEngine({ router, stateDir: cfg.stateDir });
+  router.ops = ops;
   router.wire();
 
   const methods = { ...router.api };
@@ -64,8 +69,10 @@ export async function runDaemon({ fake = false, web = false } = {}) {
     store.set('attached', byName ? { ...attached, key: byName.key, name: byName.name, lastInputAt: attached.lastInputAt || Date.now() } : null);
   }
   registry.start();
+  ops.start();
+  gpu.start();
   const control = startControl({ socket: cfg.socket, methods });
-  const webServer = cfg.web?.enabled ? await startWebServer({ router, cfg, getAppSecret: async () => appSecret || resolveSecret(cfg.app.secret) }) : null;
+  const webServer = cfg.web?.enabled ? await startWebServer({ router, cfg, ops, gpu, getAppSecret: async () => appSecret || resolveSecret(cfg.app.secret) }) : null;
   await feishu.connect();
   router.resume();
   log('info', 'hub.ready', {
@@ -79,6 +86,8 @@ export async function runDaemon({ fake = false, web = false } = {}) {
   function shutdown(signal) {
     log('info', 'hub.stop', { signal });
     registry.stop();
+    ops.stop();
+    gpu.stop();
     concierge?.stop();
     store.flush();
     control.close();

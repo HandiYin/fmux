@@ -23,6 +23,7 @@ test('Web server enforces token auth, serves UI, APIs, agy task logs, and SSE st
   const h = harness({ sessions: [s] });
   h.tmux.screens.set('%1', 'agy ready\n> ');
   h.cfg.web = { enabled: true, host: '127.0.0.1', port: 0, token: 'secret-token' };
+  h.cfg.highlight = { enabled: false };
 
   const web = await startWebServer({ router: h.router, cfg: h.cfg });
   const base = `http://127.0.0.1:${web.port}`;
@@ -44,11 +45,14 @@ test('Web server enforces token auth, serves UI, APIs, agy task logs, and SSE st
     assert.equal(ui.status, 200);
     assert.match(await ui.text(), /fmux/i);
 
-    // State API includes session model and runningTasks count.
+    // State API includes session model, runningTasks count, ops, and gpu snapshots.
     const state = await (await fetch(`${base}/api/state`, { headers: auth })).json();
     assert.equal(state.sessions.length, 1);
     assert.equal(state.sessions[0].runningTasks, 1);
     assert.equal(state.sessions[0].model, 'gemini-4-neon-high');
+    assert.ok(Array.isArray(state.ops.heartbeats));
+    assert.ok(Array.isArray(state.ops.goals));
+    assert.ok(Array.isArray(state.gpu.leases));
 
     // Turns API returns full untruncated agy turns.
     const turns = await (await fetch(`${base}/api/session/%251/turns`, { headers: auth })).json();
@@ -97,6 +101,71 @@ test('Web server enforces token auth, serves UI, APIs, agy task logs, and SSE st
     assert.match(firstChunk, /event: state/);
     assert.match(firstChunk, /"runningTasks":1/);
     controller.abort();
+  } finally {
+    await web.close();
+  }
+});
+
+test('DeepSeek API highlighter runs asynchronously, filters hallucinations, and caches on disk', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fmux-hl-'));
+  const h = harness({ sessions: [session({ kind: 'dsh' })] });
+  h.cfg.stateDir = dir;
+  h.cfg.web = { enabled: true, host: '127.0.0.1', port: 0, token: 'tok' };
+  h.cfg.highlight = { enabled: true, baseUrl: 'https://api.deepseek.test/v1', model: 'deepseek-flash', apiKey: 'test-key' };
+
+  let calls = 0;
+  const mockFetch = async (url, init) => {
+    calls++;
+    const body = JSON.parse(init.body);
+    // Simulate deepseek-flash returning 404 once, falling back to deepseek-chat.
+    if (body.model === 'deepseek-flash') {
+      return new Response(JSON.stringify({ error: 'model not found' }), { status: 404 });
+    }
+    return new Response(JSON.stringify({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            tldr: '- 全部 128 个测试已通过\n- 请确认是否重启 fmux 服务',
+            marks: [
+              { q: '全部 128 个测试已通过', k: 'result' },
+              { q: '不存在的幻觉句子', k: 'problem' },
+              { q: '请确认是否重启 fmux 服务', k: 'action' },
+            ],
+          }),
+        },
+      }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+
+  const web = await startWebServer({ router: h.router, cfg: h.cfg, fetchImpl: mockFetch });
+  const base = `http://127.0.0.1:${web.port}`;
+  const headers = { Authorization: 'Bearer tok', 'Content-Type': 'application/json' };
+  const sampleText = '本次改造已完成，全部 128 个测试已通过，没有发现异常。接下来请确认是否重启 fmux 服务以生效？' + '详细背景说明。'.repeat(40);
+
+  try {
+    // First call triggers async DeepSeek fetch and returns pending.
+    const first = await (await fetch(`${base}/api/highlight`, {
+      method: 'POST', headers, body: JSON.stringify({ text: sampleText }),
+    })).json();
+    assert.equal(first.pending, true);
+
+    // Wait briefly for mock fetch to finish and populate cache.
+    let second;
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 15));
+      second = await (await fetch(`${base}/api/highlight`, {
+        method: 'POST', headers, body: JSON.stringify({ text: sampleText }),
+      })).json();
+      if (!second.pending) break;
+    }
+    assert.equal(second.pending, undefined);
+    assert.equal(second.source, 'deepseek:deepseek-chat');
+    assert.equal(second.marks.length, 2); // hallucinated quote stripped by cleanMarks
+    assert.ok(second.marks.some((m) => m.q === '全部 128 个测试已通过' && m.k === 'result'));
+    assert.ok(second.marks.some((m) => m.q === '请确认是否重启 fmux 服务' && m.k === 'action'));
+    assert.match(second.tldr, /128/);
+    assert.equal(calls, 2); // 1 fallback 404 + 1 success, then cached
+    assert.ok(fs.existsSync(path.join(dir, 'highlights.json')));
   } finally {
     await web.close();
   }

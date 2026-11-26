@@ -1,6 +1,6 @@
 # fmux
 
-One Feishu chat (plus an optional built-in Web / Feishu browser UI) for every tmux session on your machine: Claude Code, Codex, Antigravity CLI (`agy`), pi and plain shells.
+One Feishu chat (plus an optional built-in Arknights PRTS Web / Feishu browser console) for every tmux session on your machine: Claude Code, Codex, Antigravity CLI (`agy`), DeepSeek (`dsh`), pi and plain shells.
 fmux connects a Feishu bot to the tmux sessions of the computer it runs on.
 It runs on Linux and macOS, and on Windows with psmux or inside WSL.
 
@@ -239,9 +239,9 @@ of the shell that runs it, so run it where `tmux`, `claude` and `codex` are foun
 | `notify.*` | See Notifications |
 | `attach.idleMinutes` | Minutes without input before an idle attachment returns to the dashboard (default 10; `0` disables) |
 | `live.peekMinutes` | How long a screen or tasks card refreshes itself (default 10) |
-| `web.enabled`, `.host`, `.port`, `.token`, `.publicUrl` | Optional built-in Arknights PRTS-styled HTTP + SSE browser console. Set `web.publicUrl` to show a direct link on the dashboard card |
+| `web.enabled`, `.host`, `.port`, `.token`, `.publicUrl` | Optional built-in Arknights PRTS-styled HTTP + SSE browser console (Day/Night mode, LaTeX math, Async HUD, `02 HEARTBEAT`, `03 GOALS`, `04 GPU`). Set `web.publicUrl` to show a direct link on the dashboard card |
 | `web.oidc.*` | Optional Feishu/Lark OIDC browser login (`enabled`, `redirectUri`, `allowedOpenIds`, `sessionHours`), reusing `app.id` + `app.secret` and restricted to `owner.openId` |
-| `web.agentboard.*` | Built-in `Primatix-Intelligence/agentboard` kanban board (`vendor/agentboard/`) proxied at `/agentboard/` behind fmux auth (`enabled`, `port`, `url`, `python`, `autoStart`) |
+| `highlight.*` | DeepSeek API fast-model semantic highlights (`result`/`problem`/`action`/`fact`) & TL;DR (`enabled`, `baseUrl`, `model`, `apiKey`; auto-reads `DEEPSEEK_API_KEY` or `~/.dsh/.credentials.yaml`) |
 | `tmux.hide` | tmux session names to leave out |
 | `agents.<type>` | How `新建` starts each type: `command` (new conversation), `continue` (latest one of the directory), `resume` (a chosen one), and `flags`, which fill `{flags}` unless the session is created without `-d` / `--yolo` |
 | `agents.claude.autoTrust` | Answer Claude Code's "trust this folder" prompt for a session the hub created (default on) |
@@ -265,6 +265,9 @@ fmuxctl new fig --resume 魔方     # new tmux session that resumes the conversa
 fmuxctl new fix --agent codex --cwd ~/proj --no-yolo
 fmuxctl show gt_process          # post the session's card to the chat (--terminal for the terminal)
 fmuxctl notify "渲染跑完了"        # push a card to the phone
+fmuxctl gpu ls                   # live local nvidia-smi + all registered GPU leases
+fmuxctl gpu register --gpus 0,1 --session train --task "SFT" --host local
+fmuxctl gpu release --id gpu_xxx # release a registered GPU lease (--session <name> also works)
 ```
 
 ## Security
@@ -297,7 +300,7 @@ the state and socket of the service.
 | `src/registry.mjs`, `src/codex-bindings.mjs` | Poll tmux, classify panes, track state/turns, persist Codex rollout offsets |
 | `src/procs.mjs`, `src/procs/`, `src/win/procs.ps1` | Find the agent process of a pane: `/proc`, `ps` + `lsof`, or Windows PowerShell |
 | `src/transcript.mjs`, `src/codex-transcript.mjs`, `src/agy.mjs`, `src/agy-tasks.mjs`, `src/agent-files.mjs`, `src/jsonl.mjs` | Shared JSONL/agent metadata readers; locate and follow Claude Code, Codex, agy (incl. background tasks/logs) and pi |
-| `src/web.mjs`, `src/feishu-oidc.mjs`, `src/agentboard.mjs`, `src/web/ui.html` | Zero-dependency Arknights PRTS browser console, Feishu OIDC auth, and embedded Agentboard reverse proxy (`vendor/agentboard/`) |
+| `src/web.mjs`, `src/feishu-oidc.mjs`, `src/highlight.mjs`, `src/ops.mjs`, `src/gpu.mjs`, `src/web/ui.html` | Zero-dependency Arknights PRTS browser console, Feishu OIDC auth, DeepSeek fast-model highlighter, Heartbeat & Long-Horizon Goal scheduler, and unified GPU telemetry/lease registry |
 | `src/screen.mjs` | Read dialogs and "working" markers from a captured screen |
 | `src/router.mjs`, `src/router/` | Route messages, commands, card actions, live cards, session creation/handoff, and control API |
 | `src/cards.mjs` | Card JSON 2.0 builders |

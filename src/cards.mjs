@@ -7,7 +7,7 @@ import { listTasks, runningTasks } from './agy-tasks.mjs';
 import { compactScreen } from './screen.mjs';
 import { fmtClock, fmtClockSec, fmtDuration, oneLine, shortPath, truncate, truncateHead } from './util.mjs';
 
-export const KIND_LABEL = { claude: 'Claude', codex: 'Codex', agy: 'AGY', pi: 'pi', shell: 'shell' };
+export const KIND_LABEL = { claude: 'Claude', codex: 'Codex', agy: 'AGY', dsh: 'DeepSeek', pi: 'pi', shell: 'shell' };
 
 // Tokens from Feishu's icon library (open.feishu.cn: feishu-cards/enumerations-for-icons).
 export const ICON = {
@@ -414,7 +414,7 @@ function conversationLabel(c) {
 }
 
 // `conversations` are past Claude Code, Codex and agy conversations that the new session can resume.
-export function newSessionCard({ error, agents = ['claude', 'codex', 'agy', 'pi', 'shell'], conversations = [] } = {}) {
+export function newSessionCard({ error, agents = ['claude', 'codex', 'agy', 'dsh', 'pi', 'shell'], conversations = [] } = {}) {
   return card({
     title: '新建会话',
     icon: ICON.add,

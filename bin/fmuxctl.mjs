@@ -15,7 +15,7 @@ const USAGE = `fmuxctl — control the running fmux
                [--screen] [--lines N]      the end of <from>'s terminal instead (a shell always uses this)
   fmuxctl attach <session>                route the Feishu chat to the session
   fmuxctl detach                          route the Feishu chat back to the concierge
-  fmuxctl new <name> [--agent claude|codex|agy|pi|shell] [--cwd DIR] [--prompt TEXT] [--no-attach]
+  fmuxctl new <name> [--agent claude|codex|agy|dsh|pi|shell] [--cwd DIR] [--prompt TEXT] [--no-attach]
                [--continue]                resume the latest conversation of that agent in DIR
                [--resume ID|TITLE]         resume a past conversation (agent and DIR come from it)
                [--no-yolo]                 start without auto-approve flags
@@ -23,6 +23,9 @@ const USAGE = `fmuxctl — control the running fmux
   fmuxctl history [--json]                past Claude Code, Codex and agy conversations that can be resumed
   fmuxctl tasks <session> [-n LINES] [--task ID] [--json]
                                           show background tasks and task logs of a session (agy)
+  fmuxctl gpu ls [--json]                 show live local GPUs and all registered GPU leases
+  fmuxctl gpu register --gpus 0,1 --session NAME --task DESC [--host local] [--model NAME] [--ttl 240]
+  fmuxctl gpu release <lease-id> | --session NAME
   fmuxctl kill <session> --yes            end the tmux session
   fmuxctl notify <text…> [--title T]      send a card to the owner's chat
   fmuxctl dashboard                       post a fresh session dashboard card
@@ -124,6 +127,40 @@ async function main() {
     case 'notify': {
       const title = take(args, '--title');
       return console.log(JSON.stringify(await call('notify', { title, text: args.join(' ') })));
+    }
+    case 'gpu': {
+      const sub = args.shift() || 'ls';
+      if (sub === 'ls') {
+        const json = has(args, '--json');
+        const snap = await call('gpu.ls');
+        if (json) return console.log(JSON.stringify(snap, null, 2));
+        console.log(`Local GPUs (${snap.localGpus.length}) on ${snap.hostName}:`);
+        for (const g of snap.localGpus) {
+          console.log(`  GPU ${g.index} ${g.name} | ${g.utilization}% | ${g.memoryUsedMb}/${g.memoryTotalMb} MiB | ${g.temperatureC}C | ${g.powerW}W`);
+        }
+        console.log(`Registered Leases (${snap.leases.length}):`);
+        for (const l of snap.leases) {
+          console.log(`  ${l.id} [${l.expired ? 'EXPIRED' : l.status}] ${l.host} GPU:${l.gpus.join(',')} session=${l.session || '-'} task=${l.task}`);
+        }
+        return undefined;
+      }
+      if (sub === 'register') {
+        const params = {
+          gpus: take(args, '--gpus') || '0',
+          host: take(args, '--host') || 'local',
+          session: take(args, '--session') || '',
+          task: take(args, '--task') || args.join(' '),
+          model: take(args, '--model') || '',
+          note: take(args, '--note') || '',
+          ttlMinutes: Number(take(args, '--ttl') || 240),
+        };
+        return console.log(JSON.stringify(await call('gpu.register', params), null, 2));
+      }
+      if (sub === 'release') {
+        const session = take(args, '--session');
+        return console.log(JSON.stringify(await call('gpu.release', session ? { session } : { id: args[0] }), null, 2));
+      }
+      throw new Error('usage: fmuxctl gpu ls|register|release');
     }
     case 'dev': {
       const sub = args.shift();
