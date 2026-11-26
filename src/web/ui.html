@@ -108,8 +108,9 @@
   ::-webkit-scrollbar-thumb:hover { background: var(--cyan); }
 
   html, body {
-    margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+    margin: 0; height: 100%; height: 100dvh; background: var(--bg); color: var(--ink);
     font-family: var(--sans); overflow: hidden; -webkit-font-smoothing: antialiased;
+    -webkit-text-size-adjust: 100%;
   }
 
   body {
@@ -426,7 +427,7 @@
   .section-title { font-family: var(--mono); font-size: 18px; font-weight: 800; letter-spacing: 0.1em; color: var(--ink); }
   .section-sub { font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: 0.08em; margin-top: 3px; }
 
-  .ops-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; }
+  .ops-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 14px; }
   .op-card {
     position: relative; background: var(--panel); border: 1px solid var(--line-strong);
     padding: 15px 17px; transition: all 0.15s; overflow: hidden;
@@ -467,8 +468,9 @@
   .kpi-val { font-size: 24px; font-weight: 800; color: var(--ink); line-height: 1.1; }
   .kpi-lbl { font-size: 10px; letter-spacing: 0.14em; color: var(--muted); margin-top: 5px; }
 
-  .lease-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; background: var(--panel); border: 1px solid var(--line-strong); }
-  .lease-table th, .lease-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+  .table-scroll { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--line-strong); background: var(--panel); }
+  .lease-table { width: 100%; min-width: 640px; border-collapse: collapse; font-family: var(--mono); font-size: 12px; background: var(--panel); }
+  .lease-table th, .lease-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; white-space: nowrap; }
   .lease-table th { background: var(--bg-rail); font-size: 10px; letter-spacing: 0.14em; color: var(--muted); }
   .cli-hint {
     background: var(--code-bg); color: var(--code-fg); border: 1px solid var(--line-strong);
@@ -515,17 +517,119 @@
 
   @media (max-width: 920px) {
     .prts-rail { display: none; }
-    header { height: auto; flex-wrap: wrap; padding: 10px 12px; gap: 8px; }
+    .btn, .mode-btn, .subtab, .unit-card { touch-action: manipulation; }
+
+    /* Compact 2-tier mobile command header: Row 1 brand+actions, Row 2 full-width 4-tab nav */
+    header {
+      height: auto; flex-wrap: wrap;
+      padding: max(8px, env(safe-area-inset-top)) 10px 8px;
+      gap: 7px 8px;
+    }
+    header::before { width: 72px; }
+    header::after { width: 48px; }
+    .brand { gap: 8px; order: 1; }
+    .brand-mark { width: 22px; height: 22px; }
+    .brand-title { font-size: 13px; letter-spacing: 0.12em; }
+    .brand-sub { display: none; }
+    .header-right { order: 2; gap: 5px; margin-left: auto; }
+    .header-right .btn { padding: 5px 8px; font-size: 10px; letter-spacing: 0.04em; }
+    .op-badge { display: none !important; }
+    .mode-nav {
+      order: 3; width: 100%; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;
+    }
+    .mode-btn {
+      transform: none; padding: 6px 4px; font-size: 10px; letter-spacing: 0.04em;
+      text-align: center; clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%);
+    }
+    .mode-btn > span { transform: none; justify-content: center; gap: 3px; white-space: nowrap; }
+    .mode-btn .num { display: none; }
+
+    /* Ultra-compact horizontal swipeable session pill bar (~46px total) */
     #viewSessions { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
     aside { border-right: 0; border-bottom: 1px solid var(--line-strong); }
     .roster-stats, .roster-head { display: none; }
-    .session-list { flex-direction: row; overflow-x: auto; overflow-y: hidden; padding: 8px 10px; }
-    .unit-card { min-width: 220px; max-width: 250px; flex-shrink: 0; }
-    .panel, .ops-view { padding: 14px; }
-    .ws-header, .hl-bar { padding: 8px 12px; }
-    .composer { padding: 10px 12px; }
+    .session-list {
+      flex-direction: row; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch;
+      padding: 6px 10px; gap: 7px; scrollbar-width: none;
+    }
+    .session-list::-webkit-scrollbar { display: none; }
+    .unit-card {
+      min-width: auto; max-width: 195px; flex-shrink: 0;
+      padding: 6px 10px 6px 11px;
+      clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%);
+    }
+    .unit-card:hover { transform: none; }
+    .unit-card::after { width: 8px; height: 8px; }
+    .u-idx, .u-preview { display: none; }
+    .u-name { font-size: 12px; }
+    .u-meta { margin-top: 4px; gap: 4px; flex-wrap: nowrap; overflow: hidden; }
+    .u-chip { font-size: 8.5px; padding: 1px 4px; white-space: nowrap; }
+
+    /* Compact workspace bar: title + actions on row 1, full-width subtabs on row 2 */
+    .ws-header { padding: 7px 10px; gap: 6px 8px; }
+    .ws-identity { flex: 1; min-width: 0; }
+    .ws-title-row { gap: 5px; flex-wrap: nowrap; overflow: hidden; }
+    .ws-title { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #wsModel, .ws-sub { display: none !important; }
+    .ws-actions { gap: 4px; flex-shrink: 0; }
+    .ws-actions .btn { padding: 5px 7px; font-size: 9.5px; }
+    .subtabs { width: 100%; display: grid; grid-template-columns: repeat(3, 1fr); order: 3; }
+    .subtab { justify-content: center; padding: 6px 4px; font-size: 10px; letter-spacing: 0.04em; gap: 4px; }
+
+    /* Single-row horizontally scrollable highlight toolbar */
+    .hl-bar {
+      padding: 5px 10px; gap: 8px; flex-wrap: nowrap;
+      overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+    }
+    .hl-bar::-webkit-scrollbar { display: none; }
+    .hl-controls, .hl-legend { flex-wrap: nowrap; gap: 8px; flex-shrink: 0; white-space: nowrap; }
+
+    /* Full-bleed readable chat & ops content */
+    .panel { padding: 10px 10px 16px; gap: 12px; -webkit-overflow-scrolling: touch; }
+    .ops-view { padding: 12px 10px max(18px, env(safe-area-inset-bottom)); gap: 12px; -webkit-overflow-scrolling: touch; }
+    .msg-user { max-width: 90%; padding: 9px 12px; font-size: 14px; }
+    .msg-bot-wrap { width: 100%; }
+    .msg-bot-head { padding: 5px 10px 5px 12px; font-size: 9.5px; }
+    .msg-bot-body { padding: 11px 12px; font-size: 14px; line-height: 1.68; }
+    .tldr-box { padding: 8px 12px; font-size: 12.5px; }
+    .code-frame pre { padding: 9px 10px; font-size: 11.5px; }
+    .terminal-box { padding: 10px; font-size: 11px; max-height: 48dvh; }
+    .keybar { padding: 8px; gap: 5px; }
+    .keybar .btn { padding: 7px 10px; font-size: 10.5px; }
+
+    /* Mobile-friendly top-right Async HUD (compact & non-obstructive) */
+    .corner-bg { right: 8px; left: 8px; top: 6px; width: auto; max-width: none; }
+    .corner-bg-head { padding: 5px 9px; font-size: 10px; }
+    .corner-bg-body { max-height: 150px; padding: 6px 8px; }
+
+    /* Ops & GPU mobile grids */
+    .section-bar { gap: 8px; padding-bottom: 10px; }
+    .section-title { font-size: 14.5px; }
+    .section-sub { font-size: 10px; }
+    .gpu-kpis { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .kpi-box { padding: 9px 11px; }
+    .kpi-val { font-size: 18px; }
+    .kpi-lbl { font-size: 9px; letter-spacing: 0.08em; }
+    #gpuClusterTabs { display: grid; grid-template-columns: repeat(4, 1fr); width: 100%; }
+    #gpuClusterTabs .subtab { padding: 6px 2px; font-size: 9.5px; }
+    .cli-hint { font-size: 10.5px; padding: 8px 10px; }
+    .cli-hint code { word-break: break-all; }
+    .op-card { padding: 12px 13px; }
+    .op-code { font-size: 12.5px; word-break: break-word; }
+
+    /* Composer: 16px prevents iOS Safari auto-zoom on focus! */
+    .composer { padding: 8px 10px max(10px, env(safe-area-inset-bottom)); gap: 7px; }
+    .composer-box { padding: 2px 9px; }
+    .composer textarea { font-size: 16px; min-height: 36px; padding: 7px 0; }
+    .composer .btn { padding: 9px 12px; font-size: 11px; }
+
+    /* Modals: stack fields vertically and allow scroll on short screens */
+    dialog { width: calc(100vw - 20px); max-height: 88dvh; overflow-y: auto; }
+    .modal-body { padding: 16px; }
+    .field-row { grid-template-columns: 1fr; gap: 0; }
+    .field input, .field select, .field textarea { font-size: 16px; padding: 9px 10px; }
+
     .ws-watermark { display: none; }
-    .corner-bg { right: 10px; top: 8px; width: 260px; }
   }
 </style>
 </head>
@@ -1414,7 +1518,7 @@ function renderLeaseTable(el, leases, emptyMsg) {
     el.innerHTML = emptyMsg ? `<div class="empty" style="padding:18px 14px">${emptyMsg}</div>` : '';
     return;
   }
-  el.innerHTML = `<table class="lease-table">
+  el.innerHTML = `<div class="table-scroll"><table class="lease-table">
     <thead><tr><th>ID / JOB</th><th>HOST / SPEC</th><th>GPUS</th><th>SESSION</th><th>TASK</th><th>STATUS</th><th>TTL</th><th>ACTION</th></tr></thead>
     <tbody>${leases.map((l) => {
       const rem = l.expiresAt ? (l.expired ? 'EXPIRED' : `${Math.max(0, Math.round((l.expiresAt - Date.now()) / 60000))}m`) : '∞';
@@ -1428,7 +1532,7 @@ function renderLeaseTable(el, leases, emptyMsg) {
         <td>${rem}</td>
         <td><button class="btn xs danger" data-gpurel="${esc(l.id)}">RELEASE</button></td>
       </tr>`;
-    }).join('')}</tbody></table>`;
+    }).join('')}</tbody></table></div>`;
   el.querySelectorAll('[data-gpurel]').forEach((b) => {
     b.onclick = () => api('/api/gpu/release', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: b.dataset.gpurel }) });
   });
