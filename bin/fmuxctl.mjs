@@ -15,16 +15,19 @@ const USAGE = `fmuxctl — control the running fmux
                [--screen] [--lines N]      the end of <from>'s terminal instead (a shell always uses this)
   fmuxctl attach <session>                route the Feishu chat to the session
   fmuxctl detach                          route the Feishu chat back to the concierge
-  fmuxctl new <name> [--agent claude|codex|pi|shell] [--cwd DIR] [--prompt TEXT] [--no-attach]
+  fmuxctl new <name> [--agent claude|codex|agy|pi|shell] [--cwd DIR] [--prompt TEXT] [--no-attach]
                [--continue]                resume the latest conversation of that agent in DIR
                [--resume ID|TITLE]         resume a past conversation (agent and DIR come from it)
-               [--no-yolo]                 start without "claude -d" / "codex --yolo"
+               [--no-yolo]                 start without auto-approve flags
   fmuxctl new                             post the new-session form to the chat, for the owner to fill in
-  fmuxctl history [--json]                past Claude Code and Codex conversations that can be resumed
+  fmuxctl history [--json]                past Claude Code, Codex and agy conversations that can be resumed
+  fmuxctl tasks <session> [-n LINES] [--task ID] [--json]
+                                          show background tasks and task logs of a session (agy)
   fmuxctl kill <session> --yes            end the tmux session
   fmuxctl notify <text…> [--title T]      send a card to the owner's chat
   fmuxctl dashboard                       post a fresh session dashboard card
-  fmuxctl show <session> [--terminal]     post the session's card to the chat: its last exchange, or its terminal
+  fmuxctl show <session> [--terminal|--tasks]
+                                          post the session's card to the chat: reply, terminal, or tasks
 
 <session> is the number shown by "ls", or a loose name: part of the tmux name, of the
 agent's title or of the directory. A name that fits several sessions is refused with the list.`;
@@ -43,7 +46,7 @@ function has(args, flag) {
   return true;
 }
 
-const STATUS = { working: 'working', idle: 'idle', blocked: 'BLOCKED', shell: 'shell' };
+const STATUS = { working: 'working', background: 'BG-TASK', idle: 'idle', blocked: 'BLOCKED', shell: 'shell' };
 
 async function main() {
   const args = process.argv.slice(2);
@@ -95,7 +98,20 @@ async function main() {
     case 'attach':
       return console.log(JSON.stringify(await call('attach', { ref: args[0] })));
     case 'show':
-      return console.log(JSON.stringify(await call('show', { terminal: has(args, '--terminal'), ref: args[0] })));
+      return console.log(JSON.stringify(await call('show', { terminal: has(args, '--terminal'), tasks: has(args, '--tasks'), ref: args[0] })));
+    case 'tasks': {
+      const json = has(args, '--json');
+      const lines = Number(take(args, '-n') || 40);
+      const taskId = take(args, '--task');
+      const r = await call('tasks', { ref: args[0], taskId, lines });
+      if (json) return console.log(JSON.stringify(r, null, 2));
+      console.log(`# ${r.name} · ${r.kind} · ${r.status} (${r.runningTasks} running / ${r.tasks.length} total)`);
+      for (const t of r.tasks) {
+        console.log(`  [${t.status.padEnd(7)}] ${t.shortId.padEnd(10)} (${t.kind}) ${t.description}${t.summary ? ` — ${t.summary}` : ''}`);
+      }
+      if (r.log) console.log(`\n--- log (${r.selectedTaskId}) ---\n${r.log}`);
+      return undefined;
+    }
     case 'new': {
       if (!args.length) return console.log(JSON.stringify(await call('form')));
       const resume = take(args, '--resume') || (has(args, '--continue') ? 'last' : 'new');

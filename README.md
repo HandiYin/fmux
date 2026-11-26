@@ -1,6 +1,6 @@
 # fmux
 
-One Feishu chat for every tmux session on your machine: Claude Code, Codex, pi and plain shells.
+One Feishu chat (plus an optional built-in Web / Feishu browser UI) for every tmux session on your machine: Claude Code, Codex, Antigravity CLI (`agy`), pi and plain shells.
 fmux connects a Feishu bot to the tmux sessions of the computer it runs on.
 It runs on Linux and macOS, and on Windows with psmux or inside WSL.
 
@@ -24,6 +24,7 @@ Feishu app  ⇄  @larksuite/channel (WebSocket)  ⇄  Router ──► tmux send
                               ├─ processes:   /proc (Linux, WSL), ps + lsof (macOS), PowerShell (Windows)
                               ├─ Claude Code: ~/.claude/sessions/<pid>.json + transcript JSONL
                               ├─ Codex:       screen markers + rollout JSONL
+                              ├─ agy:         open presence lock/DB FD + transcript_full.jsonl + background tasks/logs
                               ├─ pi:          screen markers + session JSONL
                               └─ shell:       screen only
 ```
@@ -237,7 +238,8 @@ of the shell that runs it, so run it where `tmux`, `claude` and `codex` are foun
 | `owner.chatId` | The chat that receives the cards |
 | `notify.*` | See Notifications |
 | `attach.idleMinutes` | Minutes without input before an idle attachment returns to the dashboard (default 10; `0` disables) |
-| `live.peekMinutes` | How long a screen card refreshes itself (default 10) |
+| `live.peekMinutes` | How long a screen or tasks card refreshes itself (default 10) |
+| `web.enabled`, `.host`, `.port`, `.token`, `.publicUrl` | Optional built-in HTTP + SSE web UI (works in desktop/mobile browsers or as a Feishu built-in web app). Set `web.token` when binding beyond localhost; set `web.publicUrl` to show a direct link on the dashboard card |
 | `tmux.hide` | tmux session names to leave out |
 | `agents.<type>` | How `新建` starts each type: `command` (new conversation), `continue` (latest one of the directory), `resume` (a chosen one), and `flags`, which fill `{flags}` unless the session is created without `-d` / `--yolo` |
 | `agents.claude.autoTrust` | Answer Claude Code's "trust this folder" prompt for a session the hub created (default on) |
@@ -292,7 +294,8 @@ the state and socket of the service.
 |---|---|
 | `src/registry.mjs`, `src/codex-bindings.mjs` | Poll tmux, classify panes, track state/turns, persist Codex rollout offsets |
 | `src/procs.mjs`, `src/procs/`, `src/win/procs.ps1` | Find the agent process of a pane: `/proc`, `ps` + `lsof`, or Windows PowerShell |
-| `src/transcript.mjs`, `src/codex-transcript.mjs`, `src/agent-files.mjs`, `src/jsonl.mjs` | Shared JSONL/agent metadata readers; locate and follow Claude Code, Codex and pi transcripts |
+| `src/transcript.mjs`, `src/codex-transcript.mjs`, `src/agy.mjs`, `src/agy-tasks.mjs`, `src/agent-files.mjs`, `src/jsonl.mjs` | Shared JSONL/agent metadata readers; locate and follow Claude Code, Codex, agy (incl. background tasks/logs) and pi |
+| `src/web.mjs`, `src/web/ui.html` | Zero-dependency HTTP + SSE browser / Feishu in-app web UI |
 | `src/screen.mjs` | Read dialogs and "working" markers from a captured screen |
 | `src/router.mjs`, `src/router/` | Route messages, commands, card actions, live cards, session creation/handoff, and control API |
 | `src/cards.mjs` | Card JSON 2.0 builders |

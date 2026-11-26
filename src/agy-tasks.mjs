@@ -1,0 +1,110 @@
+import { parseJsonLines, readTailSlice } from './jsonl.mjs';
+import { oneLine } from './util.mjs';
+
+const MAX_FINISHED_TASKS = 15;
+const SEED_MAX_BYTES = 4 * 1024 * 1024;
+
+// Apply a task lifecycle event (`task_start`, `task_tick`, `task_end`) onto a session's Map<taskId, task>.
+export function applyTaskEvent(tasks, ev) {
+  if (!ev || !ev.taskId) return false;
+  if (ev.type === 'task_start') {
+    tasks.set(ev.taskId, {
+      id: ev.taskId,
+      shortId: ev.shortId || ev.taskId.split('/').pop(),
+      kind: ev.kind || 'command',
+      description: ev.description || ev.shortId || ev.taskId,
+      logFile: ev.logFile || '',
+      status: 'running',
+      startedAt: ev.startedAt || Date.now(),
+      endedAt: null,
+      summary: '',
+    });
+    pruneTasks(tasks);
+    return true;
+  }
+  if (ev.type === 'task_tick') {
+    const existing = tasks.get(ev.taskId);
+    if (existing) {
+      existing.summary = ev.summary || existing.summary;
+      existing.lastTickAt = ev.endedAt || Date.now();
+    }
+    return true;
+  }
+  if (ev.type === 'task_end') {
+    const existing = tasks.get(ev.taskId);
+    if (existing) {
+      existing.status = ev.status || 'done';
+      existing.endedAt = ev.endedAt || Date.now();
+      if (ev.summary) existing.summary = ev.summary;
+    } else {
+      tasks.set(ev.taskId, {
+        id: ev.taskId,
+        shortId: ev.taskId.split('/').pop(),
+        kind: ev.taskId.includes('/task-') ? 'command' : 'subagent',
+        description: ev.taskId.split('/').pop(),
+        logFile: '',
+        status: ev.status || 'done',
+        startedAt: ev.endedAt || Date.now(),
+        endedAt: ev.endedAt || Date.now(),
+        summary: ev.summary || '',
+      });
+    }
+    pruneTasks(tasks);
+    return true;
+  }
+  return false;
+}
+
+// Keep every running task plus the most recent finished tasks.
+function pruneTasks(tasks) {
+  const finished = [...tasks.values()]
+    .filter((t) => t.status !== 'running')
+    .sort((a, b) => (b.endedAt || b.startedAt) - (a.endedAt || a.startedAt));
+  for (const old of finished.slice(MAX_FINISHED_TASKS)) tasks.delete(old.id);
+}
+
+// Reconstruct currently running and recent background tasks when attaching to an existing agy transcript.
+export function seedTasksFromTranscript(file, adapter, maxBytes = SEED_MAX_BYTES) {
+  const tasks = new Map();
+  let model = '';
+  const text = readTailSlice(file, maxBytes);
+  if (text === null) return { tasks, model };
+  for (const row of parseJsonLines(text)) {
+    for (const ev of adapter(row)) {
+      if (ev.type === 'model' && ev.model) model = ev.model;
+      else if (ev.type === 'task_start' || ev.type === 'task_tick' || ev.type === 'task_end') applyTaskEvent(tasks, ev);
+    }
+  }
+  return { tasks, model };
+}
+
+export function runningTasks(session) {
+  if (!session?.tasks) return [];
+  return [...session.tasks.values()]
+    .filter((t) => t.status === 'running')
+    .sort((a, b) => b.startedAt - a.startedAt);
+}
+
+export function listTasks(session) {
+  if (!session?.tasks) return [];
+  return [...session.tasks.values()].sort((a, b) => {
+    if (a.status === 'running' && b.status !== 'running') return -1;
+    if (b.status === 'running' && a.status !== 'running') return 1;
+    return (b.endedAt || b.startedAt) - (a.endedAt || a.startedAt);
+  });
+}
+
+// Read the last `maxLines` of a background task's log file (when available on disk).
+export function readTaskLog(task, { maxLines = 40, maxBytes = 64 * 1024 } = {}) {
+  if (!task?.logFile) return '';
+  const raw = readTailSlice(task.logFile, maxBytes);
+  if (raw === null) return '';
+  return raw.replace(/\r\n/g, '\n').split('\n').slice(-maxLines).join('\n').trim();
+}
+
+export function taskNote(session) {
+  const running = runningTasks(session);
+  if (!running.length) return '';
+  const head = oneLine(running[0].description, 36);
+  return running.length === 1 ? `后台任务：${head}` : `后台任务 ${running.length} 个：${head}`;
+}

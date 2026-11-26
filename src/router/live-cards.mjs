@@ -1,14 +1,15 @@
+import { listTasks, readTaskLog } from '../agy-tasks.mjs';
 import * as cards from '../cards.mjs';
 import { log } from '../util.mjs';
 
 export const DASH_TTL = 13 * 24 * 3600 * 1000; // Feishu lets a card be edited for 14 days
 
-// Keeps dashboard, session ("peek"), and terminal ("term") cards updated in place until
-// they expire or a newer card of the same kind takes over.
+// Keeps dashboard, session ("peek"), terminal ("term"), and background tasks ("tasks")
+// cards updated in place until they expire or a newer card of the same kind takes over.
 export class LiveCardManager {
   constructor(router) {
     this.router = router;
-    // message id -> { kind: 'dash' | 'peek' | 'term', key, until, signature }
+    // message id -> { kind: 'dash' | 'peek' | 'term' | 'tasks', key, until, signature }
     this.entries = new Map();
   }
 
@@ -52,7 +53,7 @@ export class LiveCardManager {
   resume() {
     const saved = this.router.store.get('live') || [];
     for (const e of saved) {
-      if (!e?.id || !['dash', 'peek', 'term'].includes(e.kind)) continue;
+      if (!e?.id || !['dash', 'peek', 'term', 'tasks'].includes(e.kind)) continue;
       this.entries.set(e.id, { kind: e.kind, key: e.key || '', until: e.until ?? Infinity, signature: '' });
     }
   }
@@ -64,19 +65,30 @@ export class LiveCardManager {
     if (entry.kind === 'dash') {
       if (final) return { signature: 'stale', card: cards.stubCard('这张面板已停止更新。发「面板」看最新的。') };
       const sessions = registry.list();
-      const running = sessions.some((s) => s.status === 'working');
+      const running = sessions.some((s) => s.status === 'working' || s.status === 'background');
       // Elapsed times move once a minute while an agent runs. An idle dashboard gets a heartbeat every 5 minutes.
       const beat = Math.floor(now / (running ? 60000 : 300000));
+      const webUrl = cfg.web?.enabled && cfg.web?.publicUrl ? cfg.web.publicUrl : '';
       return {
-        card: cards.dashboardCard({ sessions, attachedKey: this.router.attachedKey(), quiet: cfg.notify.enabled && this.router.localActive(), now }),
-        signature: [registry.signature, this.router.attachedKey(), beat].join('\u0003'),
+        card: cards.dashboardCard({ sessions, attachedKey: this.router.attachedKey(), quiet: cfg.notify.enabled && this.router.localActive(), webUrl, now }),
+        signature: [registry.signature, this.router.attachedKey(), beat, webUrl].join('\u0003'),
       };
     }
     const session = registry.sessions.get(entry.key);
     if (!session) return { gone: true, signature: 'gone', card: cards.stubCard('这个 tmux 会话已经结束。') };
     const attached = this.router.attachedKey() === session.key;
     const live = final ? 'off' : 'on';
-    const minute = session.status === 'working' ? Math.floor((now - session.statusSince) / 60000) : 0;
+    const minute = session.status === 'working' || session.status === 'background' ? Math.floor((now - session.statusSince) / 60000) : 0;
+    if (entry.kind === 'tasks') {
+      const tasks = listTasks(session);
+      const selectedTask = tasks.find((t) => t.status === 'running' && t.logFile) || tasks.find((t) => t.logFile) || tasks[0] || null;
+      const logText = selectedTask ? readTaskLog(selectedTask, { maxLines: 20 }) : '';
+      const taskSig = tasks.map((t) => `${t.id}:${t.status}:${t.summary}`).join(',');
+      return {
+        card: cards.tasksCard({ session, tasks, selectedTask, logText, attached, now, live }),
+        signature: [taskSig, logText, session.status, minute, attached, live].join('\u0003'),
+      };
+    }
     // A shell has nothing but its screen. An agent shows its last exchange unless the terminal was asked for.
     if (entry.kind === 'term' || session.kind === 'shell') {
       const screen = await tmux.capture(session.key);
@@ -133,7 +145,7 @@ export class LiveCardManager {
   async redraw(session, evt, fallbackKind) {
     await this.router.registry.poll();
     const kind = this.entries.get(evt.messageId)?.kind;
-    return this.adopt(kind === 'peek' || kind === 'term' ? kind : fallbackKind, evt.messageId, session, this.peekTtl);
+    return this.adopt(['peek', 'term', 'tasks'].includes(kind) ? kind : fallbackKind, evt.messageId, session, this.peekTtl);
   }
 
   sendDashboard() {
@@ -149,5 +161,10 @@ export class LiveCardManager {
   async sendTerminal(session) {
     await this.router.registry.poll();
     return this.post('term', session, this.peekTtl);
+  }
+
+  async sendTasks(session) {
+    await this.router.registry.poll();
+    return this.post('tasks', session, this.peekTtl);
   }
 }

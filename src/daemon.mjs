@@ -8,10 +8,12 @@ import { Registry } from './registry.mjs';
 import { Router } from './router.mjs';
 import { Store } from './store.mjs';
 import { log } from './util.mjs';
+import { startWebServer } from './web.mjs';
 
-// The long-running process: Feishu connection, tmux registry, router, control socket.
-export async function runDaemon({ fake = false } = {}) {
+// The long-running process: Feishu connection, tmux registry, router, control socket, optional web UI.
+export async function runDaemon({ fake = false, web = false } = {}) {
   const cfg = loadConfig();
+  if (web) cfg.web = { ...cfg.web, enabled: true };
   fs.mkdirSync(cfg.stateDir, { recursive: true, mode: 0o700 });
 
   if (!fake && (!cfg.app.id || !cfg.owner.openId)) {
@@ -62,9 +64,16 @@ export async function runDaemon({ fake = false } = {}) {
   }
   registry.start();
   const control = startControl({ socket: cfg.socket, methods });
+  const webServer = cfg.web?.enabled ? await startWebServer({ router, cfg }) : null;
   await feishu.connect();
   router.resume();
-  log('info', 'hub.ready', { fake, sessions: registry.sessions.size, bot: feishu.botName(), attached: store.get('attached')?.name || null });
+  log('info', 'hub.ready', {
+    fake,
+    sessions: registry.sessions.size,
+    bot: feishu.botName(),
+    attached: store.get('attached')?.name || null,
+    web: webServer ? `http://${webServer.host}:${webServer.port}` : null,
+  });
 
   function shutdown(signal) {
     log('info', 'hub.stop', { signal });
@@ -72,6 +81,7 @@ export async function runDaemon({ fake = false } = {}) {
     concierge?.stop();
     store.flush();
     control.close();
+    webServer?.close().catch(() => {});
     try {
       fs.unlinkSync(cfg.socket);
     } catch {

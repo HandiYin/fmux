@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>fmux — Agent Sessions & Background Tasks</title>
+<style>
+  :root {
+    --bg: #f5f6f7; --surface: #ffffff; --surface-2: #f0f2f5; --border: #e5e6eb;
+    --text: #1f2329; --muted: #646a73; --accent: #3370ff; --accent-soft: #e8f0ff;
+    --green: #00b42a; --blue: #3370ff; --orange: #ff7d00; --red: #f53f3f;
+    --term-bg: #14161a; --term-fg: #e5e7eb;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121417; --surface: #1b1e23; --surface-2: #242830; --border: #2e333d;
+      --text: #eef0f4; --muted: #9aa1ad; --accent: #4c8dff; --accent-soft: #1d2c48;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; background: var(--bg); color: var(--text); }
+  body { display: flex; flex-direction: column; }
+  header {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 10px 14px; background: var(--surface); border-bottom: 1px solid var(--border);
+    padding-top: max(10px, env(safe-area-inset-top));
+  }
+  .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 16px; }
+  .sse-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; }
+  .sse-dot.ok { background: var(--green); }
+  .header-actions { display: flex; gap: 8px; align-items: center; }
+  button {
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    border-radius: 7px; padding: 6px 11px; font-size: 13px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, var(--border)); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  main { flex: 1; display: grid; grid-template-columns: 290px 1fr; min-height: 0; }
+  aside {
+    border-right: 1px solid var(--border); background: var(--surface); overflow-y: auto;
+    padding: 10px; display: flex; flex-direction: column; gap: 8px;
+  }
+  .session-item {
+    border: 1px solid var(--border); border-radius: var(--radius); padding: 10px;
+    cursor: pointer; background: var(--surface); transition: border-color .15s, background .15s;
+  }
+  .session-item:hover { background: var(--surface-2); }
+  .session-item.active { border-color: var(--accent); background: var(--accent-soft); }
+  .session-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  .session-name { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pill { font-size: 11px; padding: 2px 7px; border-radius: 999px; background: var(--surface-2); color: var(--muted); white-space: nowrap; }
+  .pill.working { background: color-mix(in srgb, var(--green) 16%, transparent); color: var(--green); }
+  .pill.background { background: color-mix(in srgb, var(--blue) 16%, transparent); color: var(--blue); }
+  .pill.blocked { background: color-mix(in srgb, var(--orange) 18%, transparent); color: var(--orange); }
+  .pill.attached { background: var(--accent); color: #fff; }
+  .session-meta { margin-top: 4px; font-size: 12px; color: var(--muted); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .session-preview { margin-top: 5px; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  section.workspace { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .ws-header {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+    padding: 10px 14px; background: var(--surface); border-bottom: 1px solid var(--border);
+  }
+  .tabs { display: flex; gap: 6px; }
+  .tab { padding: 6px 12px; border-radius: 7px; border: 1px solid transparent; background: transparent; font-weight: 500; }
+  .tab.active { background: var(--accent-soft); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+  .badge { background: var(--blue); color: #fff; border-radius: 999px; font-size: 11px; padding: 0 6px; }
+  .panel { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+  .turn-user { align-self: flex-end; max-width: 85%; background: var(--accent); color: #fff; padding: 9px 12px; border-radius: 12px 12px 2px 12px; white-space: pre-wrap; word-break: break-word; font-size: 14px; }
+  .turn-bot { align-self: flex-start; max-width: 92%; background: var(--surface); border: 1px solid var(--border); padding: 10px 13px; border-radius: 12px 12px 12px 2px; white-space: pre-wrap; word-break: break-word; font-size: 14px; line-height: 1.55; }
+  .terminal-box {
+    background: var(--term-bg); color: var(--term-fg); border-radius: var(--radius);
+    padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px; line-height: 1.45; overflow: auto; white-space: pre-wrap; word-break: break-all;
+    min-height: 220px; max-height: 60vh; margin: 0;
+  }
+  .keybar { display: flex; flex-wrap: wrap; gap: 6px; }
+  .dialog-banner {
+    background: color-mix(in srgb, var(--orange) 12%, var(--surface));
+    border: 1px solid color-mix(in srgb, var(--orange) 45%, var(--border));
+    border-radius: var(--radius); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;
+  }
+  .task-list { display: flex; flex-direction: column; gap: 8px; }
+  .task-card {
+    border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px;
+    background: var(--surface); cursor: pointer;
+  }
+  .task-card.selected { border-color: var(--accent); background: var(--accent-soft); }
+  .task-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+  .task-desc { margin-top: 4px; font-size: 12px; color: var(--muted); word-break: break-all; }
+  .composer {
+    display: flex; gap: 8px; padding: 10px 14px; background: var(--surface); border-top: 1px solid var(--border);
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+  .composer textarea {
+    flex: 1; resize: none; min-height: 40px; max-height: 120px; padding: 9px 11px;
+    border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text);
+    font: inherit; font-size: 14px;
+  }
+  .empty { margin: auto; color: var(--muted); text-align: center; font-size: 14px; }
+  dialog { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); width: min(440px, 92vw); padding: 16px; }
+  dialog::backdrop { background: rgba(0,0,0,0.45); }
+  .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; font-size: 13px; }
+  .field input, .field select { padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg); color: var(--text); font: inherit; }
+  @media (max-width: 780px) {
+    main { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+    aside { border-right: none; border-bottom: 1px solid var(--border); flex-direction: row; overflow-x: auto; overflow-y: hidden; padding: 8px; }
+    .session-item { min-width: 200px; max-width: 240px; flex-shrink: 0; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span id="sseDot" class="sse-dot"></span>fmux</div>
+  <div class="header-actions">
+    <span id="attachedLabel" class="pill">未接入</span>
+    <button id="detachBtn" title="断开飞书接入">断开</button>
+    <button id="newBtn" class="primary">+ 新建会话</button>
+  </div>
+</header>
+<main>
+  <aside id="sessionList"></aside>
+  <section class="workspace">
+    <div id="wsHeader" class="ws-header" style="display:none">
+      <div>
+        <strong id="wsTitle"></strong>
+        <span id="wsKind" class="pill"></span>
+        <span id="wsModel" class="pill" style="display:none"></span>
+      </div>
+      <div class="tabs">
+        <button class="tab active" data-tab="chat">对话</button>
+        <button class="tab" data-tab="tasks">后台任务 <span id="taskBadge" class="badge" style="display:none">0</span></button>
+        <button class="tab" data-tab="term">终端</button>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button id="attachBtn" class="primary">飞书接入</button>
+        <button id="escBtn">Esc 中断</button>
+        <button id="killBtn" class="danger">结束</button>
+      </div>
+    </div>
+    <div id="panel" class="panel"><div class="empty">选择一个 tmux 会话开始查看</div></div>
+    <form id="composer" class="composer" style="display:none">
+      <textarea id="input" rows="1" placeholder="输入消息发往当前会话（Enter 发送，Shift+Enter 换行）"></textarea>
+      <button type="submit" class="primary">发送</button>
+    </form>
+  </section>
+</main>
+
+<dialog id="newDialog">
+  <form id="newForm">
+    <h3 style="margin:0 0 12px">新建会话</h3>
+    <label class="field">恢复历史对话
+      <select id="fResume"><option value="new">新对话</option><option value="last">继续目录最近一次对话</option></select>
+    </label>
+    <label class="field">类型
+      <select id="fAgent"></select>
+    </label>
+    <label class="field">工作目录<input id="fCwd" value="~" /></label>
+    <label class="field">会话名（可选）<input id="fName" placeholder="留空自动起名" /></label>
+    <label class="field">第一条消息（可选）<input id="fPrompt" placeholder="可以留空" /></label>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+      <button type="button" id="cancelNew">取消</button>
+      <button type="submit" class="primary">创建并接入</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+const STATUS_LABEL = { working: '运行中', background: '后台任务', blocked: '等待确认', idle: '空闲', shell: 'shell' };
+const TASK_ICON = { running: '🔵', done: '✅', error: '❌', killed: '⏹' };
+const state = { sessions: [], status: null, agents: [], selectedKey: null, tab: 'chat', selectedTaskId: null };
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+function selectedSession() {
+  return state.sessions.find((s) => s.key === state.selectedKey) || null;
+}
+
+function renderSessions() {
+  const list = $('sessionList');
+  const attached = state.status?.attached;
+  $('attachedLabel').textContent = attached ? `飞书已接入: ${attached}` : '飞书: Pi 管家';
+  $('detachBtn').style.display = attached ? '' : 'none';
+  if (!state.sessions.length) {
+    list.innerHTML = '<div class="empty" style="padding:20px">暂无 tmux 会话</div>';
+    return;
+  }
+  if (!state.selectedKey || !selectedSession()) state.selectedKey = state.sessions[0].key;
+  list.innerHTML = state.sessions.map((s) => {
+    const active = s.key === state.selectedKey ? ' active' : '';
+    const bgPill = s.runningTasks > 0 ? `<span class="pill background">🔵 ${s.runningTasks} 后台</span>` : '';
+    const attPill = s.attached ? '<span class="pill attached">已接入</span>' : '';
+    const stText = STATUS_LABEL[s.status] || s.status;
+    return `<div class="session-item${active}" data-key="${esc(s.key)}">
+      <div class="session-top">
+        <span class="session-name">${esc(s.name)}</span>
+        <span class="pill ${esc(s.status)}">${esc(stText)}</span>
+      </div>
+      <div class="session-meta">
+        <span>${esc(s.kind.toUpperCase())}</span>${s.model ? `<span>${esc(s.model)}</span>` : ''}${bgPill}${attPill}
+      </div>
+      <div class="session-preview">${esc(s.note || s.lastText || s.title || s.cwd)}</div>
+    </div>`;
+  }).join('');
+  list.querySelectorAll('.session-item').forEach((el) => {
+    el.onclick = () => {
+      state.selectedKey = el.dataset.key;
+      state.selectedTaskId = null;
+      renderSessions();
+      renderWorkspace();
+    };
+  });
+}
+
+async function renderWorkspace() {
+  const s = selectedSession();
+  $('wsHeader').style.display = s ? '' : 'none';
+  $('composer').style.display = s ? '' : 'none';
+  if (!s) {
+    $('panel').innerHTML = '<div class="empty">选择一个 tmux 会话开始查看</div>';
+    return;
+  }
+  $('wsTitle').textContent = s.name;
+  $('wsKind').textContent = s.kind.toUpperCase();
+  $('wsModel').textContent = s.model || '';
+  $('wsModel').style.display = s.model ? '' : 'none';
+  $('attachBtn').textContent = s.attached ? '已接入飞书' : '飞书接入';
+  const badge = $('taskBadge');
+  badge.textContent = String(s.runningTasks || s.tasks?.length || 0);
+  badge.style.display = (s.runningTasks || s.tasks?.length) ? '' : 'none';
+  document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === state.tab));
+
+  const panel = $('panel');
+  const keyEnc = encodeURIComponent(s.key);
+  try {
+    if (state.tab === 'chat') {
+      const [{ turns }, screenData] = await Promise.all([
+        api(`/api/session/${keyEnc}/turns`),
+        s.status === 'blocked' ? api(`/api/session/${keyEnc}/screen?lines=30`) : Promise.resolve(null),
+      ]);
+      const parts = [];
+      if (screenData?.dialog) {
+        const opts = screenData.dialog.options.map((o, i) =>
+          `<button data-key="${esc(o.key || String(i + 1))}">${esc(o.key ? `${o.key}. ` : '')}${esc(o.label)}</button>`).join('');
+        parts.push(`<div class="dialog-banner"><strong>🟠 等待确认</strong><div style="font-size:12px">${esc(screenData.dialog.question || '')}</div><div class="keybar">${opts}<button data-key="esc">Esc</button></div></div>`);
+      }
+      if (s.runningTasks > 0) {
+        parts.push(`<div class="pill background" style="align-self:flex-start;padding:6px 10px">🔵 有 ${s.runningTasks} 个后台任务运行中 — 点击「后台任务」查看实时日志</div>`);
+      }
+      if (!turns.length) {
+        parts.push(`<div class="empty">${s.kind === 'shell' ? 'Shell 会话请切换到「终端」标签查看输出' : '暂无对话记录'}</div>`);
+      } else {
+        for (const t of turns) {
+          if (t.prompt) parts.push(`<div class="turn-user">${esc(t.prompt)}</div>`);
+          if (t.texts?.length) parts.push(`<div class="turn-bot">${esc(t.texts.join('\n\n'))}</div>`);
+        }
+      }
+      panel.innerHTML = parts.join('');
+      panel.querySelectorAll('.dialog-banner button').forEach((btn) => {
+        btn.onclick = () => sendKeys([btn.dataset.key]);
+      });
+      panel.scrollTop = panel.scrollHeight;
+    } else if (state.tab === 'tasks') {
+      const q = state.selectedTaskId ? `&taskId=${encodeURIComponent(state.selectedTaskId)}` : '';
+      const data = await api(`/api/session/${keyEnc}/tasks?lines=100${q}`);
+      state.selectedTaskId = data.selectedTaskId;
+      if (!data.tasks.length) {
+        panel.innerHTML = '<div class="empty">当前会话没有记录到后台任务（运行 agy 的后台命令 / 定时器 / 子代理会自动出现在这里）</div>';
+        return;
+      }
+      const cards = data.tasks.map((t) => {
+        const sel = t.id === data.selectedTaskId ? ' selected' : '';
+        const dur = Math.max(0, Math.round(((t.endedAt || Date.now()) - t.startedAt) / 1000));
+        return `<div class="task-card${sel}" data-tid="${esc(t.id)}">
+          <div class="task-head">
+            <span>${TASK_ICON[t.status] || '⚪'} ${esc(t.shortId)} · ${esc(t.kind)}</span>
+            <span class="pill ${t.status === 'running' ? 'background' : ''}">${esc(t.status)} · ${dur}s</span>
+          </div>
+          <div class="task-desc">${esc(t.description)}${t.summary ? ` — ${esc(t.summary)}` : ''}</div>
+        </div>`;
+      }).join('');
+      const logBox = data.selectedTaskId
+        ? `<div style="font-size:12px;color:var(--muted)">实时日志：${esc(data.selectedTaskId)}</div><pre class="terminal-box">${esc(data.log || '（暂无日志输出）')}</pre>`
+        : '';
+      panel.innerHTML = `<div class="task-list">${cards}</div>${logBox}`;
+      panel.querySelectorAll('.task-card').forEach((el) => {
+        el.onclick = () => { state.selectedTaskId = el.dataset.tid; renderWorkspace(); };
+      });
+    } else {
+      const data = await api(`/api/session/${keyEnc}/screen?lines=100`);
+      const keys = ['enter', 'esc', 'up', 'down', 'tab', 'c-c', '1', '2', '3', 'y', 'n'];
+      panel.innerHTML = `
+        <pre class="terminal-box">${esc(data.screen || '（屏幕为空）')}</pre>
+        <div class="keybar">${keys.map((k) => `<button data-k="${k}">${k}</button>`).join('')}<button id="refreshTerm">刷新</button></div>`;
+      panel.querySelectorAll('[data-k]').forEach((b) => { b.onclick = () => sendKeys([b.dataset.k]); });
+      $('refreshTerm').onclick = () => renderWorkspace();
+    }
+  } catch (err) {
+    panel.innerHTML = `<div class="empty">加载失败：${esc(err.message)}</div>`;
+  }
+}
+
+async function sendKeys(keys) {
+  const s = selectedSession();
+  if (!s) return;
+  await api(`/api/session/${encodeURIComponent(s.key)}/keys`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keys }),
+  });
+  setTimeout(renderWorkspace, 350);
+}
+
+document.querySelectorAll('.tab').forEach((b) => {
+  b.onclick = () => { state.tab = b.dataset.tab; renderWorkspace(); };
+});
+
+$('attachBtn').onclick = async () => {
+  const s = selectedSession();
+  if (!s) return;
+  await api(`/api/session/${encodeURIComponent(s.key)}/attach`, { method: 'POST' });
+};
+$('detachBtn').onclick = async () => { await api('/api/detach', { method: 'POST' }); };
+$('escBtn').onclick = () => sendKeys(['esc']);
+$('killBtn').onclick = async () => {
+  const s = selectedSession();
+  if (!s || !confirm(`确认结束 tmux 会话 ${s.name}？`)) return;
+  await api(`/api/session/${encodeURIComponent(s.key)}/kill`, { method: 'POST' });
+};
+
+$('composer').onsubmit = async (e) => {
+  e.preventDefault();
+  const s = selectedSession();
+  const text = $('input').value.trim();
+  if (!s || !text) return;
+  $('input').value = '';
+  try {
+    const res = await api(`/api/session/${encodeURIComponent(s.key)}/send`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
+    });
+    if (res.blocked) alert('该会话正在等待确认，请先处理对话框或切换到终端按键。');
+    setTimeout(renderWorkspace, 400);
+  } catch (err) {
+    alert(err.message);
+  }
+};
+$('input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('composer').requestSubmit(); }
+});
+
+$('newBtn').onclick = async () => {
+  $('fAgent').innerHTML = (state.agents.length ? state.agents : ['agy', 'claude', 'codex', 'pi', 'shell'])
+    .map((a) => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
+  try {
+    const { conversations } = await api('/api/history');
+    $('fResume').innerHTML = '<option value="new">新对话</option><option value="last">继续目录最近一次对话</option>'
+      + conversations.map((c) => `<option value="${esc(c.agent)}:${esc(c.id)}">${esc(c.agent)} · ${esc(c.title.slice(0, 36))}</option>`).join('');
+  } catch {}
+  $('newDialog').showModal();
+};
+$('cancelNew').onclick = () => $('newDialog').close();
+$('newForm').onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    const created = await api('/api/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        resume: $('fResume').value,
+        agent: $('fAgent').value,
+        cwd: $('fCwd').value.trim() || '~',
+        name: $('fName').value.trim(),
+        prompt: $('fPrompt').value.trim(),
+      }),
+    });
+    state.selectedKey = created.key;
+    $('newDialog').close();
+    renderWorkspace();
+  } catch (err) {
+    alert(err.message);
+  }
+};
+
+function connectSSE() {
+  const es = new EventSource('/api/events');
+  es.onopen = () => $('sseDot').classList.add('ok');
+  es.onerror = () => $('sseDot').classList.remove('ok');
+  es.addEventListener('state', (e) => {
+    const data = JSON.parse(e.data);
+    state.sessions = data.sessions || [];
+    state.status = data.status || null;
+    state.agents = data.agents || [];
+    renderSessions();
+    renderWorkspace();
+  });
+}
+
+// Refresh active terminal or running background task logs periodically while viewing those tabs.
+setInterval(() => {
+  const s = selectedSession();
+  if (!s) return;
+  if (state.tab === 'term' || (state.tab === 'tasks' && s.runningTasks > 0)) renderWorkspace();
+}, 2500);
+
+connectSSE();
+</script>
+</body>
+</html>

@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { applyTaskEvent, runningTasks, seedTasksFromTranscript, taskNote } from './agy-tasks.mjs';
 import { CodexBindingStore } from './codex-bindings.mjs';
 import { pick } from './match.mjs';
 import { findAgent, snapshot } from './procs.mjs';
@@ -110,6 +111,7 @@ export class Registry extends EventEmitter {
           key: pane.paneId, kind: null, agentPid: null, status: null, statusSince: Date.now(),
           note: '', dialog: null, lastText: '', lastPrompt: '', turn: null, transcript: null,
           tail: null, pending: null, bindingLostAt: 0, agentSeenAt: 0, firstSeenAt: Date.now(),
+          model: '', tasks: new Map(),
         };
         this.sessions.set(pane.paneId, session);
       }
@@ -126,7 +128,7 @@ export class Registry extends EventEmitter {
       this.sessions.delete(key);
       this.emit('removed', session);
     }
-    const signature = this.list().map((s) => [s.key, s.name, s.kind, s.status, s.note, s.title, s.lastText.slice(0, 80)].join('\u0001')).join('\u0002');
+    const signature = this.list().map((s) => [s.key, s.name, s.kind, s.status, s.note, s.title, s.lastText.slice(0, 80), runningTasks(s).length, s.tasks.size].join('\u0001')).join('\u0002');
     if (signature !== this.signature) {
       this.signature = signature;
       this.emit('changed');
@@ -157,6 +159,8 @@ export class Registry extends EventEmitter {
       s.tail = null;
       s.bindingLostAt = 0;
       s.dialog = null;
+      s.model = '';
+      s.tasks = new Map();
       if (!isNew) s.lastText = '';
     }
     const meta = kind === 'claude' ? this.probe.readClaudeMeta(s.agentPid) : null;
@@ -165,7 +169,16 @@ export class Registry extends EventEmitter {
     const events = s.tail ? s.tail.read() : [];
     const sawTurnEnd = this.applyTranscriptEvents(s, events);
 
-    const { status, note, dialog } = await this.detectStatus(pane, snap, kind, meta);
+    const detected = await this.detectStatus(pane, snap, kind, meta);
+    let { status, note } = detected;
+    const { dialog } = detected;
+    const bgRunning = runningTasks(s);
+    if (status === 'idle' && bgRunning.length > 0) {
+      status = 'background';
+      note = taskNote(s);
+    } else if (bgRunning.length > 0 && !note) {
+      note = taskNote(s);
+    }
     s.note = note || (kind === 'codex' && !s.transcript ? '未定位到回复记录，请用 /rename 设置唯一会话名；可点「终端」查看回复。' : '');
     s.dialog = dialog;
 
@@ -180,7 +193,7 @@ export class Registry extends EventEmitter {
     }
 
     // A reply that started and finished between two polls never showed as "working".
-    if (s.turn && s.status === 'idle' && !s.pending) {
+    if (s.turn && (s.status === 'idle' || s.status === 'background') && !s.pending) {
       s.turn.quietPolls = events.length ? 0 : (s.turn.quietPolls || 0) + 1;
       if (sawTurnEnd || s.turn.quietPolls >= 2) this.endTurn(s);
     }
@@ -192,6 +205,14 @@ export class Registry extends EventEmitter {
     for (const ev of events) {
       if (ev.type === 'user') {
         s.lastPrompt = ev.text;
+        continue;
+      }
+      if (ev.type === 'model') {
+        s.model = ev.model;
+        continue;
+      }
+      if (ev.type === 'task_start' || ev.type === 'task_tick' || ev.type === 'task_end') {
+        if (applyTaskEvent(s.tasks, ev)) this.emit('task_update', s, ev);
         continue;
       }
       if (ev.type === 'turn_end') {
@@ -239,8 +260,8 @@ export class Registry extends EventEmitter {
 
   async followTranscript(s, kind, meta) {
     if (kind === 'shell') return;
-    // Recheck Codex's displayed identity before every read, including /resume inside one TUI.
-    const every = kind === 'claude' || kind === 'codex' ? 1 : s.transcript ? 15 : 3;
+    // Recheck Claude/Codex/agy identity every poll (agy can switch conversations inside one TUI).
+    const every = kind === 'claude' || kind === 'codex' || kind === 'agy' ? 1 : s.transcript ? 15 : 3;
     if (this.polls % every !== 0) return;
     const file = await this.probe.locateTranscript(kind, s.agentPid, meta, { cwd: s.cwd, title: s.paneTitle });
     // Both unknown: after a hub restart this may be a pane whose confirmed rollout is on disk.
@@ -258,15 +279,15 @@ export class Registry extends EventEmitter {
       }
       return;
     }
-    if (kind === 'codex') {
-      log('info', 'transcript.bound', { session: s.name, title: s.paneTitle, file: path.basename(file) });
-      // A different thread: drop the previous conversation and start at the new file's position.
-      this.codexBindings.forget(s);
+    if (kind === 'codex' || kind === 'agy') {
+      log('info', 'transcript.bound', { session: s.name, kind, title: s.paneTitle, file: path.basename(file) });
+      if (kind === 'codex') this.codexBindings.forget(s);
       s.transcript = null;
       s.tail = null;
       s.lastText = '';
       s.lastPrompt = '';
       s.turn = null;
+      s.tasks = new Map();
     }
     s.bindingLostAt = 0;
     let born = 0;
@@ -283,6 +304,11 @@ export class Registry extends EventEmitter {
       const last = lastExchange(file, adapters[kind]);
       s.lastText = last.text || s.lastText;
       s.lastPrompt = last.prompt || s.lastPrompt;
+      if (kind === 'agy') {
+        const seeded = seedTasksFromTranscript(file, adapters.agy);
+        s.tasks = seeded.tasks;
+        if (seeded.model) s.model = seeded.model;
+      }
     }
     if (kind === 'codex') this.codexBindings.remember(s);
   }

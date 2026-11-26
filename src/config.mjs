@@ -34,6 +34,16 @@ const DEFAULTS = {
     // How long a session or terminal card keeps refreshing itself.
     peekMinutes: 10,
   },
+  web: {
+    // Built-in HTTP + SSE web UI (usable in a browser or as a Feishu built-in web app).
+    enabled: false,
+    host: '127.0.0.1',
+    port: 18790,
+    // Optional access token (?token=... or Authorization: Bearer ...). Empty disables auth (localhost only).
+    token: '',
+    // Optional public HTTPS URL (e.g. Tailscale Funnel / reverse proxy) shown on Feishu cards.
+    publicUrl: '',
+  },
   // How a new session starts each agent. {name} is the tmux session name, {id} a conversation id.
   // `continue` resumes the latest conversation of the directory, `resume` a chosen one.
   // {flags} is filled with `flags` unless the session is created with "no -d / --yolo".
@@ -48,6 +58,13 @@ const DEFAULTS = {
       autoTrust: true,
     },
     codex: { flags: '--yolo', command: 'codex {flags}', continue: 'codex {flags} resume --last', resume: 'codex {flags} resume {id}' },
+    agy: {
+      flags: '--dangerously-skip-permissions',
+      command: 'agy {flags}',
+      continue: 'agy {flags} -c',
+      resume: 'agy {flags} -r {id}',
+      promptFlag: '-i',
+    },
     pi: { flags: '', command: 'pi', continue: 'pi -c' },
     shell: { flags: '', command: '' },
   },

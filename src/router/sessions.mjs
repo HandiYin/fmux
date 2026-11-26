@@ -48,7 +48,7 @@ export async function autoTrust(router, key, { tries = 25, everyMs = 1000 } = {}
 export async function createSession(router, { name, agent = 'claude', cwd = '~', prompt = '', resume = 'new', yolo = true }) {
   let template;
   if (resume && resume !== 'new' && resume !== 'last') {
-    const tagged = resume.match(/^(claude|codex):(.+)$/);
+    const tagged = resume.match(/^(claude|codex|agy):(.+)$/);
     const { match: conversation, candidates } = router.history.lookupConversation(tagged ? tagged[2] : resume, { agent: tagged?.[1] });
     if (!conversation && candidates.length) {
       throw new Error(`「${resume}」对上了多个对话：${candidates.slice(0, 5).map((c) => `${c.id.slice(0, 8)} ${oneLine(c.title, 24)}`).join('；')}`);
@@ -71,7 +71,8 @@ export async function createSession(router, { name, agent = 'claude', cwd = '~',
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) throw new Error(`目录不存在：${cwd}`);
   if (router.registry.list().some((s) => s.tmuxSession === name)) throw new Error(`已有叫 ${name} 的会话`);
   const base = template.replace('{flags}', yolo ? spec.flags || '' : '').replace('{name}', name).replace(/\s+/g, ' ').trim();
-  const command = base ? (prompt ? `${base} ${quoteArg(prompt)}` : base) : prompt;
+  const promptPart = prompt ? (spec.promptFlag ? `${spec.promptFlag} ${quoteArg(prompt)}` : quoteArg(prompt)) : '';
+  const command = base ? (promptPart ? `${base} ${promptPart}` : base) : prompt;
   await router.tmux.newSession({ name, cwd: dir, command });
   await router.registry.poll();
   const session = router.registry.list().find((s) => s.tmuxSession === name);

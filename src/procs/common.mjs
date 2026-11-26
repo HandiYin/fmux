@@ -1,7 +1,14 @@
 const JS_RUNTIMES = new Set(['node', 'MainThread', 'bun', 'deno']);
-const AGENTS = new Set(['claude', 'codex', 'pi']);
-const SCRIPT_SUBCOMMANDS = { codex: ['app-server', 'exec', 'mcp-server', 'mcp', 'proto'] };
-const SCRIPT_FLAGS = { claude: ['-p', '--print'], pi: ['-p', '--print'] };
+const AGENTS = new Set(['claude', 'codex', 'pi', 'agy']);
+const SCRIPT_SUBCOMMANDS = {
+  codex: ['app-server', 'exec', 'mcp-server', 'mcp', 'proto'],
+  agy: ['acp', 'agent', 'agents', 'changelog', 'help', 'install', 'mcp', 'mic-serve', 'models', 'plugin', 'plugins', 'remote-control', 'update'],
+};
+const SCRIPT_FLAGS = {
+  claude: ['-p', '--print'],
+  pi: ['-p', '--print'],
+  agy: ['-p', '--print', '--prompt'],
+};
 
 // The first word of a command line. On Windows it can be a quoted path with spaces.
 function firstWord(args) {
@@ -24,11 +31,13 @@ export function classify(comm, args = '') {
   comm = baseName(comm);
   if (AGENTS.has(comm)) return comm;
   if (AGENTS.has(name)) return name;
+  if (comm === 'antigravity' || name === 'antigravity') return 'agy';
   if (first.includes('/claude/versions/')) return 'claude';
   if (JS_RUNTIMES.has(comm) || JS_RUNTIMES.has(name)) {
     if (/pi-coding-agent|\/bin\/pi(["\s]|$)/.test(line)) return 'pi';
     if (/@openai\/codex|\/bin\/codex(["\s]|$)/.test(line)) return 'codex';
     if (/claude-code|\/bin\/claude(["\s]|$)/.test(line)) return 'claude';
+    if (/antigravity-cli|\/bin\/agy(["\s]|$)/.test(line)) return 'agy';
   }
   return null;
 }

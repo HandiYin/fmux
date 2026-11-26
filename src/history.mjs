@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { defaultCodexHome, listOpenClaudeSessionIds, readCodexIndex, scanCodexRollouts } from './agent-files.mjs';
+import { agyTranscriptPath, defaultAgyHome, defaultCodexHome, listOpenClaudeSessionIds, readAgyHistory, readCodexIndex, scanCodexRollouts } from './agent-files.mjs';
 import { parseJsonLines, readFileSlice } from './jsonl.mjs';
 import { pick } from './match.mjs';
 import { alive } from './procs.mjs';
@@ -93,17 +93,42 @@ function codexConversations(limit) {
   return out;
 }
 
-// Newest first. Each agent has its own quota, so a busy Claude history does not hide Codex.
+function agyConversations(limit) {
+  const root = defaultAgyHome();
+  const byId = new Map();
+  for (const row of readAgyHistory(root)) {
+    const id = row.conversationId;
+    if (!id || !row.workspace) continue;
+    const display = String(row.display || '').trim();
+    const prev = byId.get(id);
+    const updatedAt = Number(row.timestamp) || 0;
+    const isSlash = display.startsWith('/');
+    const title = (!isSlash && display) ? display : (prev?.title || display || '(未命名)');
+    if (!prev || updatedAt >= prev.updatedAt) {
+      byId.set(id, { agent: 'agy', id, title, cwd: row.workspace, updatedAt, lastPrompt: !isSlash ? display : (prev?.lastPrompt || '') });
+    }
+  }
+  const out = [];
+  for (const conv of [...byId.values()].sort((a, b) => b.updatedAt - a.updatedAt)) {
+    if (out.length >= limit) break;
+    if (!agyTranscriptPath(conv.id, root)) continue;
+    out.push(conv);
+  }
+  return out;
+}
+
+// Newest first. Each agent has its own quota, so a busy Claude history does not hide Codex or agy.
 // A conversation whose directory is gone cannot be resumed and is left out.
-export function recentConversations({ claude = 10, codex = 5 } = {}) {
-  return [...claudeConversations(claude + 5), ...codexConversations(codex + 5)]
+export function recentConversations({ claude = 10, codex = 5, agy = 5 } = {}) {
+  const quotas = { claude, codex, agy };
+  return [...claudeConversations(claude + 5), ...codexConversations(codex + 5), ...agyConversations(agy + 5)]
     .filter((c) => fs.existsSync(c.cwd))
     .sort((a, b) => b.updatedAt - a.updatedAt)
-    .filter((c, i, all) => all.slice(0, i).filter((o) => o.agent === c.agent).length < (c.agent === 'claude' ? claude : codex));
+    .filter((c, i, all) => all.slice(0, i).filter((o) => o.agent === c.agent).length < (quotas[c.agent] ?? 5));
 }
 
 // By id (or the start of one), or loosely by title. Returns { match, candidates }.
-export function lookupConversation(ref, { agent, list = recentConversations({ claude: 60, codex: 30 }) } = {}) {
+export function lookupConversation(ref, { agent, list = recentConversations({ claude: 60, codex: 30, agy: 30 }) } = {}) {
   const wanted = String(ref || '').trim();
   const pool = list.filter((c) => !agent || c.agent === agent);
   if (/^[0-9a-f-]{6,}$/i.test(wanted)) {

@@ -86,10 +86,15 @@ async function dispatchAction(router, v, evt) {
     case 'term':
       router.sendTerminal(session).catch((err) => log('error', 'term.send', { message: err.message }));
       return {};
+    case 'tasks':
+      router.sendTasks(session).catch((err) => log('error', 'tasks.send', { message: err.message }));
+      return {};
     case 'peek.refresh':
       return replace(await liveCards.redraw(session, evt, 'peek'));
     case 'term.refresh':
       return replace(await liveCards.redraw(session, evt, 'term'));
+    case 'tasks.refresh':
+      return replace(await liveCards.redraw(session, evt, 'tasks'));
     case 'key': {
       await router.tmux.sendKeys(session.key, [v.k]);
       router.touchAttached(session);

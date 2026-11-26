@@ -40,6 +40,7 @@ export class Router {
     this.registry.on('turn_end', guard('turn_end', this.onTurnEnd));
     this.registry.on('removed', guard('removed', this.onRemoved));
     this.registry.on('changed', () => this.nudge());
+    this.registry.on('task_update', () => this.nudge());
     this.feishu.updater.onError = (messageId) => this.liveCards.forget(messageId);
     if (this.concierge) {
       this.concierge.on('text', (delta) => this.onPiProgress((v) => { v.text += delta; }));
@@ -119,6 +120,7 @@ export class Router {
   sendDashboard() { return this.liveCards.sendDashboard(); }
   sendPeek(session) { return this.liveCards.sendPeek(session); }
   sendTerminal(session) { return this.liveCards.sendTerminal(session); }
+  sendTasks(session) { return this.liveCards.sendTasks(session); }
   newSessionForm(error) { return newSessionForm(this, error); }
   createSession(opts) { return createSession(this, opts); }
   autoTrust(key, opts) { return autoTrust(this, key, opts); }
@@ -407,7 +409,7 @@ export class Router {
     if (!session) return;
     const minutes = Number(this.cfg.attach?.idleMinutes ?? 10);
     if (!(minutes > 0)) return;
-    if (session.status === 'working' || session.status === 'blocked' || session.turn) return;
+    if (session.status === 'working' || session.status === 'blocked' || session.status === 'background' || session.turn) return;
     if (session.kind === 'shell' && session.note) return;
     const lastInputAt = Number(attached.lastInputAt);
     if (!Number.isFinite(lastInputAt) || lastInputAt <= 0) {

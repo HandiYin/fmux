@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { readClaudeMeta } from './agent-files.mjs';
+import { agyAdapter, createAgyLocator } from './agy.mjs';
 import { createCodexLocator } from './codex-transcript.mjs';
 import { parseJsonLines, readTailSlice } from './jsonl.mjs';
 import { procCwd, procStartMs } from './procs.mjs';
@@ -106,6 +107,8 @@ export const adapters = {
     }
     return [];
   },
+
+  agy: agyAdapter,
 };
 
 const adaptLines = (text, adapter) => parseJsonLines(text).flatMap(adapter);
@@ -240,6 +243,7 @@ export function piSessionDir(cwd) {
 // `hint.cwd` is the directory tmux reports for the pane. It stands in where the system does not
 // give the working directory of a process (Windows).
 const codexTranscript = createCodexLocator();
+const agyTranscript = createAgyLocator();
 
 async function piTranscript(pid, hint) {
   const cwd = (await procCwd(pid)) || hint.cwd;
@@ -257,5 +261,6 @@ export async function locateTranscript(kind, pid, meta, hint = {}) {
   if (kind === 'claude') return claudeTranscript(meta?.sessionId);
   if (kind === 'codex') return codexTranscript(pid, hint);
   if (kind === 'pi') return piTranscript(pid, hint);
+  if (kind === 'agy') return agyTranscript(pid, hint);
   return null;
 }

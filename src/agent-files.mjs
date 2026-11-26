@@ -72,3 +72,28 @@ export function readCodexSessionMeta(file) {
   const first = readFirstJsonLine(file);
   return first?.type === 'session_meta' ? first.payload : null;
 }
+
+// ---- Antigravity CLI (agy) files (~/.gemini/antigravity-cli) ----
+
+export function defaultAgyHome() {
+  return process.env.AGY_HOME || path.join(HOME, '.gemini', 'antigravity-cli');
+}
+
+export function agyTranscriptPath(conversationId, root = defaultAgyHome()) {
+  if (!UUID_RE.test(conversationId || '')) return null;
+  const logsDir = path.join(root, 'brain', conversationId, '.system_generated', 'logs');
+  const full = path.join(logsDir, 'transcript_full.jsonl');
+  if (fs.existsSync(full)) return full;
+  const compact = path.join(logsDir, 'transcript.jsonl');
+  return fs.existsSync(compact) ? compact : null;
+}
+
+export function readAgyHistory(root = defaultAgyHome()) {
+  const file = path.join(root, 'history.jsonl');
+  try {
+    return parseJsonLines(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return [];
+  }
+}
+

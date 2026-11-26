@@ -206,7 +206,7 @@ export async function doctor({ print = console.log } = {}) {
   add(fs.existsSync(CONFIG_PATH), `配置 ${CONFIG_PATH}`);
   add(Boolean(cfg.app.id), `飞书应用 ${cfg.app.id || '（没有，运行 fmux setup）'}`);
   add(Boolean(cfg.owner.openId), `主人 ${cfg.owner.openId || '（没有绑定，运行 fmux pair）'}`);
-  for (const agent of ['claude', 'codex', 'pi']) add(await has(agent), `${agent}${agent === 'pi' ? '（管家用；没有的话把 concierge.enabled 设为 false）' : '（可选）'}`);
+  for (const agent of ['claude', 'codex', 'agy', 'pi']) add(await has(agent), `${agent}${agent === 'pi' ? '（管家用；没有的话把 concierge.enabled 设为 false）' : '（可选）'}`);
   const kind = await serviceKind();
   const manager = { systemd: ' systemd 用户服务', launchd: ' launchd ', tmux: windows ? ` psmux 会话 ${HUB_SESSION} ` : ` tmux 会话 ${HUB_SESSION}（这里没有可用的 systemd）` }[kind];
   const running = await daemonRunning();

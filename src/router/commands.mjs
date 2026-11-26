@@ -5,9 +5,9 @@ import { sleep } from '../util.mjs';
 
 const ALIASES = {
   sessions: 'ls', 会话: 'ls', attach: 'a', 接入: 'a', detach: 'd', 断开: 'd',
-  p: 'peek', 看: 'peek', keys: 'key', 帮助: 'help',
+  p: 'peek', 看: 'peek', keys: 'key', 帮助: 'help', 任务: 'tasks', bg: 'tasks',
 };
-const COMMANDS = new Set(['ls', 'a', 'd', 'peek', 'key', 'new', 'pi', 'help', 'kill', 'stop']);
+const COMMANDS = new Set(['ls', 'a', 'd', 'peek', 'tasks', 'key', 'new', 'pi', 'help', 'kill', 'stop']);
 // Sent alone, these words bring up the dashboard even while attached: easier on a phone than "//ls".
 const PANEL_WORDS = new Set(['面板', '会话面板', '会话']);
 
@@ -85,6 +85,12 @@ export async function runCommand(router, { name, arg }, msg) {
       const session = arg ? await choose(router, arg, 'peek', '') : router.attachedSession();
       if (session) await router.sendPeek(session);
       else if (!arg) await router.info('找不到会话', '用法：`//peek <序号或名字>`，接入后可以省略名字。');
+      return;
+    }
+    case 'tasks': {
+      const session = arg ? await choose(router, arg, 'tasks', '') : router.attachedSession();
+      if (session) await router.sendTasks(session);
+      else if (!arg) await router.info('找不到会话', '用法：`//tasks <序号或名字>`，接入后可以省略名字。');
       return;
     }
     case 'key': {
