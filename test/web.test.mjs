@@ -196,19 +196,18 @@ test('WebMUX UI supports full GFM Markdown tables, lists, links, and wallpaper c
   const vm = await import('node:vm');
   const html = fs.readFileSync(path.resolve('src/web/ui.html'), 'utf8');
 
-  // Verify wallpaper cropper & stop button UI controls are present.
+  // Verify wallpaper cropper & stop button UI controls are present in ui.html and modular markdown.js works standalone.
   for (const id of ['wpCropPane', 'wpCropFrame', 'wpCropBox', 'wpCropApply', 'wpRatioGroup', 'wpRecropBtn', 'stopBtn']) {
     assert.ok(html.includes(`id="${id}"`), `missing #${id} in ui.html`);
   }
+  assert.ok(html.includes('href="/assets/app.css"'));
+  assert.ok(html.includes('src="/assets/markdown.js"'));
+  assert.ok(html.includes('src="/assets/wallpaper.js"'));
+  assert.ok(html.includes('src="/assets/app.js"'));
 
-  // Extract renderMarkdown and its pure helpers into a sandboxed VM context.
-  const escLine = html.match(/const esc = [^\n]+;/)?.[0];
-  const mathStart = html.indexOf('// ---- LaTeX Math Rendering');
-  const hlStart = html.indexOf('// ---- DeepSeek Async Highlighting');
-  assert.ok(escLine && mathStart > 0 && hlStart > mathStart);
-  const snippet = `${escLine}\nconst window = {};\n${html.slice(mathStart, hlStart)}\n`;
-  const ctx = vm.createContext({});
-  vm.runInContext(snippet, ctx);
+  const markdownJs = fs.readFileSync(path.resolve('src/web/assets/markdown.js'), 'utf8');
+  const ctx = vm.createContext({ window: {} });
+  vm.runInContext(markdownJs, ctx);
 
   const md = [
     '## 评估对比',
@@ -324,9 +323,10 @@ test('agy task tracking rejects foreign session task IDs and clears tasks on ser
   assert.equal(seeded.tasks.get(`${ownId}/task-10`)?.status, 'killed');
   assert.deepEqual(runningTasks(seeded).map((t) => t.id), [`${ownId}/task-20`]);
 
-  // Also verify Enter does NOT submit composer in ui.html (TRANSMIT click required).
+  // Also verify Enter does NOT submit composer in app.js (TRANSMIT click required).
   const uiHtml = fs.readFileSync(path.resolve('src/web/ui.html'), 'utf8');
-  assert.doesNotMatch(uiHtml, /e\.key === 'Enter' && !e\.shiftKey/);
+  const appJs = fs.readFileSync(path.resolve('src/web/assets/app.js'), 'utf8');
+  assert.doesNotMatch(appJs, /e\.key === 'Enter' && !e\.shiftKey/);
   assert.match(uiHtml, /id="modelBar"/);
   assert.match(uiHtml, /id="modelDialog"/);
 });
@@ -466,13 +466,14 @@ test('WebMUX candidate message queue lines up sent prompts, supports reorder/edi
   const vm = await import('node:vm');
   const html = fs.readFileSync(path.resolve('src/web/ui.html'), 'utf8');
 
-  // Verify boot, tab glider, kill choreography, and candidate queue DOM + valid inline JS syntax.
+  // Verify boot, tab glider, kill choreography, and candidate queue DOM + valid modular JS asset syntax.
   for (const id of ['prtsBoot', 'killDialog', 'killFxOverlay', 'queueTray', 'queueList', 'queueFlushBtn', 'queueResumeBtn']) {
     assert.ok(html.includes(`id="${id}"`), `missing #${id} in ui.html`);
   }
-  const scriptMatch = html.match(/<script>([\s\S]*?)<\/script>\s*<\/body>/);
-  assert.ok(scriptMatch, 'inline script block must exist');
-  assert.doesNotThrow(() => new vm.Script(scriptMatch[1]), 'ui.html inline script must be syntactically valid');
+  for (const file of ['markdown.js', 'wallpaper.js', 'app.js']) {
+    const src = fs.readFileSync(path.resolve('src/web/assets', file), 'utf8');
+    assert.doesNotThrow(() => new vm.Script(src, { filename: file }), `${file} must be syntactically valid`);
+  }
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fmux-queue-'));
   const transcript = path.join(dir, 'transcript_full.jsonl');
@@ -490,6 +491,16 @@ test('WebMUX candidate message queue lines up sent prompts, supports reorder/edi
   const headers = { Authorization: 'Bearer tok', 'Content-Type': 'application/json' };
 
   try {
+    // 0. Modular static assets are served cleanly while traversal paths are rejected.
+    const cssRes = await fetch(`${base}/assets/app.css`);
+    assert.equal(cssRes.status, 200);
+    assert.match(cssRes.headers.get('content-type') || '', /text\/css/);
+    const appRes = await fetch(`${base}/assets/app.js`);
+    assert.equal(appRes.status, 200);
+    assert.match(appRes.headers.get('content-type') || '', /javascript/);
+    const travRes = await fetch(`${base}/assets/../web.mjs`, { headers });
+    assert.equal(travRes.status, 404);
+
     // 1. Sending 3 candidate messages while working queues them in FIFO order without touching tmux yet.
     const r1 = await (await fetch(`${base}/api/session/%251/send`, { method: 'POST', headers, body: JSON.stringify({ text: '候选一' }) })).json();
     const r2 = await (await fetch(`${base}/api/session/%251/send`, { method: 'POST', headers, body: JSON.stringify({ text: '候选二（写错了）' }) })).json();

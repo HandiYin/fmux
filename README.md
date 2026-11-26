@@ -12,7 +12,7 @@ It runs on Linux and macOS, and on Windows with psmux or inside WSL.
 
 ### Highlights
 - **WebMUX Browser & Mobile Console** (`01 // SESSIONS`, `02 // HEARTBEAT`, `03 // GOALS`, `04 // GPU`):
-  - Direct real-time tmux streaming with **live Model & Thinking Effort switcher** (`LOW / MED / HIGH / XHIGH`, especially for `agy`), **one-click tmux & inner agent session rename**, **Thinking blocks**, **Tool Call traces**, delivery ACK, **full GFM Markdown (tables, task lists, nested lists, blockquotes, links)**, **LaTeX math** (KaTeX + offline fallback), **DeepSeek API semantic highlights** (`✓ RESULT`, `! PROBLEM`, `→ ACTION`, `# FACT`) & TL;DR, top-right **Async background-task HUD**, **Day/Night mode**, **custom frosted-grid wallpaper with interactive crop box**, and mobile Chrome / Feishu responsive UI.
+  - Direct real-time tmux streaming with **fixed creation-order unit IDs (`01`, `02`…)**, **flicker-free cached tab/session switching**, **PRTS boot shutter / sliding-glider tab / CRT signal-sever kill animations** (zero external CDN blocking), **Candidate Message Queue** (direct sends appear inline in chat; prompts sent while `RUNNING` / `CONFIRM` queue up with `INJECT ↗`, reorder `↑/↓`, pull-back edit `✎`, cancel `✕`, and auto-pause on `■ STOP`), prominent **`■ STOP` turn-abort button**, **live Model & Thinking Effort switcher** (`LOW / MED / HIGH / XHIGH`, especially for `agy`), **dual tmux + inner agent session rename**, **Thinking blocks**, **Tool Call traces**, **full GFM Markdown (tables, task lists, nested lists, blockquotes, links)**, **LaTeX math** (async KaTeX + offline fallback), **DeepSeek API semantic highlights** (`✓ RESULT`, `! PROBLEM`, `→ ACTION`, `# FACT`) & TL;DR, top-right **Async background-task HUD**, **Day/Night mode**, **custom frosted-grid wallpaper with interactive crop box**, and mobile Chrome / Feishu responsive UI.
   - Built-in **Feishu OIDC** owner-only authentication (supports Tailscale/WireGuard direct multi-interface HTTP and Cloudflare Tunnel / Nginx HTTPS).
   - Native **Heartbeat** scheduled tasks (interval & 5-field cron), **Long-Horizon Goals** with designated supervisor check-ins, and **3-Cluster GPU Register** (`local` nvidia-smi + `gongji` live sync + `volc` leases).
 - **Feishu Bot Integration**:
@@ -273,6 +273,7 @@ fmuxctl attach proc               # loose names work: this finds gt_process
 fmuxctl history                  # past Claude Code and Codex conversations
 fmuxctl new fig --resume 魔方     # new tmux session that resumes the conversation with that title
 fmuxctl new fix --agent codex --cwd ~/proj --no-yolo
+fmuxctl rename fig vision-v3 --title "Vision v3"  # rename tmux session + inner agent title
 fmuxctl show gt_process          # post the session's card to the chat (--terminal for the terminal)
 fmuxctl notify "渲染跑完了"        # push a card to the phone
 fmuxctl gpu ls                   # live local nvidia-smi + all registered GPU leases
@@ -310,7 +311,7 @@ the state and socket of the service.
 | `src/registry.mjs`, `src/codex-bindings.mjs` | Poll tmux, classify panes, track state/turns, persist Codex rollout offsets |
 | `src/procs.mjs`, `src/procs/`, `src/win/procs.ps1` | Find the agent process of a pane: `/proc`, `ps` + `lsof`, or Windows PowerShell |
 | `src/transcript.mjs`, `src/codex-transcript.mjs`, `src/agy.mjs`, `src/agy-tasks.mjs`, `src/agent-files.mjs`, `src/jsonl.mjs` | Shared JSONL/agent metadata readers; locate and follow Claude Code, Codex, agy (incl. background tasks/logs) and pi |
-| `src/web.mjs`, `src/feishu-oidc.mjs`, `src/highlight.mjs`, `src/ops.mjs`, `src/gpu.mjs`, `src/web/ui.html` | Zero-dependency Arknights PRTS browser console, Feishu OIDC auth, DeepSeek fast-model highlighter, Heartbeat & Long-Horizon Goal scheduler, and unified GPU telemetry/lease registry |
+| `src/web.mjs`, `src/web/` (`queue.mjs`, `wallpaper.mjs`, `login-page.mjs`, `ui.html`, `assets/`), `src/feishu-oidc.mjs`, `src/highlight.mjs`, `src/ops.mjs`, `src/gpu.mjs` | Zero-dependency modular Arknights PRTS browser console (HTML/CSS/JS assets), candidate message queue, Feishu OIDC auth, DeepSeek fast-model highlighter, Heartbeat & Long-Horizon Goal scheduler, and unified GPU telemetry/lease registry |
 | `src/screen.mjs` | Read dialogs and "working" markers from a captured screen |
 | `src/router.mjs`, `src/router/` | Route messages, commands, card actions, live cards, session creation/handoff, and control API |
 | `src/cards.mjs` | Card JSON 2.0 builders |

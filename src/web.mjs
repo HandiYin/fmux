@@ -12,8 +12,18 @@ import { OpsEngine } from './ops.mjs';
 import { findDialog, looksWorking } from './screen.mjs';
 import { adapters, lastTurns } from './transcript.mjs';
 import { log } from './util.mjs';
+import { renderOidcLoginGate } from './web/login-page.mjs';
+import { SessionQueueManager } from './web/queue.mjs';
+import { createWallpaperStore } from './web/wallpaper.mjs';
 
-const UI_HTML = path.join(path.dirname(fileURLToPath(import.meta.url)), 'web', 'ui.html');
+const WEB_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'web');
+const UI_HTML = path.join(WEB_DIR, 'ui.html');
+const STATIC_ASSETS = new Map([
+  ['/assets/app.css', { file: path.join(WEB_DIR, 'assets', 'app.css'), mime: 'text/css; charset=utf-8' }],
+  ['/assets/markdown.js', { file: path.join(WEB_DIR, 'assets', 'markdown.js'), mime: 'application/javascript; charset=utf-8' }],
+  ['/assets/wallpaper.js', { file: path.join(WEB_DIR, 'assets', 'wallpaper.js'), mime: 'application/javascript; charset=utf-8' }],
+  ['/assets/app.js', { file: path.join(WEB_DIR, 'assets', 'app.js'), mime: 'application/javascript; charset=utf-8' }],
+]);
 
 function safeEqual(a, b) {
   const ba = Buffer.from(String(a || ''));
@@ -50,91 +60,8 @@ function sendJson(res, status, data) {
   res.end(body);
 }
 
-function renderOidcLoginGate({ appId, tenant }) {
-  const brand = tenant === 'lark' ? 'Lark' : '飞书 Feishu';
-  return `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>PRTS // FMUX IDENTITY VERIFICATION</title>
-<style>
-  * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: #0d0f13; color: #f3f5f8; font-family: "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; overflow: hidden; }
-  body {
-    display: grid; place-items: center; padding: 24px; position: relative;
-    background-image:
-      radial-gradient(circle at 20% 20%, rgba(34, 187, 255, 0.08), transparent 45%),
-      radial-gradient(circle at 80% 80%, rgba(255, 207, 0, 0.05), transparent 40%),
-      linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
-    background-size: 100% 100%, 100% 100%, 36px 36px, 36px 36px;
-  }
-  .bg-mark {
-    position: fixed; right: -20px; bottom: -30px; font-family: "JetBrains Mono", monospace;
-    font-size: 200px; font-weight: 900; letter-spacing: 0.08em; color: rgba(255,255,255,0.02);
-    pointer-events: none; user-select: none; line-height: 0.85;
-  }
-  .reticle { position: fixed; width: 18px; height: 18px; border-color: rgba(255,255,255,0.22); border-style: solid; pointer-events: none; }
-  .r-tl { top: 20px; left: 20px; border-width: 2px 0 0 2px; }
-  .r-tr { top: 20px; right: 20px; border-width: 2px 2px 0 0; }
-  .r-bl { bottom: 20px; left: 20px; border-width: 0 0 2px 2px; }
-  .r-br { bottom: 20px; right: 20px; border-width: 0 2px 2px 0; }
-  .gate {
-    width: min(460px, 100%); background: rgba(19, 22, 28, 0.96); border: 1px solid rgba(255,255,255,0.16);
-    clip-path: polygon(0 0, calc(100% - 24px) 0, 100% 24px, 100% 100%, 24px 100%, 0 calc(100% - 24px));
-    box-shadow: 0 28px 80px rgba(0,0,0,0.7); position: relative;
-  }
-  .stripe { height: 4px; background: repeating-linear-gradient(-45deg, #ffcf00 0 10px, #13161c 10px 20px); }
-  .inner { padding: 30px 28px 24px; }
-  .head { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
-  .kicker { font-family: "JetBrains Mono", monospace; font-size: 10px; letter-spacing: 0.22em; color: #22bbff; }
-  h1 { margin: 2px 0 0; font-size: 21px; font-weight: 800; letter-spacing: 0.06em; }
-  p { margin: 0 0 24px; font-size: 13.5px; color: #9ea8b8; line-height: 1.7; }
-  code { font-family: "JetBrains Mono", monospace; font-size: 12px; color: #f3f5f8; background: rgba(255,255,255,0.07); padding: 1px 6px; }
-  .btn {
-    display: flex; align-items: center; justify-content: space-between; width: 100%;
-    text-decoration: none; background: #f4f6f8; color: #0a0c10; font-family: "JetBrains Mono", monospace;
-    font-weight: 800; padding: 14px 18px; letter-spacing: 0.1em; font-size: 13px;
-    clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
-    transition: background .15s;
-  }
-  .btn:hover { background: #22bbff; }
-  .meta {
-    margin-top: 22px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.08);
-    display: flex; justify-content: space-between; font-family: "JetBrains Mono", monospace;
-    font-size: 10px; letter-spacing: 0.12em; color: #6e7888;
-  }
-</style>
-</head>
-<body>
-  <div class="reticle r-tl"></div><div class="reticle r-tr"></div><div class="reticle r-bl"></div><div class="reticle r-br"></div>
-  <div class="bg-mark">PRTS</div>
-  <div class="gate">
-    <div class="stripe"></div>
-    <div class="inner">
-      <div class="head">
-        <svg width="34" height="34" viewBox="0 0 32 32" fill="none">
-          <polygon points="16,2 30,16 16,30 2,16" stroke="#f4f6f8" stroke-width="1.5"/>
-          <polygon points="16,7 25,16 16,25 7,16" stroke="#22bbff" stroke-width="1.2"/>
-          <rect x="14" y="14" width="4" height="4" fill="#22bbff"/>
-        </svg>
-        <div>
-          <div class="kicker">RHODES ISLAND // PRTS NEURAL ACCESS</div>
-          <h1>FMUX 战术控制台</h1>
-        </div>
-      </div>
-      <p>需要通过 <strong>${brand} OIDC</strong> 校验操作员身份（<code>owner.openId</code>），验证通过后方可访问 Agent 会话、Heartbeat 调度、长期目标与 GPU 看板。</p>
-      <a class="btn" href="/auth/login"><span>AUTHORIZE // ${brand.toUpperCase()} OIDC</span><span>→</span></a>
-      <div class="meta"><span>APP: ${String(appId || 'UNSET').replace(/[<>&"]/g, '')}</span><span>SECURITY: OWNER_ONLY</span></div>
-    </div>
-  </div>
-</body>
-</html>`;
-}
-
 // Lightweight HTTP + SSE server sharing the live Registry, Router, OpsEngine, and GpuRegistry,
-// with Feishu OIDC auth and DeepSeek Flash message highlighting.
+// with Feishu OIDC auth, modular static UI assets, candidate message queue, and DeepSeek highlighting.
 export function startWebServer({
   router,
   cfg,
@@ -180,255 +107,8 @@ export function startWebServer({
     fetchImpl,
   });
 
+  const wallpaperStore = createWallpaperStore(cfg.stateDir);
   const sseClients = new Set();
-
-  // Optional custom wallpaper stored in stateDir (shared across desktop/mobile browsers).
-  const wpDir = cfg.stateDir && cfg.stateDir !== '/nonexistent' ? cfg.stateDir : '';
-  const wpBin = wpDir ? path.join(wpDir, 'wallpaper.bin') : '';
-  const wpMetaFile = wpDir ? path.join(wpDir, 'wallpaper.json') : '';
-  let memWallpaper = null;
-
-  function readWallpaperMeta() {
-    if (memWallpaper) return { mime: memWallpaper.mime, updatedAt: memWallpaper.updatedAt };
-    if (wpMetaFile && wpBin && fs.existsSync(wpMetaFile) && fs.existsSync(wpBin)) {
-      try {
-        const parsed = JSON.parse(fs.readFileSync(wpMetaFile, 'utf8'));
-        if (parsed?.mime && parsed?.updatedAt) return parsed;
-      } catch {
-        // ignore damaged metadata
-      }
-    }
-    return null;
-  }
-
-  function readWallpaper() {
-    if (memWallpaper) return memWallpaper;
-    const meta = readWallpaperMeta();
-    if (!meta || !wpBin || !fs.existsSync(wpBin)) return null;
-    try {
-      return { ...meta, buf: fs.readFileSync(wpBin) };
-    } catch {
-      return null;
-    }
-  }
-
-  function saveWallpaper(mime, buf) {
-    const updatedAt = Date.now();
-    memWallpaper = { mime, updatedAt, buf };
-    if (wpDir) {
-      fs.mkdirSync(wpDir, { recursive: true });
-      const tmpBin = `${wpBin}.tmp`;
-      const tmpMeta = `${wpMetaFile}.tmp`;
-      fs.writeFileSync(tmpBin, buf, { mode: 0o600 });
-      fs.renameSync(tmpBin, wpBin);
-      fs.writeFileSync(tmpMeta, JSON.stringify({ mime, updatedAt }), { mode: 0o600 });
-      fs.renameSync(tmpMeta, wpMetaFile);
-    }
-    return updatedAt;
-  }
-
-  function clearWallpaper() {
-    memWallpaper = null;
-    for (const f of [wpBin, wpMetaFile]) {
-      if (f && fs.existsSync(f)) try { fs.unlinkSync(f); } catch {}
-    }
-  }
-
-  // ---- Per-Session Candidate Message Queue (tracks sent messages until they enter session transcript) ----
-  const queues = new Map(); // session.key -> { items: [], paused: false, flushing: false, nextSeq: 1 }
-
-  function getQueue(key) {
-    let q = queues.get(key);
-    if (!q) {
-      q = { items: [], paused: false, flushing: false, nextSeq: 1 };
-      queues.set(key, q);
-    }
-    return q;
-  }
-
-  function safeFileSize(file) {
-    if (!file) return 0;
-    try { return fs.statSync(file).size; } catch { return 0; }
-  }
-
-  const normPrompt = (s) => String(s || '').replace(/\s+/g, ' ').trim();
-
-  function readUserSegmentsSince(file, kind, minOffset) {
-    const adapter = adapters[kind];
-    if (!file || !adapter) return [];
-    if (file.endsWith('.zstd')) {
-      try {
-        const turns = lastTurns(file, adapter, 512 * 1024);
-        return turns.map((t, idx) => ({ endOffset: idx + 1, normText: normPrompt(t.prompt || '') })).filter((s) => s.normText);
-      } catch {
-        return [];
-      }
-    }
-    let fd = null;
-    try {
-      const size = fs.statSync(file).size;
-      if (size <= minOffset) return [];
-      const start = Math.max(0, minOffset);
-      const len = Math.min(size - start, 1024 * 1024);
-      const buf = Buffer.alloc(len);
-      fd = fs.openSync(file, 'r');
-      const bytesRead = fs.readSync(fd, buf, 0, len, start);
-      if (bytesRead <= 0) return [];
-      const slice = buf.subarray(0, bytesRead);
-      const segs = [];
-      let pos = 0;
-      while (pos < slice.length) {
-        const nl = slice.indexOf(10, pos);
-        if (nl < 0) break; // ignore incomplete trailing line
-        const lineStr = slice.subarray(pos, nl).toString('utf8');
-        const endOffset = start + nl + 1;
-        pos = nl + 1;
-        if (!lineStr.trim()) continue;
-        let parsed;
-        try { parsed = JSON.parse(lineStr); } catch { continue; }
-        const evs = adapter(parsed) || [];
-        for (const ev of evs) {
-          if (ev.type === 'user' && ev.text) {
-            segs.push({ endOffset, normText: normPrompt(ev.text) });
-          }
-        }
-      }
-      return segs;
-    } catch {
-      return [];
-    } finally {
-      if (fd !== null) try { fs.closeSync(fd); } catch {}
-    }
-  }
-
-  function currentTranscriptMarker(session) {
-    if (!session?.transcript) return 0;
-    if (session.transcript.endsWith('.zstd') && adapters[session.kind]) {
-      try { return lastTurns(session.transcript, adapters[session.kind], 512 * 1024).length; } catch { return 0; }
-    }
-    return safeFileSize(session.transcript);
-  }
-
-  function reconcileSessionQueue(session) {
-    if (!session) return false;
-    const q = queues.get(session.key);
-    if (!q || !q.items.length) return false;
-    const injected = q.items.filter((x) => x.state === 'injected');
-    if (!injected.length) return false;
-
-    const removeIds = new Set();
-    const now = Date.now();
-    if (session.kind === 'shell' || !session.transcript || !adapters[session.kind]) {
-      for (const item of injected) {
-        if (now - (item.injectedAt || item.createdAt) >= 1200) removeIds.add(item.id);
-      }
-    } else {
-      const curSize = currentTranscriptMarker(session);
-      for (const item of injected) {
-        if (curSize < (item.baseSize || 0)) item.baseSize = 0;
-      }
-      const minBase = Math.min(...injected.map((x) => x.baseSize || 0));
-      const segs = readUserSegmentsSince(session.transcript, session.kind, minBase);
-      if (segs.length) {
-        const segCursor = new Map();
-        for (const item of injected) {
-          const needle = normPrompt(item.text).slice(0, 80);
-          if (!needle) { removeIds.add(item.id); continue; }
-          for (let si = 0; si < segs.length; si++) {
-            const seg = segs[si];
-            if (seg.endOffset <= (item.baseSize || 0)) continue;
-            const fromIdx = segCursor.get(si) || 0;
-            const hit = seg.normText.indexOf(needle, fromIdx);
-            if (hit >= 0) {
-              segCursor.set(si, hit + needle.length);
-              removeIds.add(item.id);
-              break;
-            }
-          }
-        }
-      }
-    }
-
-    if (!removeIds.size) return false;
-    q.items = q.items.filter((x) => !removeIds.has(x.id));
-    if (!q.items.some((x) => x.state === 'queued')) q.paused = false;
-    return true;
-  }
-
-  function serializeQueue(session) {
-    if (!session) return [];
-    reconcileSessionQueue(session);
-    const q = queues.get(session.key);
-    if (!q || !q.items.length) return [];
-    return q.items.map((x, idx) => ({
-      id: x.id,
-      rank: idx + 1,
-      text: x.text,
-      state: x.state,
-      createdAt: x.createdAt,
-      injectedAt: x.injectedAt || 0,
-    }));
-  }
-
-  async function injectQueueItem(session, item) {
-    const baseSize = currentTranscriptMarker(session);
-    session.stoppedAt = 0;
-    const sent = await router.deliver(session, item.text);
-    if (!sent) return false;
-    item.state = 'injected';
-    item.injectedAt = Date.now();
-    item.baseSize = baseSize;
-    if (session.kind !== 'shell') {
-      session.sentAt = Date.now();
-      router.registry.commit?.(session, 'working');
-    }
-    setTimeout(() => router.registry.poll().then(() => broadcast()).catch(() => {}), 800);
-    setTimeout(() => router.registry.poll().then(() => broadcast()).catch(() => {}), 2200);
-    return true;
-  }
-
-  async function maybeFlushQueue(session) {
-    if (!session) return;
-    reconcileSessionQueue(session);
-    const q = queues.get(session.key);
-    if (!q || !q.items.length || q.paused || q.flushing) return;
-    if (session.status === 'working' || session.status === 'blocked') return;
-    if (session.kind !== 'shell' && q.items.some((x) => x.state === 'injected' && Date.now() - x.injectedAt < 4000)) return;
-    const head = q.items.find((x) => x.state === 'queued');
-    if (!head) return;
-    q.flushing = true;
-    try {
-      const ok = await injectQueueItem(session, head);
-      if (ok) broadcast();
-    } catch (err) {
-      log('warn', 'web.queue_flush', { session: session.name, message: err.message });
-    } finally {
-      q.flushing = false;
-    }
-  }
-
-  const snapshot = async () => {
-    const rawSessions = await router.api.ls({ stable: true });
-    const sessions = rawSessions.map((s) => {
-      const live = router.registry.sessions.get(s.key) || s;
-      const pendingQueue = serializeQueue(live);
-      return {
-        ...s,
-        pendingQueue,
-        queuePaused: Boolean(queues.get(s.key)?.paused && pendingQueue.some((x) => x.state === 'queued')),
-      };
-    });
-    return {
-      sessions,
-      status: await router.api.status(),
-      agents: Object.keys(cfg.agents || {}),
-      ops: opsEngine.snapshot(),
-      gpu: gpuRegistry.snapshot(),
-      wallpaperVersion: readWallpaperMeta()?.updatedAt || 0,
-      oidcEnabled,
-      now: Date.now(),
-    };
-  };
 
   let pushTimer = null;
   const broadcast = () => {
@@ -445,17 +125,42 @@ export function startWebServer({
     pushTimer.unref?.();
   };
 
+  const queueMgr = new SessionQueueManager({ router, broadcast });
+
+  const snapshot = async () => {
+    const rawSessions = await router.api.ls({ stable: true });
+    const sessions = rawSessions.map((s) => {
+      const live = router.registry.sessions.get(s.key) || s;
+      const pendingQueue = queueMgr.serialize(live);
+      return {
+        ...s,
+        pendingQueue,
+        queuePaused: queueMgr.isPaused(live),
+      };
+    });
+    return {
+      sessions,
+      status: await router.api.status(),
+      agents: Object.keys(cfg.agents || {}),
+      ops: opsEngine.snapshot(),
+      gpu: gpuRegistry.snapshot(),
+      wallpaperVersion: wallpaperStore.readMeta()?.updatedAt || 0,
+      oidcEnabled,
+      now: Date.now(),
+    };
+  };
+
   const onRegSessionProgress = (session) => {
     if (session) {
-      reconcileSessionQueue(session);
+      queueMgr.reconcile(session);
       if (session.status !== 'working' && session.status !== 'blocked') {
-        maybeFlushQueue(session);
+        queueMgr.maybeFlush(session);
       }
     }
     broadcast();
   };
   const onRegRemoved = (session) => {
-    if (session?.key) queues.delete(session.key);
+    if (session?.key) queueMgr.delete(session.key);
     broadcast();
   };
 
@@ -534,6 +239,15 @@ export function startWebServer({
         return;
       }
 
+      // Whitelisted static UI assets (no secrets/session data; avoids WebView cookie edge cases)
+      if (req.method === 'GET' && STATIC_ASSETS.has(url.pathname)) {
+        const asset = STATIC_ASSETS.get(url.pathname);
+        const body = fs.readFileSync(asset.file, 'utf8');
+        res.writeHead(200, { 'Content-Type': asset.mime, 'Cache-Control': 'no-cache' });
+        res.end(body);
+        return;
+      }
+
       const auth = authorize(req, url, res);
       if (!auth.ok) return;
 
@@ -566,8 +280,9 @@ export function startWebServer({
         return;
       }
 
+      // ---- Wallpaper API ----
       if (req.method === 'GET' && url.pathname === '/api/wallpaper') {
-        const wp = readWallpaper();
+        const wp = wallpaperStore.read();
         if (!wp) return sendJson(res, 404, { error: 'no wallpaper configured' });
         res.writeHead(200, {
           'Content-Type': wp.mime,
@@ -577,7 +292,6 @@ export function startWebServer({
         res.end(wp.buf);
         return;
       }
-
       if (req.method === 'POST' && url.pathname === '/api/wallpaper') {
         const body = await readJsonBody(req, 16 * 1024 * 1024);
         const match = String(body.dataUrl || '').match(/^data:(image\/(?:png|jpeg|jpg|webp|gif));base64,([A-Za-z0-9+/=\s]+)$/i);
@@ -585,29 +299,27 @@ export function startWebServer({
         const mime = match[1].toLowerCase() === 'image/jpg' ? 'image/jpeg' : match[1].toLowerCase();
         const buf = Buffer.from(match[2].replace(/\s+/g, ''), 'base64');
         if (!buf.length || buf.length > 12 * 1024 * 1024) return sendJson(res, 400, { error: 'image must be under 12 MB' });
-        const updatedAt = saveWallpaper(mime, buf);
+        const updatedAt = wallpaperStore.save(mime, buf);
         broadcast();
         sendJson(res, 200, { ok: true, updatedAt, bytes: buf.length });
         return;
       }
-
       if (req.method === 'DELETE' && url.pathname === '/api/wallpaper') {
-        clearWallpaper();
+        wallpaperStore.clear();
         broadcast();
         sendJson(res, 200, { ok: true, updatedAt: 0 });
         return;
       }
 
+      // ---- Global APIs ----
       if (req.method === 'GET' && url.pathname === '/api/history') {
         sendJson(res, 200, { conversations: await router.api.history() });
         return;
       }
-
       if (req.method === 'GET' && url.pathname === '/api/models') {
         const force = url.searchParams.get('refresh') === '1';
-        const agyModels = await listAgyModels({ force });
         sendJson(res, 200, {
-          agy: agyModels,
+          agy: await listAgyModels({ force }),
           efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
           presets: {
             dsh: ['deepseek-chat', 'deepseek-reasoner'],
@@ -617,20 +329,17 @@ export function startWebServer({
         });
         return;
       }
-
       if (req.method === 'POST' && url.pathname === '/api/highlight') {
         const body = await readJsonBody(req);
         sendJson(res, 200, highlighter.request(body.text || '', { marksOnly: Boolean(body.marks_only) }));
         return;
       }
-
       if (req.method === 'POST' && url.pathname === '/api/detach') {
         await router.detach();
         broadcast();
         sendJson(res, 200, { attached: null });
         return;
       }
-
       if (req.method === 'POST' && url.pathname === '/api/sessions') {
         const body = await readJsonBody(req);
         const created = await router.api.new({
@@ -647,35 +356,23 @@ export function startWebServer({
         return;
       }
 
-      // ---- 1. Heartbeat Scheduled Tasks API ----
+      // ---- Heartbeat & Long-Horizon Goals APIs ----
       if (req.method === 'GET' && url.pathname === '/api/ops') {
         sendJson(res, 200, opsEngine.snapshot());
         return;
       }
       if (req.method === 'POST' && url.pathname === '/api/heartbeats') {
-        const body = await readJsonBody(req);
-        sendJson(res, 200, opsEngine.addHeartbeat(body));
+        sendJson(res, 200, opsEngine.addHeartbeat(await readJsonBody(req)));
         return;
       }
       const hbMatch = url.pathname.match(/^\/api\/heartbeats\/([^/]+)(?:\/([a-z]+))?$/);
       if (hbMatch) {
         const id = decodeURIComponent(hbMatch[1]);
         const sub = hbMatch[2];
-        if (req.method === 'PATCH' && !sub) {
-          sendJson(res, 200, opsEngine.updateHeartbeat(id, await readJsonBody(req)));
-          return;
-        }
-        if (req.method === 'DELETE' && !sub) {
-          sendJson(res, 200, opsEngine.deleteHeartbeat(id));
-          return;
-        }
-        if (req.method === 'POST' && sub === 'run') {
-          sendJson(res, 200, await opsEngine.runHeartbeat(id, { manual: true }));
-          return;
-        }
+        if (req.method === 'PATCH' && !sub) return sendJson(res, 200, opsEngine.updateHeartbeat(id, await readJsonBody(req)));
+        if (req.method === 'DELETE' && !sub) return sendJson(res, 200, opsEngine.deleteHeartbeat(id));
+        if (req.method === 'POST' && sub === 'run') return sendJson(res, 200, await opsEngine.runHeartbeat(id, { manual: true }));
       }
-
-      // ---- 2. Long-Horizon Goals API ----
       if (req.method === 'POST' && url.pathname === '/api/goals') {
         sendJson(res, 200, opsEngine.addGoal(await readJsonBody(req)));
         return;
@@ -684,21 +381,12 @@ export function startWebServer({
       if (goalMatch) {
         const id = decodeURIComponent(goalMatch[1]);
         const sub = goalMatch[2];
-        if (req.method === 'PATCH' && !sub) {
-          sendJson(res, 200, opsEngine.updateGoal(id, await readJsonBody(req)));
-          return;
-        }
-        if (req.method === 'DELETE' && !sub) {
-          sendJson(res, 200, opsEngine.deleteGoal(id));
-          return;
-        }
-        if (req.method === 'POST' && sub === 'supervise') {
-          sendJson(res, 200, await opsEngine.superviseGoal(id, { manual: true }));
-          return;
-        }
+        if (req.method === 'PATCH' && !sub) return sendJson(res, 200, opsEngine.updateGoal(id, await readJsonBody(req)));
+        if (req.method === 'DELETE' && !sub) return sendJson(res, 200, opsEngine.deleteGoal(id));
+        if (req.method === 'POST' && sub === 'supervise') return sendJson(res, 200, await opsEngine.superviseGoal(id, { manual: true }));
       }
 
-      // ---- 3. Unified GPU Registry & Dashboard API ----
+      // ---- Unified GPU Registry APIs ----
       if (req.method === 'GET' && url.pathname === '/api/gpu') {
         sendJson(res, 200, gpuRegistry.snapshot());
         return;
@@ -728,24 +416,20 @@ export function startWebServer({
         const key = decodeURIComponent(sessionMatch[1]);
         const action = sessionMatch[2];
         const session = router.registry.sessions.get(key) || router.registry.resolve(key);
-        if (!session) {
-          sendJson(res, 404, { error: `session not found: ${key}` });
-          return;
-        }
+        if (!session) return sendJson(res, 404, { error: `session not found: ${key}` });
+
         if (req.method === 'GET' && action === 'turns') {
           const turns = session.transcript && adapters[session.kind]
             ? lastTurns(session.transcript, adapters[session.kind], 6 * 1024 * 1024).slice(-60)
             : [];
-          const pendingQueue = serializeQueue(session);
-          const queuePaused = Boolean(queues.get(session.key)?.paused && pendingQueue.some((x) => x.state === 'queued'));
-          sendJson(res, 200, { key: session.key, name: session.name, kind: session.kind, turns, pendingQueue, queuePaused });
+          const pendingQueue = queueMgr.serialize(session);
+          sendJson(res, 200, { key: session.key, name: session.name, kind: session.kind, turns, pendingQueue, queuePaused: queueMgr.isPaused(session) });
           return;
         }
         if (req.method === 'GET' && action === 'screen') {
           const lines = Math.max(10, Math.min(300, Number(url.searchParams.get('lines') || 80)));
           const screen = await router.tmux.capture(session.key, { history: Math.max(0, lines - 50) });
-          const dialog = findDialog(screen);
-          sendJson(res, 200, { key: session.key, screen: screen.split('\n').slice(-lines).join('\n'), dialog });
+          sendJson(res, 200, { key: session.key, screen: screen.split('\n').slice(-lines).join('\n'), dialog: findDialog(screen) });
           return;
         }
         if (req.method === 'GET' && action === 'tasks') {
@@ -795,121 +479,30 @@ export function startWebServer({
         if (req.method === 'POST' && action === 'send') {
           const body = await readJsonBody(req);
           const trimmed = String(body.text || '').trim();
-          const immediate = Boolean(body.immediate);
           if (!trimmed) return sendJson(res, 400, { error: 'text is empty' });
-          reconcileSessionQueue(session);
-          const q = getQueue(session.key);
-          q.paused = false;
-          const item = {
-            id: `q-${Date.now().toString(36)}-${q.nextSeq++}`,
-            text: trimmed,
-            state: 'queued',
-            createdAt: Date.now(),
-            injectedAt: 0,
-            baseSize: 0,
-          };
-          const hasQueuedAhead = q.items.some((x) => x.state === 'queued')
-            || (session.kind !== 'shell' && q.items.some((x) => x.state === 'injected' && Date.now() - x.injectedAt < 2500));
-          const busyOrBlocked = session.status === 'working' || session.status === 'blocked';
-
-          if (!immediate && (busyOrBlocked || hasQueuedAhead)) {
-            q.items.push(item);
-            broadcast();
-            const pendingQueue = serializeQueue(session);
-            sendJson(res, 200, { ok: true, queued: true, injected: false, item: pendingQueue.find((x) => x.id === item.id) || item, pendingQueue, queuePaused: false });
-            return;
-          }
-
-          q.items.push(item);
-          const sent = await injectQueueItem(session, item);
-          broadcast();
-          const pendingQueue = serializeQueue(session);
-          sendJson(res, 200, {
-            ok: true,
-            queued: !sent,
-            injected: sent,
-            blocked: !sent && session.status === 'blocked',
-            item: pendingQueue.find((x) => x.id === item.id) || item,
-            pendingQueue,
-            queuePaused: false,
-          });
+          const result = await queueMgr.enqueueOrSend(session, trimmed, { immediate: Boolean(body.immediate) });
+          sendJson(res, 200, result);
           return;
         }
         if (action === 'queue') {
-          const q = getQueue(session.key);
           if (req.method === 'GET') {
-            const pendingQueue = serializeQueue(session);
-            sendJson(res, 200, { ok: true, pendingQueue, queuePaused: Boolean(q.paused && pendingQueue.some((x) => x.state === 'queued')) });
+            sendJson(res, 200, { ok: true, pendingQueue: queueMgr.serialize(session), queuePaused: queueMgr.isPaused(session) });
             return;
           }
           if (req.method === 'POST') {
             const body = await readJsonBody(req);
-            const op = String(body.action || '').trim();
-            const id = String(body.id || '').trim();
-            reconcileSessionQueue(session);
-
-            if (op === 'remove') {
-              const idx = q.items.findIndex((x) => x.id === id);
-              const removed = idx >= 0 ? q.items.splice(idx, 1)[0] : null;
-              if (!q.items.some((x) => x.state === 'queued')) q.paused = false;
-              broadcast();
-              const pendingQueue = serializeQueue(session);
-              sendJson(res, 200, { ok: true, removed, pendingQueue, queuePaused: Boolean(q.paused) });
-              return;
-            }
-            if (op === 'move') {
-              const dir = body.dir === 'up' ? -1 : 1;
-              const idx = q.items.findIndex((x) => x.id === id && x.state === 'queued');
-              if (idx >= 0) {
-                let swapIdx = idx + dir;
-                while (swapIdx >= 0 && swapIdx < q.items.length && q.items[swapIdx].state !== 'queued') swapIdx += dir;
-                if (swapIdx >= 0 && swapIdx < q.items.length) {
-                  const tmp = q.items[idx];
-                  q.items[idx] = q.items[swapIdx];
-                  q.items[swapIdx] = tmp;
-                }
-              }
-              broadcast();
-              const pendingQueue = serializeQueue(session);
-              sendJson(res, 200, { ok: true, pendingQueue, queuePaused: Boolean(q.paused) });
-              return;
-            }
-            if (op === 'flush') {
-              if (session.status === 'blocked') {
-                return sendJson(res, 409, { error: '当前会话正在等待终端确认，请先响应确认框后再注入' });
-              }
-              q.paused = false;
-              const target = id
-                ? q.items.find((x) => x.id === id && x.state === 'queued')
-                : q.items.find((x) => x.state === 'queued');
-              if (target) await injectQueueItem(session, target);
-              broadcast();
-              const pendingQueue = serializeQueue(session);
-              sendJson(res, 200, { ok: true, pendingQueue, queuePaused: Boolean(q.paused) });
-              return;
-            }
-            if (op === 'resume') {
-              q.paused = false;
-              await maybeFlushQueue(session);
-              broadcast();
-              const pendingQueue = serializeQueue(session);
-              sendJson(res, 200, { ok: true, pendingQueue, queuePaused: false });
-              return;
-            }
-            if (op === 'clear') {
-              q.items = body.all ? [] : q.items.filter((x) => x.state !== 'queued');
-              q.paused = false;
-              broadcast();
-              const pendingQueue = serializeQueue(session);
-              sendJson(res, 200, { ok: true, pendingQueue, queuePaused: false });
-              return;
-            }
-            return sendJson(res, 400, { error: `unknown queue action: ${op}` });
+            const resObj = await queueMgr.applyAction(session, {
+              action: String(body.action || '').trim(),
+              id: String(body.id || '').trim(),
+              dir: body.dir,
+              all: Boolean(body.all),
+            });
+            sendJson(res, resObj.status, resObj.body);
+            return;
           }
         }
         if (req.method === 'POST' && action === 'stop') {
-          const q = queues.get(session.key);
-          if (q?.items.some((x) => x.state === 'queued')) q.paused = true;
+          queueMgr.pauseIfQueued(session.key);
           const keys = session.kind === 'shell' ? ['c-c'] : ['esc'];
           await router.tmux.sendKeys(session.key, keys);
           router.registry.markStopped?.(session);
@@ -963,7 +556,7 @@ export function startWebServer({
           return;
         }
         if (req.method === 'POST' && action === 'kill') {
-          queues.delete(session.key);
+          queueMgr.delete(session.key);
           await router.tmux.killSession(session.tmuxSession);
           await router.registry.poll().catch(() => {});
           broadcast();
