@@ -113,7 +113,7 @@ test('Feishu OIDC uses request Host for direct multi-interface HTTP access (Tail
     enabled: true,
     host: '127.0.0.1',
     port: 0,
-    publicUrl: 'http://172.16.60.45:18790',
+    publicUrl: 'http://10.0.0.5:18790',
     oidc: { enabled: true },
   };
   const web = await startWebServer({ router: h.router, cfg: h.cfg, getAppSecret: async () => 'sec' });

@@ -1,18 +1,28 @@
-# fmux
+# fmux & WebMUX
 
-One Feishu chat (plus an optional built-in Arknights PRTS Web / Feishu browser console) for every tmux session on your machine: Claude Code, Codex, Antigravity CLI (`agy`), DeepSeek (`dsh`), pi and plain shells.
-fmux connects a Feishu bot to the tmux sessions of the computer it runs on.
+One Feishu chat **plus a built-in Arknights PRTS-styled Web / Mobile Console (WebMUX)** for every tmux session on your machine: Antigravity CLI (`agy`), DeepSeek (`dsh`), Claude Code, Codex, pi and plain shells.
+fmux connects a Feishu bot and a real-time browser console directly to the tmux sessions of the computer it runs on.
 It runs on Linux and macOS, and on Windows with psmux or inside WSL.
 
-**Setup guide (中文): [docs/setup.zh.md](docs/setup.zh.md)**
+**Setup guides (中文): [飞书机器人配置 (docs/setup.zh.md)](docs/setup.zh.md) · [WebMUX 网页控制台配置指引 (docs/webmux.zh.md)](docs/webmux.zh.md)**
 
-- The chat **attaches** to one tmux session at a time, like `tmux attach`. Your messages go into
-  that session. The session's replies come back as cards.
-- A **dashboard card** lists every session with a status light (🟢 running, ⚪ ended, 🟠 waiting for you).
-  One tap attaches, another shows the screen.
-- Sessions you are not attached to send a card when a turn finishes or when a dialog waits for you.
-- While nothing is attached, a **pi agent** (the concierge) answers. It can switch, inspect and
-  start sessions for you in plain language.
+![WebMUX PRTS Console Demo](docs/media/webmux-demo.gif)
+
+> Full HD showcase recording: [docs/media/webmux-demo.mp4](docs/media/webmux-demo.mp4) · Desktop & Mobile gallery in [docs/webmux.zh.md](docs/webmux.zh.md).
+
+### Highlights
+- **WebMUX Browser & Mobile Console** (`01 // SESSIONS`, `02 // HEARTBEAT`, `03 // GOALS`, `04 // GPU`):
+  - Direct real-time tmux streaming with **Thinking blocks**, **Tool Call traces**, delivery ACK, **LaTeX math** (KaTeX + offline fallback), **DeepSeek API semantic highlights** (`✓ RESULT`, `! PROBLEM`, `→ ACTION`, `# FACT`) & TL;DR, top-right **Async background-task HUD**, **Day/Night mode**, **custom frosted-grid wallpaper**, and mobile Chrome / Feishu responsive UI.
+  - Built-in **Feishu OIDC** owner-only authentication (supports Tailscale/WireGuard direct multi-interface HTTP and Cloudflare Tunnel / Nginx HTTPS).
+  - Native **Heartbeat** scheduled tasks (interval & 5-field cron), **Long-Horizon Goals** with designated supervisor check-ins, and **3-Cluster GPU Register** (`local` nvidia-smi + `gongji` live sync + `volc` leases).
+- **Feishu Bot Integration**:
+  - The chat **attaches** to one tmux session at a time, like `tmux attach`. Your messages go into
+    that session. The session's replies come back as cards.
+  - A **dashboard card** lists every session with a status light (🟢 running, 🔵 async tasks, ⚪ ready, 🟠 waiting for you).
+    One tap attaches, another shows the screen or background tasks.
+  - Sessions you are not attached to send a card when a turn finishes or when a dialog waits for you.
+  - While nothing is attached, a **pi agent** (the concierge) answers. It can switch, inspect and
+    start sessions for you in plain language.
 
 ## How it works
 

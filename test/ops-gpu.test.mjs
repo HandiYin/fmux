@@ -126,7 +126,7 @@ test('OpsEngine runs Heartbeat tasks and Long-Horizon Goal supervision with pers
 test('GpuRegistry parses nvidia-smi, polls Gongji live jobs, and classifies local/gongji/volc leases over HTTP', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fmux-gpu-'));
   const gjEnv = path.join(dir, 'gongji.env');
-  fs.writeFileSync(gjEnv, 'SUANLI_TOKEN=fake_tok\nSUANLI_BASE_URL=https://openapi.suanli.test\n');
+  fs.writeFileSync(gjEnv, 'SUANLI_TOKEN=fake_tok\nSUANLI_BASE_URL=https://openapi.suanli.test\nGONGJI_TASK_PREFIX=demo-\n');
   const gpus = parseNvidiaGpus('0, GPU-abc, NVIDIA GeForce RTX 4090, 62, 18400, 49140, 67, 290.5, 450.0\n');
   assert.equal(gpus.length, 1);
   assert.equal(gpus[0].name, 'NVIDIA GeForce RTX 4090');
@@ -145,7 +145,7 @@ test('GpuRegistry parses nvidia-smi, polls Gongji live jobs, and classifies loca
     code: '0000',
     data: {
       results: [
-        { task_id: 3897077, task_name: 'handi-v72-1card-obj-0198', status: 'Pending', job_status: { status: 'Running' }, sub_type: 'Spot', create_time: '2026-11-26 18:52:00', billing_value: 0, forecast_value: 500000 },
+        { task_id: 3897077, task_name: 'demo-train-1card-5090', status: 'Pending', job_status: { status: 'Running' }, sub_type: 'Spot', create_time: '2026-11-26 18:52:00', billing_value: 0, forecast_value: 500000 },
         { task_id: 3893246, task_name: 'colleague-job', status: 'Running', job_status: { status: 'Running' }, sub_type: '按需', create_time: '2026-11-26 13:31:00', billing_value: 11750000, forecast_value: 0 },
       ],
     },
@@ -192,7 +192,7 @@ test('GpuRegistry parses nvidia-smi, polls Gongji live jobs, and classifies loca
     const gjReg = await (await fetch(`${base}/api/gpu/register`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ cluster: 'gongji', host: 'tj1q', jobId: '3897077', gpus: '1', session: 'obj', task: 'handi-v72-1card-obj-0198', model: 'RTX 5090' }),
+      body: JSON.stringify({ cluster: 'gongji', host: 'tj1q', jobId: '3897077', gpus: '1', session: 'trainer', task: 'demo-train-1card-5090', model: 'RTX 5090' }),
     })).json();
     assert.equal(gjReg.cluster, 'gongji');
 

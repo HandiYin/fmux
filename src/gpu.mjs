@@ -69,7 +69,7 @@ function readGongjiEnv(envFile) {
   const out = {
     token: process.env.SUANLI_TOKEN || '',
     baseUrl: process.env.SUANLI_BASE_URL || 'https://openapi.suanli.cn',
-    taskPrefix: process.env.GONGJI_TASK_PREFIX || 'handi-',
+    taskPrefix: process.env.GONGJI_TASK_PREFIX || '',
   };
   try {
     if (!envFile || !fs.existsSync(envFile)) return out;
@@ -228,7 +228,7 @@ export class GpuRegistry extends EventEmitter {
       this.gongjiJobs = items.map((t) => {
         const taskId = String(t.task_id ?? '');
         const name = String(t.task_name || '');
-        const own = submittedIds.has(taskId) || name.startsWith(env.taskPrefix);
+        const own = submittedIds.has(taskId) || (Boolean(env.taskPrefix) && name.startsWith(env.taskPrefix));
         const res0 = (t.resources || [])[0] || {};
         const spec = res0.resource || {};
         const inferred = inferGpuSpecFromName(name);

@@ -1199,8 +1199,14 @@ const GREEK = {
   sum: '∑', prod: '∏', int: '∫', partial: '∂', nabla: '∇', in: '∈', notin: '∉', subset: '⊂',
   forall: '∀', exists: '∃', sqrt: '√', ldots: '…', cdots: '⋯',
 };
+const MATH_BB = { E: '𝔼', R: 'ℝ', N: 'ℕ', Z: 'ℤ', P: 'ℙ', C: 'ℂ', Q: 'ℚ' };
+const MATH_CAL = { L: 'ℒ', F: 'ℱ', H: 'ℋ', O: '𝒪', D: '𝒟', N: '𝒩', X: '𝒳', Y: '𝒴' };
 function fallbackMath(tex) {
   let s = esc(tex.trim());
+  s = s.replace(/\\left\s*/g, '').replace(/\\right\s*/g, '');
+  s = s.replace(/\\\|/g, '‖').replace(/\\,/g, ' ').replace(/\\;/g, ' ').replace(/\\quad/g, '  ');
+  s = s.replace(/\\mathbb\{([A-Za-z])\}/g, (_, c) => MATH_BB[c] || c);
+  s = s.replace(/\\mathcal\{([A-Za-z])\}/g, (_, c) => MATH_CAL[c] || c);
   s = s.replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, '($1)/($2)');
   s = s.replace(/\\sqrt\{([^{}]+)\}/g, '√($1)');
   s = s.replace(/\\text\{([^{}]+)\}/g, '<span style="font-style:normal">$1</span>');
@@ -1844,7 +1850,7 @@ function renderGpu() {
       return `<div class="op-card ${j.own ? 'running' : ''}">
         <div class="op-top">
           <span class="op-code">#${esc(j.taskId)} // ${esc(j.name)}</span>
-          <span class="u-chip ${j.own ? 'st-background' : ''}">${j.own ? 'OUR · handi' : 'TEAM'}</span>
+          <span class="u-chip ${j.own ? 'st-background' : ''}">${j.own ? 'OUR' : 'TEAM'}</span>
         </div>
         <div class="u-meta">
           <span class="u-chip ${stCls}">${esc(j.status)}${j.jobStatus && j.jobStatus !== j.status ? ` / ${esc(j.jobStatus)}` : ''}</span>
