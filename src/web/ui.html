@@ -1,23 +1,34 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="night">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>PRTS // FMUX TERMINAL</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css" crossorigin="anonymous" />
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.js" crossorigin="anonymous" onload="window.__onKatexReady&&window.__onKatexReady()"></script>
 <style>
   :root {
     --bg: #0d0f13;
+    --bg-rail: #090b0e;
     --bg-elev: #13161c;
+    --bg-aside: rgba(15, 18, 24, 0.92);
+    --bg-header: linear-gradient(180deg, rgba(23, 27, 34, 0.96) 0%, rgba(16, 19, 25, 0.96) 100%);
+    --bg-card: linear-gradient(135deg, rgba(25, 30, 38, 0.92), rgba(18, 22, 29, 0.92));
+    --bg-bot: rgba(21, 25, 33, 0.95);
     --panel: #171b22;
     --panel-2: #1d222b;
     --panel-3: #242a35;
+    --grid-line: rgba(255, 255, 255, 0.022);
+    --glow-a: rgba(34, 187, 255, 0.06);
+    --glow-b: rgba(255, 207, 0, 0.04);
     --line: rgba(255, 255, 255, 0.08);
     --line-strong: rgba(255, 255, 255, 0.18);
     --ink: #f3f5f8;
     --ink-2: #b4bcc9;
     --muted: #6e7888;
-    --white: #f4f6f8;
-    --black: #0a0c10;
+    --inv-bg: #f4f6f8;
+    --inv-fg: #0a0c10;
+    --inv-muted: #475366;
     --cyan: #22bbff;
     --cyan-dim: rgba(34, 187, 255, 0.14);
     --amber: #ffcf00;
@@ -26,14 +37,75 @@
     --green-dim: rgba(31, 209, 139, 0.14);
     --red: #ff4757;
     --red-dim: rgba(255, 71, 87, 0.14);
+    --watermark: rgba(255, 255, 255, 0.024);
+    --code-bg: #090b0f;
+    --code-bar: #12161d;
+    --code-fg: #dbe6f5;
+    --inline-code-bg: rgba(34, 187, 255, 0.1);
+    --inline-code-fg: #8ee0ff;
+    --hk-res-fg: #4ef2b0;
+    --hk-res-bg: rgba(31, 209, 139, 0.16);
+    --hk-prob-fg: #ff7b88;
+    --hk-prob-bg: rgba(255, 71, 87, 0.16);
+    --hk-act-fg: #ffe055;
+    --hk-act-bg: rgba(255, 207, 0, 0.18);
+    --hk-fact-fg: #7ad9ff;
+    --hk-fact-bg: rgba(34, 187, 255, 0.16);
     --mono: "JetBrains Mono", "SFMono-Regular", "Fira Code", Menlo, Consolas, monospace;
     --sans: "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  }
+
+  /* ---- Rhodes Island Day Mode (Clinical Lab Alabaster & Obsidian) ---- */
+  html[data-theme="day"] {
+    --bg: #eceff4;
+    --bg-rail: #e2e7ef;
+    --bg-elev: #f7f9fc;
+    --bg-aside: rgba(244, 246, 250, 0.95);
+    --bg-header: linear-gradient(180deg, #ffffff 0%, #f3f6fa 100%);
+    --bg-card: linear-gradient(135deg, #ffffff, #f6f8fb);
+    --bg-bot: #ffffff;
+    --panel: #ffffff;
+    --panel-2: #eef2f7;
+    --panel-3: #e3e9f2;
+    --grid-line: rgba(17, 22, 31, 0.045);
+    --glow-a: rgba(0, 119, 182, 0.06);
+    --glow-b: rgba(217, 119, 6, 0.05);
+    --line: rgba(17, 22, 31, 0.1);
+    --line-strong: rgba(17, 22, 31, 0.22);
+    --ink: #121720;
+    --ink-2: #3d4858;
+    --muted: #667385;
+    --inv-bg: #121720;
+    --inv-fg: #f4f6f8;
+    --inv-muted: #98a4b7;
+    --cyan: #0077b6;
+    --cyan-dim: rgba(0, 119, 182, 0.11);
+    --amber: #b45309;
+    --amber-dim: rgba(217, 119, 6, 0.13);
+    --green: #058a58;
+    --green-dim: rgba(5, 138, 88, 0.12);
+    --red: #dc2626;
+    --red-dim: rgba(220, 38, 38, 0.11);
+    --watermark: rgba(17, 22, 31, 0.035);
+    --code-bg: #141922;
+    --code-bar: #1d2430;
+    --code-fg: #e5edf7;
+    --inline-code-bg: rgba(0, 119, 182, 0.1);
+    --inline-code-fg: #005b8c;
+    --hk-res-fg: #046c4e;
+    --hk-res-bg: rgba(5, 138, 88, 0.14);
+    --hk-prob-fg: #b91c1c;
+    --hk-prob-bg: rgba(220, 38, 38, 0.13);
+    --hk-act-fg: #92400e;
+    --hk-act-bg: rgba(217, 119, 6, 0.16);
+    --hk-fact-fg: #035388;
+    --hk-fact-bg: rgba(0, 119, 182, 0.13);
   }
 
   * { box-sizing: border-box; }
   ::-webkit-scrollbar { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); }
+  ::-webkit-scrollbar-thumb { background: var(--line-strong); }
   ::-webkit-scrollbar-thumb:hover { background: var(--cyan); }
 
   html, body {
@@ -44,17 +116,17 @@
   body {
     display: flex; flex-direction: column; position: relative;
     background-image:
-      radial-gradient(circle at 12% 0%, rgba(34, 187, 255, 0.06), transparent 42%),
-      radial-gradient(circle at 88% 100%, rgba(255, 207, 0, 0.04), transparent 40%),
-      linear-gradient(rgba(255, 255, 255, 0.022) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.022) 1px, transparent 1px);
+      radial-gradient(circle at 12% 0%, var(--glow-a), transparent 42%),
+      radial-gradient(circle at 88% 100%, var(--glow-b), transparent 40%),
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
     background-size: 100% 100%, 100% 100%, 36px 36px, 36px 36px;
   }
 
-  /* ---- Top Micro Telemetry Rail (Signature PRTS strip) ---- */
+  /* ---- Top Micro Telemetry Rail ---- */
   .prts-rail {
     height: 24px; padding: 0 18px;
-    background: #090b0e; border-bottom: 1px solid var(--line);
+    background: var(--bg-rail); border-bottom: 1px solid var(--line);
     display: flex; align-items: center; justify-content: space-between;
     font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; color: var(--muted);
     padding-top: env(safe-area-inset-top);
@@ -65,19 +137,18 @@
   .pulse-dot { width: 6px; height: 6px; background: var(--red); display: inline-block; }
   .pulse-dot.ok { background: var(--green); box-shadow: 0 0 8px rgba(31, 209, 139, 0.7); }
   .rail-accent { color: var(--ink-2); }
-  .rail-cyan { color: var(--cyan); }
+  .rail-cyan { color: var(--cyan); font-weight: 700; }
 
   /* ---- Main Command Header ---- */
   header {
     height: 54px; padding: 0 18px;
-    background: linear-gradient(180deg, rgba(23, 27, 34, 0.96) 0%, rgba(16, 19, 25, 0.96) 100%);
-    border-bottom: 1px solid var(--line-strong);
-    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    background: var(--bg-header); border-bottom: 1px solid var(--line-strong);
+    display: flex; align-items: center; justify-content: space-between; gap: 14px;
     position: relative; z-index: 10;
   }
   header::before {
     content: ""; position: absolute; left: 0; bottom: -1px; width: 140px; height: 2px;
-    background: var(--white);
+    background: var(--ink);
   }
   header::after {
     content: ""; position: absolute; right: 0; bottom: -1px; width: 84px; height: 2px;
@@ -86,9 +157,12 @@
 
   .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
   .brand-mark { width: 28px; height: 28px; flex-shrink: 0; }
+  .brand-mark .outer { stroke: var(--ink); }
+  .brand-mark .inner { stroke: var(--cyan); }
+  .brand-mark .core { fill: var(--cyan); }
   .brand-title {
     font-family: var(--mono); font-weight: 800; font-size: 15px; letter-spacing: 0.16em;
-    color: var(--white); line-height: 1.1;
+    color: var(--ink); line-height: 1.1;
   }
   .brand-sub {
     font-family: var(--mono); font-size: 9px; letter-spacing: 0.22em; color: var(--muted);
@@ -98,21 +172,21 @@
   /* Iconic Arknights Slanted Parallelogram Mode Tabs */
   .mode-nav { display: flex; align-items: center; gap: 6px; }
   .mode-btn {
-    position: relative; border: 1px solid var(--line-strong); background: rgba(255, 255, 255, 0.02);
+    position: relative; border: 1px solid var(--line-strong); background: transparent;
     color: var(--ink-2); padding: 7px 18px; cursor: pointer;
     transform: skewX(-14deg); transition: all 0.16s ease;
     font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
   }
   .mode-btn > span { display: inline-flex; align-items: center; gap: 8px; transform: skewX(14deg); }
   .mode-btn .num { color: var(--muted); font-size: 10px; }
-  .mode-btn:hover { border-color: var(--white); color: var(--white); background: rgba(255, 255, 255, 0.06); }
+  .mode-btn:hover { border-color: var(--ink); color: var(--ink); background: var(--panel-2); }
   .mode-btn.active {
-    background: var(--white); border-color: var(--white); color: var(--black);
-    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+    background: var(--inv-bg); border-color: var(--inv-bg); color: var(--inv-fg);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22);
   }
-  .mode-btn.active .num { color: #0077aa; }
+  .mode-btn.active .num { color: var(--cyan); }
 
-  .header-right { display: flex; align-items: center; gap: 8px; }
+  .header-right { display: flex; align-items: center; gap: 7px; }
   .op-badge {
     display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px 4px 5px;
     background: var(--panel-2); border: 1px solid var(--line-strong);
@@ -121,43 +195,44 @@
   .op-avatar { width: 20px; height: 20px; object-fit: cover; border: 1px solid var(--cyan); }
   .op-dot { width: 8px; height: 8px; background: var(--cyan); margin-left: 4px; }
 
-  /* Architectural Industrial Buttons */
+  /* Industrial Buttons */
   .btn {
     font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
     text-transform: uppercase; border: 1px solid var(--line-strong);
-    background: var(--panel-2); color: var(--ink); padding: 7px 13px; cursor: pointer;
+    background: var(--panel-2); color: var(--ink); padding: 7px 12px; cursor: pointer;
     display: inline-flex; align-items: center; gap: 6px; transition: all 0.14s ease;
     clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 0 100%);
   }
-  .btn:hover { border-color: var(--white); background: var(--panel-3); color: var(--white); }
-  .btn.solid { background: var(--white); border-color: var(--white); color: var(--black); font-weight: 800; }
-  .btn.solid:hover { background: var(--cyan); border-color: var(--cyan); color: var(--black); }
-  .btn.cyan { background: var(--cyan-dim); border-color: rgba(34, 187, 255, 0.55); color: var(--cyan); }
-  .btn.cyan:hover { background: var(--cyan); color: var(--black); }
-  .btn.amber { background: var(--amber-dim); border-color: rgba(255, 207, 0, 0.5); color: var(--amber); }
-  .btn.amber:hover { background: var(--amber); color: var(--black); }
-  .btn.danger { background: var(--red-dim); border-color: rgba(255, 71, 87, 0.45); color: var(--red); }
-  .btn.danger:hover { background: var(--red); color: var(--white); }
+  .btn:hover { border-color: var(--ink); background: var(--panel-3); }
+  .btn.solid { background: var(--inv-bg); border-color: var(--inv-bg); color: var(--inv-fg); font-weight: 800; }
+  .btn.solid:hover { background: var(--cyan); border-color: var(--cyan); color: #fff; }
+  .btn.cyan { background: var(--cyan-dim); border-color: var(--cyan); color: var(--cyan); }
+  .btn.cyan:hover { background: var(--cyan); color: #fff; }
+  .btn.amber { background: var(--amber-dim); border-color: var(--amber); color: var(--amber); }
+  .btn.amber:hover { background: var(--amber); color: #fff; }
+  .btn.danger { background: var(--red-dim); border-color: var(--red); color: var(--red); }
+  .btn.danger:hover { background: var(--red); color: #fff; }
   .btn.ghost { background: transparent; border-color: var(--line); color: var(--ink-2); }
+  .btn.xs { padding: 3px 8px; font-size: 10px; }
 
   /* ---- Primary Viewports ---- */
-  #viewSessions { flex: 1; display: grid; grid-template-columns: 320px 1fr; min-height: 0; position: relative; }
+  #viewSessions { flex: 1; display: grid; grid-template-columns: 316px 1fr; min-height: 0; position: relative; }
   #viewBoard { flex: 1; display: none; flex-direction: column; min-height: 0; position: relative; }
   #viewBoard iframe { flex: 1; width: 100%; border: 0; background: var(--bg); }
 
   /* ---- Left Unit Roster ---- */
   aside {
     border-right: 1px solid var(--line-strong);
-    background: rgba(15, 18, 24, 0.9);
-    display: flex; flex-direction: column; min-height: 0; position: relative;
+    background: var(--bg-aside);
+    display: flex; flex-direction: column; min-height: 0;
   }
   .roster-stats {
     display: grid; grid-template-columns: repeat(3, 1fr);
-    border-bottom: 1px solid var(--line); background: rgba(9, 11, 15, 0.65);
+    border-bottom: 1px solid var(--line); background: var(--bg-rail);
   }
   .stat-cell { padding: 10px 12px; border-right: 1px solid var(--line); }
   .stat-cell:last-child { border-right: 0; }
-  .stat-num { font-family: var(--mono); font-size: 18px; font-weight: 800; line-height: 1; color: var(--white); }
+  .stat-num { font-family: var(--mono); font-size: 18px; font-weight: 800; line-height: 1; color: var(--ink); }
   .stat-num.cyan { color: var(--cyan); }
   .stat-num.green { color: var(--green); }
   .stat-lbl { font-family: var(--mono); font-size: 9px; letter-spacing: 0.16em; color: var(--muted); margin-top: 4px; }
@@ -171,17 +246,16 @@
 
   .unit-card {
     position: relative; padding: 12px 13px 11px 15px;
-    background: linear-gradient(135deg, rgba(25, 30, 38, 0.92), rgba(18, 22, 29, 0.92));
-    border: 1px solid var(--line); cursor: pointer; transition: all 0.15s ease;
+    background: var(--bg-card); border: 1px solid var(--line);
+    cursor: pointer; transition: all 0.15s ease;
     clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
   }
   .unit-card::before {
-    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
-    background: var(--muted); transition: background 0.15s;
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--muted);
   }
   .unit-card::after {
     content: ""; position: absolute; right: 0; top: 0; width: 12px; height: 12px;
-    background: linear-gradient(225deg, rgba(255, 255, 255, 0.12) 48%, transparent 50%);
+    background: linear-gradient(225deg, var(--line-strong) 48%, transparent 50%);
     pointer-events: none;
   }
   .unit-card.st-working::before { background: var(--green); }
@@ -190,15 +264,14 @@
 
   .unit-card:hover { border-color: var(--line-strong); transform: translateX(2px); }
   .unit-card.active {
-    background: var(--white); color: var(--black); border-color: var(--white);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    background: var(--inv-bg); color: var(--inv-fg); border-color: var(--inv-bg);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
   }
-  .unit-card.active::after { background: linear-gradient(225deg, var(--black) 48%, transparent 50%); opacity: 0.2; }
-  .unit-card.active .u-preview, .unit-card.active .u-idx { color: #475366; }
-  .unit-card.active .u-chip { background: rgba(10, 12, 16, 0.08); border-color: rgba(10, 12, 16, 0.2); color: #161b22; }
-  .unit-card.active .u-chip.st-background { background: #0077aa; color: #fff; border-color: #0077aa; }
-  .unit-card.active .u-chip.st-working { background: #0e8a59; color: #fff; border-color: #0e8a59; }
-  .unit-card.active .u-chip.st-blocked { background: #c48800; color: #fff; border-color: #c48800; }
+  .unit-card.active .u-preview, .unit-card.active .u-idx { color: var(--inv-muted); }
+  .unit-card.active .u-chip { background: rgba(128, 140, 160, 0.16); border-color: rgba(128, 140, 160, 0.35); color: var(--inv-fg); }
+  .unit-card.active .u-chip.st-background { background: #0077b6; color: #fff; border-color: #0077b6; }
+  .unit-card.active .u-chip.st-working { background: #058a58; color: #fff; border-color: #058a58; }
+  .unit-card.active .u-chip.st-blocked { background: #b45309; color: #fff; border-color: #b45309; }
 
   .u-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
   .u-name-wrap { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
@@ -208,93 +281,132 @@
   .u-chip {
     font-family: var(--mono); font-size: 9.5px; font-weight: 700; letter-spacing: 0.08em;
     padding: 2px 6px; border: 1px solid var(--line-strong); color: var(--ink-2);
-    background: rgba(255, 255, 255, 0.03); text-transform: uppercase;
+    background: var(--panel-2); text-transform: uppercase;
   }
-  .u-chip.st-working { color: var(--green); border-color: rgba(31, 209, 139, 0.45); background: var(--green-dim); }
-  .u-chip.st-background { color: var(--cyan); border-color: rgba(34, 187, 255, 0.45); background: var(--cyan-dim); }
-  .u-chip.st-blocked { color: var(--amber); border-color: rgba(255, 207, 0, 0.5); background: var(--amber-dim); }
-  .u-chip.linked { background: var(--cyan); color: var(--black); border-color: var(--cyan); }
+  .u-chip.st-working { color: var(--green); border-color: var(--green); background: var(--green-dim); }
+  .u-chip.st-background { color: var(--cyan); border-color: var(--cyan); background: var(--cyan-dim); }
+  .u-chip.st-blocked { color: var(--amber); border-color: var(--amber); background: var(--amber-dim); }
+  .u-chip.linked { background: var(--cyan); color: #fff; border-color: var(--cyan); }
   .u-preview { margin-top: 7px; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   /* ---- Right Tactical Workspace ---- */
   section.workspace {
-    display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative;
-    overflow: hidden;
+    display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; overflow: hidden;
   }
   .ws-watermark {
     position: absolute; right: 24px; bottom: 72px; pointer-events: none; user-select: none;
     font-family: var(--mono); font-size: 120px; font-weight: 900; letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.024); line-height: 0.85; z-index: 0;
+    color: var(--watermark); line-height: 0.85; z-index: 0;
   }
 
   .ws-header {
-    padding: 12px 20px; background: rgba(19, 22, 28, 0.94);
+    padding: 11px 20px; background: var(--bg-elev);
     border-bottom: 1px solid var(--line-strong);
     display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
     position: relative; z-index: 2;
   }
-  .ws-identity { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-  .ws-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  .ws-title { font-family: var(--mono); font-size: 17px; font-weight: 800; letter-spacing: 0.06em; color: var(--white); }
+  .ws-identity { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .ws-title-row { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+  .ws-title { font-family: var(--mono); font-size: 16px; font-weight: 800; letter-spacing: 0.06em; color: var(--ink); }
   .ws-sub { font-family: var(--mono); font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-  .subtabs { display: flex; align-items: center; gap: 4px; background: #0c0e12; padding: 3px; border: 1px solid var(--line); }
+  .subtabs { display: flex; align-items: center; gap: 4px; background: var(--bg-rail); padding: 3px; border: 1px solid var(--line); }
   .subtab {
     font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
-    border: 0; background: transparent; color: var(--muted); padding: 6px 13px; cursor: pointer;
+    border: 0; background: transparent; color: var(--muted); padding: 6px 12px; cursor: pointer;
     display: inline-flex; align-items: center; gap: 7px; transition: all 0.14s;
   }
-  .subtab:hover { color: var(--white); }
-  .subtab.active { background: var(--white); color: var(--black); }
-  .subtab .cnt {
-    background: var(--cyan); color: var(--black); padding: 1px 5px; font-size: 10px; font-weight: 800;
-  }
-  .subtab.active .cnt { background: var(--black); color: var(--cyan); }
+  .subtab:hover { color: var(--ink); }
+  .subtab.active { background: var(--inv-bg); color: var(--inv-fg); }
+  .subtab .cnt { background: var(--cyan); color: #fff; padding: 1px 5px; font-size: 10px; font-weight: 800; }
 
   .ws-actions { display: flex; align-items: center; gap: 6px; }
 
+  /* ---- Highlight Toolbar (Agentboard-style, visible in COMM tab) ---- */
+  .hl-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+    padding: 6px 20px; background: var(--bg-rail); border-bottom: 1px solid var(--line);
+    font-family: var(--mono); font-size: 10.5px; color: var(--muted);
+    position: relative; z-index: 2;
+  }
+  .hl-controls, .hl-legend { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .hl-toggle { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; color: var(--ink-2); user-select: none; }
+  .hl-toggle input { accent-color: var(--cyan); cursor: pointer; margin: 0; }
+  .hl-key { padding: 1px 6px; font-size: 10px; font-weight: 700; letter-spacing: 0.05em; }
+  .hl-off .hl-legend { opacity: 0.35; }
+
+  /* ---- Main Scroll Area + Floating Corner Async Mini-HUD ---- */
+  .panel-wrap { flex: 1; position: relative; min-height: 0; display: flex; flex-direction: column; }
   .panel {
-    flex: 1; overflow-y: auto; padding: 20px 24px;
+    flex: 1; overflow-y: auto; padding: 20px 24px 28px;
     display: flex; flex-direction: column; gap: 16px; min-height: 0;
     position: relative; z-index: 1;
   }
 
-  /* ---- Hazard Dialog & Async Strip ---- */
+  /* Compact Corner Floating Async Mini-HUD inside COMM */
+  .corner-bg {
+    position: absolute; right: 18px; bottom: 14px; z-index: 6;
+    width: 310px; max-width: calc(100% - 36px);
+    background: var(--bg-elev); border: 1px solid var(--cyan);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.36);
+    clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+    font-family: var(--mono);
+  }
+  .corner-bg-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 7px 11px; background: var(--cyan-dim); border-bottom: 1px solid var(--line);
+    font-size: 10.5px; font-weight: 800; letter-spacing: 0.1em; color: var(--cyan);
+  }
+  .corner-bg-title { display: inline-flex; align-items: center; gap: 6px; }
+  .corner-bg-dot { width: 7px; height: 7px; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); animation: blink 1.4s ease-in-out infinite; }
+  .corner-bg-dot.idle { animation: none; background: var(--green); box-shadow: none; }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+  .corner-bg-body { padding: 7px 10px; display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; }
+  .corner-bg.collapsed .corner-bg-body { display: none; }
+  .corner-task {
+    padding: 6px 8px; background: var(--panel); border: 1px solid var(--line);
+    border-left: 2px solid var(--cyan); cursor: pointer; font-size: 11px;
+  }
+  .corner-task.done { border-left-color: var(--green); }
+  .corner-task.error { border-left-color: var(--red); }
+  .corner-task:hover { border-color: var(--cyan); }
+  .corner-task-top { display: flex; justify-content: space-between; align-items: center; gap: 6px; color: var(--ink); font-weight: 700; }
+  .corner-task-desc { margin-top: 3px; font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .corner-task-log {
+    margin: 6px 0 0; padding: 6px 8px; background: var(--code-bg); color: var(--code-fg);
+    font-size: 10.5px; line-height: 1.4; white-space: pre-wrap; word-break: break-all;
+    max-height: 96px; overflow: auto; border: 1px solid var(--line);
+  }
+
+  /* ---- Hazard Dialog ---- */
   .hazard-box {
-    border: 1px solid var(--amber); background: rgba(255, 207, 0, 0.07);
+    border: 1px solid var(--amber); background: var(--amber-dim);
     padding: 14px 16px; position: relative;
   }
   .hazard-box::before {
     content: ""; position: absolute; left: 0; top: 0; right: 0; height: 4px;
-    background: repeating-linear-gradient(-45deg, var(--amber) 0 10px, #12151a 10px 20px);
+    background: repeating-linear-gradient(-45deg, var(--amber) 0 10px, var(--bg-elev) 10px 20px);
   }
   .hazard-title { font-family: var(--mono); font-size: 11px; font-weight: 800; letter-spacing: 0.16em; color: var(--amber); margin-bottom: 6px; }
   .hazard-q { font-size: 13px; color: var(--ink); margin-bottom: 10px; white-space: pre-wrap; }
 
-  .async-banner {
-    display: flex; align-items: center; justify-content: space-between; gap: 12px;
-    padding: 10px 14px; background: linear-gradient(90deg, rgba(34, 187, 255, 0.14), rgba(34, 187, 255, 0.03));
-    border: 1px solid rgba(34, 187, 255, 0.4); border-left: 3px solid var(--cyan);
-    font-family: var(--mono); font-size: 12px; color: var(--ink);
-  }
-
-  /* ---- Chat Messages (Clean Editorial Markdown) ---- */
+  /* ---- Chat Messages + Highlights + Math ---- */
   .turn-block { display: flex; flex-direction: column; gap: 10px; }
-  .msg-user {
-    align-self: flex-end; max-width: min(760px, 84%);
-    background: var(--white); color: var(--black);
-    padding: 11px 16px; font-size: 14px; line-height: 1.6;
-    clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
-    white-space: pre-wrap; word-break: break-word; font-weight: 500;
-  }
   .msg-user-label {
     align-self: flex-end; font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.16em;
     color: var(--muted); margin-bottom: -6px;
   }
+  .msg-user {
+    align-self: flex-end; max-width: min(760px, 84%);
+    background: var(--inv-bg); color: var(--inv-fg);
+    padding: 11px 16px; font-size: 14px; line-height: 1.6;
+    clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+    white-space: pre-wrap; word-break: break-word; font-weight: 500;
+  }
   .msg-bot-wrap {
-    align-self: flex-start; width: min(900px, 95%);
-    background: rgba(21, 25, 33, 0.94); border: 1px solid var(--line-strong);
-    position: relative;
+    align-self: flex-start; width: min(920px, 95%);
+    background: var(--bg-bot); border: 1px solid var(--line-strong);
+    position: relative; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
   }
   .msg-bot-wrap::before {
     content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--cyan);
@@ -303,8 +415,19 @@
     display: flex; justify-content: space-between; align-items: center;
     padding: 6px 14px 6px 16px; border-bottom: 1px solid var(--line);
     font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; color: var(--muted);
-    background: rgba(255, 255, 255, 0.015);
+    background: var(--bg-rail);
   }
+  .tldr-box {
+    padding: 10px 16px; border-bottom: 1px solid var(--line-strong);
+    background: var(--cyan-dim); font-size: 13px; line-height: 1.6; color: var(--ink);
+  }
+  .tldr-head {
+    font-family: var(--mono); font-size: 10px; font-weight: 800; letter-spacing: 0.16em;
+    color: var(--cyan); margin-bottom: 4px;
+  }
+  .tldr-box ul { margin: 4px 0 0; padding-left: 18px; }
+  .tldr-off .tldr-box { display: none; }
+
   .msg-bot-body {
     padding: 14px 18px; font-size: 14px; line-height: 1.72; color: var(--ink);
     word-break: break-word;
@@ -312,7 +435,7 @@
   .msg-bot-body p { margin: 0 0 10px; }
   .msg-bot-body p:last-child { margin-bottom: 0; }
   .msg-bot-body h1, .msg-bot-body h2, .msg-bot-body h3, .msg-bot-body h4 {
-    margin: 14px 0 8px; font-weight: 700; color: var(--white); letter-spacing: 0.02em;
+    margin: 14px 0 8px; font-weight: 700; color: var(--ink); letter-spacing: 0.02em;
   }
   .msg-bot-body h1 { font-size: 17px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
   .msg-bot-body h2 { font-size: 15.5px; }
@@ -321,40 +444,67 @@
   .msg-bot-body li { margin: 3px 0; }
   .msg-bot-body blockquote {
     margin: 8px 0; padding: 6px 12px; border-left: 2px solid var(--amber);
-    background: rgba(255, 207, 0, 0.05); color: var(--ink-2);
+    background: var(--amber-dim); color: var(--ink-2);
   }
   .msg-bot-body code.inline {
     font-family: var(--mono); font-size: 12.5px; padding: 1px 6px;
-    background: rgba(34, 187, 255, 0.1); border: 1px solid rgba(34, 187, 255, 0.22);
-    color: #8ee0ff;
+    background: var(--inline-code-bg); border: 1px solid var(--line);
+    color: var(--inline-code-fg);
   }
-  .code-frame {
-    margin: 10px 0; border: 1px solid var(--line-strong); background: #090b0f;
+
+  /* Agentboard-style 4-category semantic highlights */
+  .msg-bot-body mark {
+    color: inherit; background: none; padding: 1px 4px;
+    -webkit-box-decoration-break: clone; box-decoration-break: clone;
   }
+  .hk-result { color: var(--hk-res-fg) !important; background: var(--hk-res-bg) !important; }
+  .hk-problem { color: var(--hk-prob-fg) !important; background: var(--hk-prob-bg) !important; border-bottom: 1.5px solid var(--red); }
+  .hk-action { color: var(--hk-act-fg) !important; background: var(--hk-act-bg) !important; border-bottom: 1.5px solid var(--amber); font-weight: 600; }
+  .hk-fact { color: var(--hk-fact-fg) !important; background: var(--hk-fact-bg) !important; }
+  .msg-bot-body mark.first::before { font-family: var(--mono); font-weight: 800; font-size: 0.85em; margin-right: 4px; }
+  .msg-bot-body mark.first.hk-result::before { content: "✓"; }
+  .msg-bot-body mark.first.hk-problem::before { content: "!"; }
+  .msg-bot-body mark.first.hk-action::before { content: "→"; }
+  .msg-bot-body mark.first.hk-fact::before { content: "#"; }
+  .hl-off .msg-bot-body mark { color: inherit !important; background: none !important; border-bottom: 0 !important; padding: 0 !important; font-weight: inherit !important; }
+  .hl-off .msg-bot-body mark::before { content: none !important; }
+  .hl-fade .msg-bot-body.has-hl { color: var(--muted); }
+  .hl-fade .msg-bot-body.has-hl .code-frame, .hl-fade .msg-bot-body.has-hl .math-block { color: var(--ink); }
+
+  /* Math Blocks (KaTeX + offline fallback) */
+  .math-block {
+    margin: 12px 0; padding: 12px 16px; overflow-x: auto; text-align: center;
+    background: var(--bg-rail); border: 1px solid var(--line); border-left: 2px solid var(--cyan);
+  }
+  .math-inline { padding: 0 2px; }
+  .math-fallback { font-family: "Cambria Math", "STIX Two Math", Georgia, serif; font-style: italic; font-size: 1.05em; }
+  .math-block .math-fallback { font-size: 1.15em; }
+
+  .code-frame { margin: 10px 0; border: 1px solid var(--line-strong); background: var(--code-bg); }
   .code-bar {
     display: flex; justify-content: space-between; align-items: center;
-    padding: 4px 10px; background: #12161d; border-bottom: 1px solid var(--line);
-    font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; color: var(--muted);
+    padding: 4px 10px; background: var(--code-bar); border-bottom: 1px solid rgba(255,255,255,0.08);
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; color: #8c98aa;
   }
   .code-copy {
-    border: 1px solid var(--line); background: transparent; color: var(--ink-2);
+    border: 1px solid rgba(255,255,255,0.16); background: transparent; color: #c7d2e0;
     font-family: var(--mono); font-size: 10px; padding: 2px 7px; cursor: pointer;
   }
   .code-copy:hover { border-color: var(--cyan); color: var(--cyan); }
   .code-frame pre {
     margin: 0; padding: 11px 13px; overflow-x: auto;
-    font-family: var(--mono); font-size: 12.5px; line-height: 1.55; color: #dbe6f5;
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.55; color: var(--code-fg);
   }
 
-  /* ---- Async Ops / Background Task Cards ---- */
+  /* ---- Full Async Ops Tab ---- */
   .ops-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
   .op-card {
     position: relative; background: var(--panel); border: 1px solid var(--line-strong);
     padding: 13px 15px; cursor: pointer; transition: all 0.15s; overflow: hidden;
     clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
   }
-  .op-card:hover { border-color: var(--white); background: var(--panel-2); }
-  .op-card.selected { border-color: var(--cyan); background: linear-gradient(135deg, rgba(34, 187, 255, 0.13), var(--panel)); }
+  .op-card:hover { border-color: var(--ink); background: var(--panel-2); }
+  .op-card.selected { border-color: var(--cyan); background: var(--cyan-dim); }
   .op-card.running::after {
     content: ""; position: absolute; left: 0; bottom: 0; height: 2px; width: 40%;
     background: linear-gradient(90deg, transparent, var(--cyan), transparent);
@@ -362,8 +512,7 @@
   }
   @keyframes scanbar { from { transform: translateX(-100%); } to { transform: translateX(350%); } }
   .op-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-family: var(--mono); }
-  .op-code { font-size: 13px; font-weight: 800; color: var(--white); }
-  .op-kind { font-size: 10px; letter-spacing: 0.12em; color: var(--muted); }
+  .op-code { font-size: 13px; font-weight: 800; color: var(--ink); }
   .op-desc { margin-top: 8px; font-size: 12.5px; color: var(--ink-2); line-height: 1.5; word-break: break-word; }
   .op-foot {
     margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line);
@@ -372,39 +521,37 @@
   }
 
   /* ---- Framed Console / Log Box ---- */
-  .console-frame {
-    border: 1px solid var(--line-strong); background: #080a0e; display: flex; flex-direction: column;
-  }
+  .console-frame { border: 1px solid var(--line-strong); background: var(--code-bg); display: flex; flex-direction: column; }
   .console-bar {
     display: flex; justify-content: space-between; align-items: center;
-    padding: 7px 12px; background: #12161e; border-bottom: 1px solid var(--line);
-    font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; color: var(--cyan);
+    padding: 7px 12px; background: var(--code-bar); border-bottom: 1px solid rgba(255,255,255,0.08);
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; color: #22bbff;
   }
   .terminal-box {
-    background: #080a0e; color: #dbe6f2; padding: 14px 16px;
+    background: var(--code-bg); color: var(--code-fg); padding: 14px 16px;
     font-family: var(--mono); font-size: 12.5px; line-height: 1.55;
     overflow: auto; white-space: pre-wrap; word-break: break-all;
     min-height: 240px; max-height: 54vh; margin: 0;
   }
-  .keybar { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; background: #10141b; border-top: 1px solid var(--line); }
+  .keybar { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; background: var(--bg-rail); border-top: 1px solid var(--line); }
 
   /* ---- Bottom Command Composer ---- */
   .composer {
     display: flex; align-items: flex-end; gap: 10px;
-    padding: 12px 20px; background: rgba(15, 18, 24, 0.96);
+    padding: 12px 20px; background: var(--bg-elev);
     border-top: 1px solid var(--line-strong);
     padding-bottom: max(12px, env(safe-area-inset-bottom));
     position: relative; z-index: 2;
   }
   .composer-box {
-    flex: 1; display: flex; align-items: center; background: #090b0f;
+    flex: 1; display: flex; align-items: center; background: var(--bg);
     border: 1px solid var(--line-strong); padding: 2px 12px; transition: border-color 0.15s;
   }
   .composer-box:focus-within { border-color: var(--cyan); }
   .composer-prompt { font-family: var(--mono); color: var(--cyan); font-weight: 800; margin-right: 10px; user-select: none; }
   .composer textarea {
     flex: 1; resize: none; min-height: 38px; max-height: 130px; padding: 9px 0;
-    border: 0; background: transparent; color: var(--white); font: 14px var(--sans); outline: none;
+    border: 0; background: transparent; color: var(--ink); font: 14px var(--sans); outline: none;
   }
 
   .empty {
@@ -415,16 +562,16 @@
 
   /* ---- Deploy Modal ---- */
   dialog {
-    border: 1px solid var(--white); background: var(--bg-elev); color: var(--ink);
+    border: 1px solid var(--ink); background: var(--bg-elev); color: var(--ink);
     width: min(480px, 92vw); padding: 0; overflow: hidden;
     clip-path: polygon(0 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 18px 100%, 0 calc(100% - 18px));
   }
-  dialog::backdrop { background: rgba(4, 6, 10, 0.78); backdrop-filter: blur(4px); }
+  dialog::backdrop { background: rgba(4, 6, 10, 0.72); backdrop-filter: blur(4px); }
   .modal-stripe { height: 4px; background: repeating-linear-gradient(-45deg, var(--amber) 0 10px, var(--bg-elev) 10px 20px); }
   .modal-body { padding: 20px 22px; }
   .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; color: var(--muted); }
   .field input, .field select {
-    padding: 9px 11px; border: 1px solid var(--line-strong); background: #090b0f; color: var(--white);
+    padding: 9px 11px; border: 1px solid var(--line-strong); background: var(--bg); color: var(--ink);
     font: 13.5px var(--sans); outline: none;
   }
   .field input:focus, .field select:focus { border-color: var(--cyan); }
@@ -438,9 +585,10 @@
     .session-list { flex-direction: row; overflow-x: auto; overflow-y: hidden; padding: 8px 10px; }
     .unit-card { min-width: 220px; max-width: 250px; flex-shrink: 0; }
     .panel { padding: 14px; }
-    .ws-header { padding: 10px 12px; }
+    .ws-header, .hl-bar { padding: 8px 12px; }
     .composer { padding: 10px 12px; }
     .ws-watermark { display: none; }
+    .corner-bg { right: 10px; bottom: 10px; width: 260px; }
   }
 </style>
 </head>
@@ -461,9 +609,9 @@
 <header>
   <div class="brand">
     <svg class="brand-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-      <polygon points="16,2 30,16 16,30 2,16" stroke="#f4f6f8" stroke-width="1.5"/>
-      <polygon points="16,7 25,16 16,25 7,16" stroke="#22bbff" stroke-width="1.2"/>
-      <rect x="14" y="14" width="4" height="4" fill="#22bbff"/>
+      <polygon class="outer" points="16,2 30,16 16,30 2,16" stroke-width="1.5"/>
+      <polygon class="inner" points="16,7 25,16 16,25 7,16" stroke-width="1.2"/>
+      <rect class="core" x="14" y="14" width="4" height="4"/>
     </svg>
     <div>
       <div class="brand-title">PRTS // FMUX</div>
@@ -477,6 +625,7 @@
   </nav>
 
   <div class="header-right">
+    <button id="themeBtn" class="btn ghost" title="切换日间 / 夜间模式">☀ DAY</button>
     <span id="opBadge" class="op-badge" style="display:none"></span>
     <button id="detachBtn" class="btn ghost" style="display:none">DETACH</button>
     <button id="newBtn" class="btn solid">+ DEPLOY</button>
@@ -491,7 +640,7 @@
       <div class="stat-cell"><div id="statActive" class="stat-num green">00</div><div class="stat-lbl">ACTIVE</div></div>
       <div class="stat-cell"><div id="statBg" class="stat-num cyan">00</div><div class="stat-lbl">BG-OPS</div></div>
     </div>
-    <div class="roster-head"><span>ACTIVE ROSTER</span><span id="rosterSub">TMUX MATRIX</span></div>
+    <div class="roster-head"><span>ACTIVE ROSTER</span><span>TMUX MATRIX</span></div>
     <div id="sessionList" class="session-list"></div>
   </aside>
 
@@ -521,8 +670,36 @@
       </div>
     </div>
 
-    <div id="panel" class="panel">
-      <div class="empty"><strong>PRTS TERMINAL READY</strong>SELECT AN AGENT UNIT FROM THE ROSTER</div>
+    <div id="hlBar" class="hl-bar" style="display:none">
+      <div class="hl-controls">
+        <label class="hl-toggle"><input type="checkbox" id="chkTldr" />TL;DR 摘要</label>
+        <label class="hl-toggle"><input type="checkbox" id="chkHl" />HIGHLIGHTS 重点高亮</label>
+        <label class="hl-toggle"><input type="checkbox" id="chkFade" />FADE REST 弱化其余</label>
+      </div>
+      <div class="hl-legend">
+        <span class="hl-key hk-result">✓ RESULT</span>
+        <span class="hl-key hk-problem">! PROBLEM</span>
+        <span class="hl-key hk-action">→ ACTION</span>
+        <span class="hl-key hk-fact"># FACT</span>
+      </div>
+    </div>
+
+    <div class="panel-wrap">
+      <div id="panel" class="panel">
+        <div class="empty"><strong>PRTS TERMINAL READY</strong>SELECT AN AGENT UNIT FROM THE ROSTER</div>
+      </div>
+
+      <!-- Compact Corner Async Ops Mini-HUD for COMM tab -->
+      <div id="cornerBg" class="corner-bg" style="display:none">
+        <div class="corner-bg-head">
+          <span class="corner-bg-title"><span id="cornerDot" class="corner-bg-dot"></span><span id="cornerTitle">ASYNC // 0</span></span>
+          <div style="display:flex;gap:4px">
+            <button id="cornerJump" class="btn xs cyan" type="button">FULL ↗</button>
+            <button id="cornerToggle" class="btn xs ghost" type="button">−</button>
+          </div>
+        </div>
+        <div id="cornerBody" class="corner-bg-body"></div>
+      </div>
     </div>
 
     <form id="composer" class="composer" style="display:none">
@@ -563,10 +740,18 @@
 <script>
 const STATUS_LABEL = { working: 'ACTIVE', background: 'BG-OPS', blocked: 'WAIT-OP', idle: 'STANDBY', shell: 'SHELL' };
 const KIND_LABEL = { agy: 'AGY', claude: 'CLAUDE', codex: 'CODEX', pi: 'PI', shell: 'SHELL' };
+const LS = {
+  get: (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+
 const state = {
   sessions: [], status: null, agents: [], user: null, authMode: 'local',
   agentboard: { enabled: true }, selectedKey: null, mode: 'sessions',
   tab: 'chat', selectedTaskId: null, boardLoaded: false,
+  cornerCollapsed: false, cornerExpandedTaskId: null, cornerLogCache: '',
+  theme: (() => { try { return localStorage.getItem('fmux_theme') || 'night'; } catch { return 'night'; } })(),
+  hl: { on: LS.get('fmux_hl_on', true), fade: LS.get('fmux_hl_fade', false), tldr: LS.get('fmux_hl_tldr', false), cache: new Map() },
 };
 
 const $ = (id) => document.getElementById(id);
@@ -584,18 +769,108 @@ function updateClock() { $('clock').textContent = new Date().toTimeString().slic
 updateClock();
 setInterval(updateClock, 1000);
 
-// Clean, safe Markdown renderer for agent replies (fenced code blocks, inline code, headings, lists, quotes, bold).
+// ---- Day / Night Theme ----
+function applyTheme(mode) {
+  state.theme = mode === 'day' ? 'day' : 'night';
+  document.documentElement.dataset.theme = state.theme;
+  $('themeBtn').textContent = state.theme === 'day' ? '☾ NIGHT' : '☀ DAY';
+  try { localStorage.setItem('fmux_theme', state.theme); } catch {}
+  try { $('boardFrame').contentWindow?.postMessage({ type: 'prts-theme', theme: state.theme }, '*'); } catch {}
+}
+applyTheme(state.theme);
+$('themeBtn').onclick = () => applyTheme(state.theme === 'day' ? 'night' : 'day');
+$('boardFrame').addEventListener('load', () => {
+  try { $('boardFrame').contentWindow?.postMessage({ type: 'prts-theme', theme: state.theme }, '*'); } catch {}
+});
+
+// ---- Highlight Controls Sync ----
+function syncHlClasses() {
+  document.body.classList.toggle('hl-off', !state.hl.on);
+  document.body.classList.toggle('hl-fade', state.hl.on && state.hl.fade);
+  document.body.classList.toggle('tldr-off', !state.hl.tldr);
+  $('chkHl').checked = state.hl.on;
+  $('chkFade').checked = state.hl.fade;
+  $('chkFade').disabled = !state.hl.on;
+  $('chkTldr').checked = state.hl.tldr;
+}
+syncHlClasses();
+$('chkHl').onchange = () => { state.hl.on = $('chkHl').checked; LS.set('fmux_hl_on', state.hl.on); syncHlClasses(); applyAllHighlights(); };
+$('chkFade').onchange = () => { state.hl.fade = $('chkFade').checked; LS.set('fmux_hl_fade', state.hl.fade); syncHlClasses(); };
+$('chkTldr').onchange = () => { state.hl.tldr = $('chkTldr').checked; LS.set('fmux_hl_tldr', state.hl.tldr); syncHlClasses(); applyAllHighlights(); };
+
+// ---- LaTeX Math Rendering (KaTeX + clean offline fallback) ----
+const GREEK = {
+  alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ε', varepsilon: 'ε', zeta: 'ζ', eta: 'η',
+  theta: 'θ', lambda: 'λ', mu: 'μ', nu: 'ν', xi: 'ξ', pi: 'π', rho: 'ρ', sigma: 'σ', tau: 'τ',
+  phi: 'φ', varphi: 'φ', chi: 'χ', psi: 'ψ', omega: 'ω', Gamma: 'Γ', Delta: 'Δ', Theta: 'Θ',
+  Lambda: 'Λ', Pi: 'Π', Sigma: 'Σ', Phi: 'Φ', Psi: 'Ψ', Omega: 'Ω',
+  times: '×', cdot: '·', pm: '±', le: '≤', leq: '≤', ge: '≥', geq: '≥', ne: '≠', neq: '≠',
+  approx: '≈', infty: '∞', to: '→', rightarrow: '→', leftarrow: '←', Rightarrow: '⇒',
+  sum: '∑', prod: '∏', int: '∫', partial: '∂', nabla: '∇', in: '∈', notin: '∉', subset: '⊂',
+  forall: '∀', exists: '∃', sqrt: '√', ldots: '…', cdots: '⋯',
+};
+function fallbackMath(tex) {
+  let s = esc(tex.trim());
+  s = s.replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, '($1)/($2)');
+  s = s.replace(/\\sqrt\{([^{}]+)\}/g, '√($1)');
+  s = s.replace(/\\text\{([^{}]+)\}/g, '<span style="font-style:normal">$1</span>');
+  s = s.replace(/\\([A-Za-z]+)/g, (_, cmd) => GREEK[cmd] || cmd);
+  s = s.replace(/\^\{([^{}]+)\}/g, '<sup>$1</sup>').replace(/\^([A-Za-z0-9])/g, '<sup>$1</sup>');
+  s = s.replace(/_\{([^{}]+)\}/g, '<sub>$1</sub>').replace(/_([A-Za-z0-9])/g, '<sub>$1</sub>');
+  return `<span class="math-fallback">${s}</span>`;
+}
+function renderMathTex(tex, displayMode) {
+  if (window.katex?.renderToString) {
+    try {
+      return window.katex.renderToString(tex.trim(), { displayMode, throwOnError: false, strict: false });
+    } catch {}
+  }
+  return fallbackMath(tex);
+}
+window.__onKatexReady = () => {
+  document.querySelectorAll('[data-tex]').forEach((el) => {
+    el.innerHTML = renderMathTex(el.dataset.tex, el.dataset.display === '1');
+  });
+};
+
+// ---- Markdown + Math Renderer ----
 function renderMarkdown(raw) {
   const src = String(raw || '').replace(/\r\n/g, '\n');
   const blocks = [];
-  const text = src.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (_, lang, code) => {
+  const stashBlock = (html) => {
     const id = blocks.length;
-    blocks.push(`<div class="code-frame"><div class="code-bar"><span>${esc((lang || 'TEXT').toUpperCase())}</span><button type="button" class="code-copy" data-copy="${id}">COPY</button></div><pre data-code="${id}">${esc(code.replace(/\n$/, ''))}</pre></div>`);
+    blocks.push(html);
     return `\u0000BLOCK_${id}\u0000`;
+  };
+
+  // 1. Protect fenced code blocks first.
+  let text = src.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (_, lang, code) => {
+    const id = blocks.length;
+    return stashBlock(`<div class="code-frame"><div class="code-bar"><span>${esc((lang || 'TEXT').toUpperCase())}</span><button type="button" class="code-copy" data-copy="${id}">COPY</button></div><pre data-code="${id}">${esc(code.replace(/\n$/, ''))}</pre></div>`);
   });
-  const inline = (s) => esc(s)
-    .replace(/`([^`\n]+)`/g, '<code class="inline">$1</code>')
-    .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+
+  // 2. Protect display math ($$...$$ and \[...\]) before Markdown line parsing.
+  text = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, tex) =>
+    stashBlock(`<div class="math-block" data-tex="${esc(tex)}" data-display="1">${renderMathTex(tex, true)}</div>`));
+  text = text.replace(/\\\[([\s\S]+?)\\\]/g, (_, tex) =>
+    stashBlock(`<div class="math-block" data-tex="${esc(tex)}" data-display="1">${renderMathTex(tex, true)}</div>`));
+
+  // 3. Inline parser protecting inline code and inline math ($...$, \(...\)).
+  const inline = (line) => {
+    const inlines = [];
+    const stashIn = (html) => { const i = inlines.length; inlines.push(html); return `\u0001IN_${i}\u0001`; };
+    let s = line
+      .replace(/`([^`\n]+)`/g, (_, c) => stashIn(`<code class="inline">${esc(c)}</code>`))
+      .replace(/\\\((.+?)\\\)/g, (_, tex) => stashIn(`<span class="math-inline" data-tex="${esc(tex)}" data-display="0">${renderMathTex(tex, false)}</span>`))
+      .replace(/(?<!\\)\$([^$\n]+?)(?<!\\)\$/g, (m, tex) => {
+        if (/^\s|\s$|^\d+$/.test(tex)) return m;
+        return stashIn(`<span class="math-inline" data-tex="${esc(tex)}" data-display="0">${renderMathTex(tex, false)}</span>`);
+      });
+    s = esc(s)
+      .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\u0001IN_(\d+)\u0001/g, (_, i) => inlines[Number(i)]);
+    return s;
+  };
 
   const lines = text.split('\n');
   const out = [];
@@ -603,7 +878,7 @@ function renderMarkdown(raw) {
   const closeList = () => { if (inList) { out.push('</ul>'); inList = false; } };
 
   for (const line of lines) {
-    const bm = line.match(/^\u0000BLOCK_(\d+)\u0000$/);
+    const bm = line.trim().match(/^\u0000BLOCK_(\d+)\u0000$/);
     if (bm) { closeList(); out.push(blocks[Number(bm[1])]); continue; }
     if (!line.trim()) { closeList(); continue; }
     const hm = line.match(/^(#{1,4})\s+(.+)$/);
@@ -623,6 +898,87 @@ function renderMarkdown(raw) {
   }
   closeList();
   return out.join('');
+}
+
+// ---- Agentboard-style TreeWalker Highlight Wrapping (skips code & KaTeX math) ----
+function hlWrap(root, quote, kind) {
+  const map = [];
+  let txt = '';
+  let sp = false;
+  const tw = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) => (n.parentElement?.closest('.code-frame,.math-block,.math-inline,.katex,mark') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+  });
+  while (tw.nextNode()) {
+    const n = tw.currentNode;
+    for (let i = 0; i < n.length; i++) {
+      const c = n.data[i];
+      if (/\s/.test(c)) {
+        if (sp) continue;
+        sp = true;
+        txt += ' ';
+        map.push([n, i]);
+      } else {
+        sp = false;
+        txt += c;
+        map.push([n, i]);
+      }
+    }
+  }
+  const at = txt.indexOf(quote);
+  if (at < 0) return false;
+  const parts = new Map();
+  for (let i = at; i < at + quote.length; i++) {
+    const [n, o] = map[i];
+    const p = parts.get(n);
+    if (p) p[1] = o + 1;
+    else parts.set(n, [o, o + 1]);
+  }
+  let first = true;
+  for (const [n, [a, b]] of parts) {
+    if (n.parentElement?.closest('mark')) continue;
+    try {
+      const r = document.createRange();
+      r.setStart(n, a);
+      r.setEnd(n, b);
+      const m = document.createElement('mark');
+      m.className = `hk-${kind}${first ? ' first' : ''}`;
+      first = false;
+      r.surroundContents(m);
+    } catch {}
+  }
+  return true;
+}
+
+async function applyAllHighlights() {
+  if (!state.hl.on && !state.hl.tldr) return;
+  const nodes = document.querySelectorAll('.msg-bot-wrap[data-raw]:not([data-hl-done])');
+  for (const wrap of nodes) {
+    const raw = wrap.dataset.raw || '';
+    if (raw.length < 40) { wrap.dataset.hlDone = '1'; continue; }
+    let got = state.hl.cache.get(raw);
+    if (!got) {
+      try {
+        got = await api('/api/highlight', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: raw }),
+        });
+        state.hl.cache.set(raw, got);
+      } catch {
+        continue;
+      }
+    }
+    if (!wrap.isConnected) continue;
+    wrap.dataset.hlDone = '1';
+    if (got.tldr) {
+      const head = wrap.querySelector('.msg-bot-head');
+      head?.insertAdjacentHTML('afterend', `<div class="tldr-box"><div class="tldr-head">PRTS // TL;DR EXECUTIVE SUMMARY</div>${renderMarkdown(got.tldr)}</div>`);
+    }
+    const body = wrap.querySelector('.msg-bot-body');
+    if (body && got.marks?.length) {
+      let wrapped = 0;
+      for (const x of got.marks) if (hlWrap(body, x.q, x.k)) wrapped++;
+      if (wrapped > 0) body.classList.add('has-hl');
+    }
+  }
 }
 
 async function api(path, opts) {
@@ -698,19 +1054,75 @@ function renderSessions() {
     el.onclick = () => {
       state.selectedKey = el.dataset.key;
       state.selectedTaskId = null;
+      state.cornerExpandedTaskId = null;
       renderSessions();
       renderWorkspace();
     };
   });
 }
 
+// ---- Compact Corner Async Mini-HUD inside COMM tab ----
+async function renderCornerBg(s) {
+  const box = $('cornerBg');
+  const tasks = s?.tasks || [];
+  if (state.tab !== 'chat' || !tasks.length) {
+    box.style.display = 'none';
+    return;
+  }
+  box.style.display = '';
+  box.classList.toggle('collapsed', state.cornerCollapsed);
+  $('cornerToggle').textContent = state.cornerCollapsed ? '+' : '−';
+  const running = tasks.filter((t) => t.status === 'running').length;
+  $('cornerDot').className = running ? 'corner-bg-dot' : 'corner-bg-dot idle';
+  $('cornerTitle').textContent = running ? `ASYNC // ${running} RUNNING` : `ASYNC // ${tasks.length} DONE`;
+
+  let inlineLog = '';
+  if (!state.cornerCollapsed && state.cornerExpandedTaskId) {
+    try {
+      const res = await api(`/api/session/${encodeURIComponent(s.key)}/tasks?lines=12&taskId=${encodeURIComponent(state.cornerExpandedTaskId)}`);
+      inlineLog = res.log || '(no log output yet)';
+    } catch { inlineLog = ''; }
+  }
+
+  $('cornerBody').innerHTML = tasks.slice(0, 4).map((t) => {
+    const dur = fmtSec(((t.endedAt || Date.now()) - t.startedAt) / 1000);
+    const expanded = state.cornerExpandedTaskId === t.id;
+    return `<div class="corner-task ${esc(t.status)}" data-ctid="${esc(t.id)}">
+      <div class="corner-task-top">
+        <span>${esc(t.shortId)} · ${esc(t.kind.toUpperCase())}</span>
+        <span>${esc(t.status.toUpperCase())} ${dur}</span>
+      </div>
+      <div class="corner-task-desc">${esc(t.description)}${t.summary ? ` · ${esc(t.summary)}` : ''}</div>
+      ${expanded ? `<pre class="corner-task-log">${esc(inlineLog)}</pre>` : ''}
+    </div>`;
+  }).join('');
+
+  $('cornerBody').querySelectorAll('.corner-task').forEach((el) => {
+    el.onclick = () => {
+      state.cornerExpandedTaskId = state.cornerExpandedTaskId === el.dataset.ctid ? null : el.dataset.ctid;
+      renderCornerBg(s);
+    };
+  });
+}
+
+$('cornerToggle').onclick = () => {
+  state.cornerCollapsed = !state.cornerCollapsed;
+  renderCornerBg(selectedSession());
+};
+$('cornerJump').onclick = () => {
+  state.tab = 'tasks';
+  renderWorkspace();
+};
+
 async function renderWorkspace() {
   if (state.mode !== 'sessions') return;
   const s = selectedSession();
   $('wsBar').style.display = s ? '' : 'none';
   $('composer').style.display = s ? '' : 'none';
+  $('hlBar').style.display = s && state.tab === 'chat' ? 'flex' : 'none';
   if (!s) {
     $('wsWatermark').textContent = 'PRTS';
+    $('cornerBg').style.display = 'none';
     $('panel').innerHTML = '<div class="empty"><strong>PRTS TERMINAL READY</strong>SELECT AN AGENT UNIT FROM THE ROSTER</div>';
     return;
   }
@@ -742,9 +1154,6 @@ async function renderWorkspace() {
           `<button class="btn amber" data-key="${esc(o.key || String(i + 1))}">${esc(o.key ? `${o.key}. ` : '')}${esc(o.label)}</button>`).join('');
         parts.push(`<div class="hazard-box"><div class="hazard-title">PRTS ALERT // CONFIRMATION REQUIRED</div><div class="hazard-q">${esc(screenData.dialog.question || '')}</div><div class="keybar" style="padding:0;background:transparent;border:0">${opts}<button class="btn ghost" data-key="esc">ESC</button></div></div>`);
       }
-      if (s.runningTasks > 0) {
-        parts.push(`<div class="async-banner"><span>ASYNC OPS RUNNING // ${s.runningTasks} 个后台任务执行中，完成后将自动唤醒会话</span><button id="jumpTasksBtn" class="btn cyan">VIEW LOGS →</button></div>`);
-      }
       if (!turns.length) {
         parts.push(`<div class="empty"><strong>${s.kind === 'shell' ? 'SHELL UNIT' : 'NO RECORDS'}</strong>${s.kind === 'shell' ? 'SWITCH TO TTY TAB FOR LIVE TERMINAL OUTPUT' : 'SEND A DIRECTIVE BELOW TO BEGIN'}</div>`);
       } else {
@@ -755,7 +1164,8 @@ async function renderWorkspace() {
             chunks.push(`<div class="msg-user-label">OPERATOR // T-${pad2(i + 1)}</div><div class="msg-user">${esc(t.prompt)}</div>`);
           }
           if (t.texts?.length) {
-            chunks.push(`<div class="msg-bot-wrap"><div class="msg-bot-head"><span>${esc((KIND_LABEL[s.kind] || s.kind).toUpperCase())} // ${esc(s.model || 'RESPONSE')}</span><span>${t.done ? 'DONE' : 'STREAMING'}</span></div><div class="msg-bot-body">${renderMarkdown(t.texts.join('\n\n'))}</div></div>`);
+            const fullText = t.texts.join('\n\n');
+            chunks.push(`<div class="msg-bot-wrap" data-raw="${esc(fullText)}"><div class="msg-bot-head"><span>${esc((KIND_LABEL[s.kind] || s.kind).toUpperCase())} // ${esc(s.model || 'RESPONSE')}</span><span>${t.done ? 'DONE' : 'STREAMING'}</span></div><div class="msg-bot-body">${renderMarkdown(fullText)}</div></div>`);
           }
           parts.push(`<div class="turn-block">${chunks.join('')}</div>`);
         }
@@ -770,10 +1180,11 @@ async function renderWorkspace() {
           setTimeout(() => { btn.textContent = 'COPY'; }, 1200);
         };
       });
-      const jump = $('jumpTasksBtn');
-      if (jump) jump.onclick = () => { state.tab = 'tasks'; renderWorkspace(); };
+      await applyAllHighlights();
+      await renderCornerBg(s);
       panel.scrollTop = panel.scrollHeight;
     } else if (state.tab === 'tasks') {
+      $('cornerBg').style.display = 'none';
       const q = state.selectedTaskId ? `&taskId=${encodeURIComponent(state.selectedTaskId)}` : '';
       const data = await api(`/api/session/${keyEnc}/tasks?lines=120${q}`);
       state.selectedTaskId = data.selectedTaskId;
@@ -792,14 +1203,14 @@ async function renderWorkspace() {
           </div>
           <div class="op-desc">${esc(t.description)}</div>
           <div class="op-foot">
-            <span class="op-kind">${esc(t.kind.toUpperCase())}${t.summary ? ` · ${esc(t.summary)}` : ''}</span>
+            <span>${esc(t.kind.toUpperCase())}${t.summary ? ` · ${esc(t.summary)}` : ''}</span>
             <span>ELAPSED ${dur}</span>
           </div>
         </div>`;
       }).join('');
       const logBox = data.selectedTaskId
         ? `<div class="console-frame">
-            <div class="console-bar"><span>LIVE STREAM // ${esc(data.selectedTaskId)}</span><button id="refreshTasks" class="btn ghost" style="padding:3px 9px">SYNC</button></div>
+            <div class="console-bar"><span>LIVE STREAM // ${esc(data.selectedTaskId)}</span><button id="refreshTasks" class="btn xs ghost">SYNC</button></div>
             <pre class="terminal-box">${esc(data.log || '(awaiting log output...)')}</pre>
           </div>`
         : '';
@@ -810,11 +1221,12 @@ async function renderWorkspace() {
       const rt = $('refreshTasks');
       if (rt) rt.onclick = () => renderWorkspace();
     } else {
+      $('cornerBg').style.display = 'none';
       const data = await api(`/api/session/${keyEnc}/screen?lines=100`);
       const keys = ['enter', 'esc', 'up', 'down', 'tab', 'c-c', '1', '2', '3', 'y', 'n'];
       panel.innerHTML = `
         <div class="console-frame">
-          <div class="console-bar"><span>TTY CAPTURE // ${esc(s.name)} (${esc(s.key)})</span><button id="refreshTerm" class="btn ghost" style="padding:3px 9px">SYNC</button></div>
+          <div class="console-bar"><span>TTY CAPTURE // ${esc(s.name)} (${esc(s.key)})</span><button id="refreshTerm" class="btn xs ghost">SYNC</button></div>
           <pre class="terminal-box">${esc(data.screen || '(empty screen)')}</pre>
           <div class="keybar">${keys.map((k) => `<button class="btn ghost" data-k="${k}">${k.toUpperCase()}</button>`).join('')}</div>
         </div>`;
@@ -918,6 +1330,7 @@ setInterval(() => {
   const s = selectedSession();
   if (!s) return;
   if (state.tab === 'term' || (state.tab === 'tasks' && s.runningTasks > 0)) renderWorkspace();
+  else if (state.tab === 'chat' && s.runningTasks > 0) renderCornerBg(s);
 }, 2500);
 
 connectSSE();

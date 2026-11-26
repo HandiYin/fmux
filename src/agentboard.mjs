@@ -23,6 +23,13 @@ const AGENTBOARD_INJECT = `
     if (input instanceof Request) return origFetch(new Request(rewrite(input.url), input), init);
     return origFetch(input, init);
   };
+  const applyPrtsTheme = (mode) => {
+    document.documentElement.dataset.prtsTheme = mode === 'day' ? 'day' : 'night';
+  };
+  try { applyPrtsTheme(localStorage.getItem('fmux_theme') || 'night'); } catch {}
+  window.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'prts-theme') applyPrtsTheme(e.data.theme);
+  });
 })();
 </script>
 <style id="prts-agentboard-skin">
@@ -44,6 +51,30 @@ const AGENTBOARD_INJECT = `
     --green: #1fd18b !important;
     --red: #ff4757 !important;
   }
+  html[data-prts-theme="day"], html[data-prts-theme="day"] body {
+    --bg: #eceff4 !important;
+    --bg2: #f6f8fb !important;
+    --panel: #ffffff !important;
+    --card: #ffffff !important;
+    --card-bg: #ffffff !important;
+    --surface: #ffffff !important;
+    --border: rgba(17, 22, 31, 0.14) !important;
+    --line: rgba(17, 22, 31, 0.12) !important;
+    --text: #11161f !important;
+    --fg: #11161f !important;
+    --muted: #5a6578 !important;
+    --accent: #0077b6 !important;
+    --blue: #0077b6 !important;
+    background: #eceff4 !important;
+    background-image:
+      linear-gradient(rgba(17, 22, 31, 0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(17, 22, 31, 0.04) 1px, transparent 1px) !important;
+    color: #11161f !important;
+  }
+  html[data-prts-theme="day"] .card {
+    background: #ffffff !important;
+    box-shadow: inset 2px 0 0 rgba(0, 119, 182, 0.55) !important;
+  }
   ::-webkit-scrollbar { width: 5px; height: 5px; }
   ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); }
   body {
@@ -56,14 +87,14 @@ const AGENTBOARD_INJECT = `
   }
   .col, .column, .card, .modal, .sheet, .drawer, header, .topbar, .bar {
     border-radius: 0 !important;
-    border-color: rgba(255, 255, 255, 0.1) !important;
+    border-color: var(--line) !important;
   }
   .card {
-    background: #171b22 !important;
+    background: var(--card) !important;
     box-shadow: inset 2px 0 0 rgba(34, 187, 255, 0.45) !important;
   }
   .card:hover {
-    border-color: #f4f6f8 !important;
+    border-color: var(--accent) !important;
   }
   button, .btn {
     border-radius: 0 !important;

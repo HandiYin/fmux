@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { AgentboardBridge } from './agentboard.mjs';
 import { listTasks, readTaskLog } from './agy-tasks.mjs';
 import { createFeishuOidc, parseCookies } from './feishu-oidc.mjs';
+import { analyzeHighlights } from './highlight.mjs';
 import { findDialog } from './screen.mjs';
 import { adapters, lastTurns } from './transcript.mjs';
 import { log } from './util.mjs';
@@ -305,6 +306,12 @@ export function startWebServer({ router, cfg, getAppSecret, oidc: customOidc = n
 
       if (req.method === 'GET' && url.pathname === '/api/history') {
         sendJson(res, 200, { conversations: await router.api.history() });
+        return;
+      }
+
+      if (req.method === 'POST' && url.pathname === '/api/highlight') {
+        const body = await readJsonBody(req);
+        sendJson(res, 200, analyzeHighlights(body.text || '', { marksOnly: Boolean(body.marks_only) }));
         return;
       }
 

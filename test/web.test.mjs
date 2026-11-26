@@ -75,6 +75,19 @@ test('Web server enforces token auth, serves UI, APIs, agy task logs, and SSE st
     assert.equal(keyRes.status, 200);
     assert.deepEqual(h.tmux.keys.at(-1), ['%1', ['esc']]);
 
+    // Highlight API extracts result/problem/action/fact marks and TL;DR without hashing.
+    const hl = await (await fetch(`${base}/api/highlight`, {
+      method: 'POST',
+      headers: { ...auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: '全部 119 个测试已通过，没有发现异常。发现一个报错风险：超时未关闭句柄。请确认下一步是否重启服务？' + '补充说明。'.repeat(60),
+      }),
+    })).json();
+    assert.ok(hl.marks.some((m) => m.k === 'result'));
+    assert.ok(hl.marks.some((m) => m.k === 'problem'));
+    assert.ok(hl.marks.some((m) => m.k === 'action'));
+    assert.ok(hl.tldr.length > 0);
+
     // SSE pushes initial state immediately.
     const controller = new AbortController();
     const sseRes = await fetch(`${base}/api/events`, { headers: auth, signal: controller.signal });
