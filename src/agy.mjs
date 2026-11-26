@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { agyTranscriptPath, defaultAgyHome } from './agent-files.mjs';
 import { readTailSlice } from './jsonl.mjs';
@@ -253,4 +254,108 @@ export function createAgyLocator({ home = defaultAgyHome(), files = openFiles, a
     }
     return null;
   };
+}
+
+const DEFAULT_AGY_MODEL_LINES = [
+  ['gemini-4-neon-xhigh', 'Gemini 4 Neon (XHigh)'],
+  ['gemini-4-neon-high', 'Gemini 4 Neon (High)'],
+  ['gemini-4-neon-medium', 'Gemini 4 Neon (Medium)'],
+  ['gemini-4-neon-low', 'Gemini 4 Neon (Low)'],
+  ['gemini-4-carbon-high', 'Gemini 4 Carbon (High)'],
+  ['gemini-4-carbon-medium', 'Gemini 4 Carbon (Medium)'],
+  ['gemini-4-carbon-low', 'Gemini 4 Carbon (Low)'],
+  ['gemini-4-argon-high', 'Gemini 4 Argon (High)'],
+  ['gemini-4-argon-medium', 'Gemini 4 Argon (Medium)'],
+  ['gemini-4-argon-low', 'Gemini 4 Argon (Low)'],
+  ['gemini-4-hydrogen-xhigh', 'Gemini 4 Hydrogen (XHigh)'],
+  ['gemini-4-hydrogen-high', 'Gemini 4 Hydrogen (High)'],
+  ['gemini-4-hydrogen-medium', 'Gemini 4 Hydrogen (Medium)'],
+  ['gemini-4-hydrogen-low', 'Gemini 4 Hydrogen (Low)'],
+  ['gemini-pro-orchestrator-neon', 'Orchestrator (Neon)'],
+  ['gemini-pro-orchestrator', 'Orchestrator (Carbon)'],
+  ['gemini-pro-orchestrator-argon', 'Orchestrator (Argon)'],
+  ['gemini-3.8-flash-high', 'Gemini 3.8 Flash (High)'],
+  ['gemini-3.8-flash-medium', 'Gemini 3.8 Flash (Medium)'],
+  ['gemini-3.8-flash-low', 'Gemini 3.8 Flash (Low)'],
+  ['claude-opus-5-5-high', 'Claude Opus 5.5 (High)'],
+  ['claude-opus-5-5-medium', 'Claude Opus 5.5 (Medium)'],
+  ['claude-opus-5-5-low', 'Claude Opus 5.5 (Low)'],
+  ['claude-sonnet-5-5-high', 'Claude Sonnet 5.5 (High)'],
+  ['claude-sonnet-5-5-medium', 'Claude Sonnet 5.5 (Medium)'],
+  ['claude-sonnet-5-5-low', 'Claude Sonnet 5.5 (Low)'],
+  ['gpt-oss-120b-medium', 'GPT-OSS 120B (Medium)'],
+];
+
+function buildAgyModelEntry(id, label) {
+  const m = String(label || '').match(/^(.+?)\s+\((Low|Medium|High|XHigh|Max)\)$/i);
+  if (m) {
+    return { id, label: label.trim(), family: m[1].trim(), effort: m[2].toLowerCase() };
+  }
+  const idEff = String(id || '').match(/-(low|medium|high|xhigh|max)$/i);
+  return { id, label: label.trim(), family: label.trim(), effort: idEff ? idEff[1].toLowerCase() : '' };
+}
+
+export function parseAgyModelsOutput(raw) {
+  const clean = String(raw || '').replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\r/g, '\n');
+  const seen = new Map();
+  for (const line of clean.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || /fetching available models/i.test(trimmed)) continue;
+    const m = trimmed.match(/^([a-z0-9][a-z0-9._-]{2,})\s{2,}(.+?)\s*$/i);
+    if (!m) continue;
+    seen.set(m[1], buildAgyModelEntry(m[1], m[2]));
+  }
+  return [...seen.values()];
+}
+
+export const DEFAULT_AGY_MODELS = DEFAULT_AGY_MODEL_LINES.map(([id, label]) => buildAgyModelEntry(id, label));
+
+let cachedAgyModels = null;
+let cachedAgyModelsAt = 0;
+
+export async function listAgyModels({ force = false, execImpl = execFile } = {}) {
+  if (!force && cachedAgyModels && Date.now() - cachedAgyModelsAt < 10 * 60 * 1000) {
+    return cachedAgyModels;
+  }
+  const parsed = await new Promise((resolve) => {
+    execImpl('agy', ['models'], {
+      timeout: 6000,
+      env: { ...process.env, PATH: `${process.env.HOME || ''}/.local/bin:${process.env.PATH || ''}` },
+    }, (err, stdout) => {
+      if (err) return resolve([]);
+      resolve(parseAgyModelsOutput(stdout));
+    });
+  });
+  cachedAgyModels = parsed.length ? parsed : DEFAULT_AGY_MODELS;
+  cachedAgyModelsAt = Date.now();
+  return cachedAgyModels;
+}
+
+// Parse live model & reasoning effort from the bottom status line of an `agy` tmux pane, e.g.:
+//   "? for shortcuts                                         Gemini 4 Carbon · high"
+//   "esc to cancel                                           Gemini 4 Neon · xhigh"
+//   "? for shortcuts                                         Orchestrator (Carbon)"
+export function parseAgyFooter(screen) {
+  const lines = String(screen || '').split('\n').map((l) => l.trimEnd()).filter(Boolean).slice(-5);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    const m = line.match(/(?:(?:\?\s+for\s+shortcuts|esc\s+to\s+cancel).*?\s{2,}|\s{6,})([A-Za-z][A-Za-z0-9 .()+-]{2,48}?)(?:\s*·\s*(low|medium|high|xhigh|max))?\s*$/i);
+    if (!m) continue;
+    const family = m[1].trim();
+    if (/^(for shortcuts|to cancel|ctrl\+|shift\+)/i.test(family)) continue;
+    const effort = m[2] ? m[2].toLowerCase() : '';
+    return { family, effort, display: effort ? `${family} · ${effort}` : family };
+  }
+  return null;
+}
+
+export function inferEffortFromModel(model) {
+  const s = String(model || '').trim();
+  const dot = s.match(/·\s*(low|medium|high|xhigh|max)\s*$/i);
+  if (dot) return dot[1].toLowerCase();
+  const paren = s.match(/\((low|medium|high|xhigh|max)\)\s*$/i);
+  if (paren) return paren[1].toLowerCase();
+  const dash = s.match(/-(low|medium|high|xhigh|max)$/i);
+  if (dash) return dash[1].toLowerCase();
+  return '';
 }

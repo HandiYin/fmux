@@ -157,12 +157,12 @@
   html.has-wallpaper .ops-view { position: relative; z-index: 1; }
   html.has-wallpaper aside { background: rgba(13, 16, 22, 0.68); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
   html.has-wallpaper header { background: rgba(16, 19, 26, 0.78); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
-  html.has-wallpaper .ws-header, html.has-wallpaper .composer { background: rgba(16, 20, 27, 0.72); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+  html.has-wallpaper .ws-header, html.has-wallpaper .composer, html.has-wallpaper .model-bar { background: rgba(16, 20, 27, 0.72); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
   html.has-wallpaper .hl-bar { background: rgba(11, 14, 19, 0.68); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
   html.has-wallpaper .msg-bot-wrap, html.has-wallpaper .op-card, html.has-wallpaper .kpi-box { background: rgba(18, 22, 30, 0.76); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
   html[data-theme="day"].has-wallpaper aside { background: rgba(244, 247, 251, 0.72); }
   html[data-theme="day"].has-wallpaper header { background: rgba(255, 255, 255, 0.8); }
-  html[data-theme="day"].has-wallpaper .ws-header, html[data-theme="day"].has-wallpaper .composer { background: rgba(250, 252, 255, 0.76); }
+  html[data-theme="day"].has-wallpaper .ws-header, html[data-theme="day"].has-wallpaper .composer, html[data-theme="day"].has-wallpaper .model-bar { background: rgba(250, 252, 255, 0.76); }
   html[data-theme="day"].has-wallpaper .hl-bar { background: rgba(235, 240, 247, 0.74); }
   html[data-theme="day"].has-wallpaper .msg-bot-wrap, html[data-theme="day"].has-wallpaper .op-card, html[data-theme="day"].has-wallpaper .kpi-box { background: rgba(255, 255, 255, 0.8); }
   .wp-dialog { width: min(600px, 94vw); max-height: 92vh; overflow-y: auto; }
@@ -689,10 +689,48 @@
   .terminal-box { background: var(--code-bg); color: var(--code-fg); padding: 14px 16px; font-family: var(--mono); font-size: 12.5px; line-height: 1.55; overflow: auto; white-space: pre-wrap; word-break: break-all; min-height: 240px; max-height: 54vh; margin: 0; }
   .keybar { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; background: var(--bg-rail); border-top: 1px solid var(--line); }
 
-  /* ---- Composer ---- */
+  /* ---- Model & Thinking Effort Bar + Composer ---- */
+  .model-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+    padding: 7px 20px; background: var(--bg-rail); border-top: 1px solid var(--line-strong);
+    font-family: var(--mono); font-size: 10.5px; position: relative; z-index: 2;
+  }
+  .model-bar.busy { opacity: 0.55; }
+  .model-bar-left { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+  .model-pick {
+    display: inline-flex; align-items: center; gap: 7px; max-width: 100%;
+    padding: 4px 10px; border: 1px solid var(--line-strong); background: var(--panel-2); color: var(--ink);
+    font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.05em; cursor: pointer;
+  }
+  .model-pick:hover:not(:disabled) { border-color: var(--cyan); color: var(--cyan); }
+  .model-pick:disabled { cursor: not-allowed; }
+  .model-pick .mp-dot { color: var(--cyan); font-size: 10px; }
+  .model-pick .mp-caret { color: var(--muted); font-size: 10px; }
+  .effort-wrap { display: inline-flex; align-items: center; gap: 6px; }
+  .eff-lbl { font-size: 9.5px; letter-spacing: 0.14em; color: var(--muted); }
+  .effort-group { display: inline-flex; border: 1px solid var(--line-strong); background: var(--bg); }
+  .eff-btn {
+    border: 0; border-right: 1px solid var(--line); background: transparent; color: var(--muted);
+    font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+    padding: 4px 9px; cursor: pointer; transition: all 0.12s;
+  }
+  .eff-btn:last-child { border-right: 0; }
+  .eff-btn:hover:not(:disabled):not(.active) { color: var(--ink); background: var(--panel-2); }
+  .eff-btn.active { background: var(--cyan); color: #fff; }
+  .eff-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+  .model-msg { font-size: 10px; color: var(--cyan); letter-spacing: 0.06em; margin-left: auto; }
+  .model-dialog { width: min(620px, 94vw); max-height: 90vh; overflow-y: auto; }
+  .model-list { display: flex; flex-direction: column; gap: 6px; max-height: 52vh; overflow-y: auto; margin-bottom: 12px; padding-right: 2px; }
+  .model-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+    padding: 8px 11px; border: 1px solid var(--line); background: var(--bg-rail);
+  }
+  .model-row.current { border-color: var(--cyan); background: var(--cyan-dim); }
+  .model-fam { font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--ink); }
+  .model-variants { display: flex; gap: 5px; flex-wrap: wrap; }
   .composer {
     display: flex; align-items: flex-end; gap: 10px;
-    padding: 12px 20px; background: var(--bg-elev); border-top: 1px solid var(--line-strong);
+    padding: 10px 20px; background: var(--bg-elev); border-top: 1px solid var(--line);
     padding-bottom: max(12px, env(safe-area-inset-bottom)); position: relative; z-index: 2;
   }
   .composer-box { flex: 1; display: flex; align-items: center; background: var(--bg); border: 1px solid var(--line-strong); padding: 2px 12px; }
@@ -827,6 +865,12 @@
     .op-code { font-size: 12.5px; word-break: break-word; }
 
     /* Composer: 16px prevents iOS Safari auto-zoom on focus! */
+    .model-bar { padding: 6px 10px; gap: 6px; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
+    .model-bar::-webkit-scrollbar { display: none; }
+    .model-bar-left { flex-wrap: nowrap; gap: 6px; flex-shrink: 0; }
+    .eff-lbl { display: none; }
+    .model-pick { padding: 4px 8px; font-size: 10px; white-space: nowrap; }
+    .eff-btn { padding: 4px 7px; font-size: 9.5px; }
     .composer { padding: 8px 10px max(10px, env(safe-area-inset-bottom)); gap: 7px; max-width: 100%; }
     .composer-box { padding: 2px 9px; min-width: 0; }
     .composer textarea { font-size: 16px; min-height: 36px; padding: 7px 0; min-width: 0; }
@@ -954,6 +998,26 @@
       <div id="panel" class="panel">
         <div class="empty"><strong>PRTS TERMINAL READY</strong>SELECT AN AGENT UNIT FROM THE ROSTER</div>
       </div>
+    </div>
+
+    <div id="modelBar" class="model-bar" style="display:none">
+      <div class="model-bar-left">
+        <button id="modelPickBtn" type="button" class="model-pick" title="点击切换模型与思考强度">
+          <span class="mp-dot">◆</span>
+          <span id="modelPickText">MODEL</span>
+          <span class="mp-caret">▾</span>
+        </button>
+        <div id="effortWrap" class="effort-wrap">
+          <span class="eff-lbl">THINKING</span>
+          <div id="effortGroup" class="effort-group">
+            <button type="button" class="eff-btn" data-eff="low">LOW</button>
+            <button type="button" class="eff-btn" data-eff="medium">MED</button>
+            <button type="button" class="eff-btn" data-eff="high">HIGH</button>
+            <button type="button" class="eff-btn" data-eff="xhigh">XHIGH</button>
+          </div>
+        </div>
+      </div>
+      <span id="modelSwitchMsg" class="model-msg"></span>
     </div>
 
     <form id="composer" class="composer" style="display:none">
@@ -1218,6 +1282,37 @@
   </div>
 </dialog>
 
+<!-- Modal: Switch Model & Reasoning Effort -->
+<dialog id="modelDialog" class="model-dialog">
+  <div class="modal-stripe"></div>
+  <div class="modal-body">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">
+      <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.2em;color:var(--cyan)">PRTS // MODEL &amp; REASONING EFFORT</span>
+      <button id="refreshModelsBtn" type="button" class="btn xs ghost">SYNC MODELS</button>
+    </div>
+    <h3 id="modelDialogTitle" style="margin:0 0 12px;font-size:17px">切换模型与思考强度</h3>
+    <div id="modelList" class="model-list"></div>
+    <form id="customModelForm" style="display:flex;gap:8px;align-items:flex-end;border-top:1px solid var(--line);padding-top:12px">
+      <label class="field" style="flex:1;margin:0">CUSTOM MODEL ID
+        <input id="customModelInput" placeholder="例如 gemini-4-neon-xhigh / deepseek-reasoner / claude-opus-4-6" />
+      </label>
+      <label class="field" id="customEffortWrap" style="width:110px;margin:0">EFFORT
+        <select id="customEffortSelect">
+          <option value="">KEEP</option>
+          <option value="low">LOW</option>
+          <option value="medium">MEDIUM</option>
+          <option value="high">HIGH</option>
+          <option value="xhigh">XHIGH</option>
+        </select>
+      </label>
+      <button type="submit" class="btn solid">APPLY</button>
+    </form>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px">
+      <button type="button" class="btn ghost" onclick="document.getElementById('modelDialog').close()">CLOSE</button>
+    </div>
+  </div>
+</dialog>
+
 <script>
 const STATUS_LABEL = { working: 'RUNNING', background: 'ASYNC', blocked: 'CONFIRM', idle: 'READY', shell: 'SHELL' };
 const KIND_LABEL = { agy: 'AGY', dsh: 'DSH', claude: 'CLAUDE', codex: 'CODEX', pi: 'PI', shell: 'SHELL' };
@@ -1233,6 +1328,7 @@ const state = {
   selectedKey: null, mode: 'sessions', tab: 'chat', lastTab: 'chat', gpuClusterFilter: 'all', selectedTaskId: null,
   lastChatSig: '', lastChatKey: '', boostPollUntil: 0, pendingSend: null, stopNotice: null,
   stoppedKeys: new Map(), lastTurnCount: new Map(), sessionCache: new Map(), lastWsFetchAt: 0,
+  modelCatalog: null, switchingModel: false, modelFlash: '', modelFlashAt: 0,
   cornerCollapsed: false, cornerExpandedTaskId: null,
   theme: (() => { try { return localStorage.getItem('fmux_theme') || 'night'; } catch { return 'night'; } })(),
   wp: {
@@ -2392,12 +2488,161 @@ function paintTerm(s, data, { forceScroll = false } = {}) {
 
 let wsRenderSeq = 0;
 
+async function ensureModelCatalog(force = false) {
+  if (state.modelCatalog && !force) return state.modelCatalog;
+  try {
+    state.modelCatalog = await api(`/api/models${force ? '?refresh=1' : ''}`);
+  } catch {
+    state.modelCatalog = { agy: [], presets: {}, efforts: ['low', 'medium', 'high', 'xhigh'] };
+  }
+  return state.modelCatalog;
+}
+
+function groupAgyFamilies(list = []) {
+  const map = new Map();
+  for (const item of list) {
+    let g = map.get(item.family);
+    if (!g) { g = { family: item.family, variants: new Map(), rawId: item.id }; map.set(item.family, g); }
+    if (item.effort) g.variants.set(item.effort, item.id);
+    else g.rawId = item.id;
+  }
+  return [...map.values()];
+}
+
+function resolveCurrentAgyFamily(s) {
+  const agyList = state.modelCatalog?.agy || [];
+  if (!agyList.length || !s) return null;
+  const raw = String(s.model || '').toLowerCase();
+  const fam = String(s.modelFamily || '').toLowerCase();
+  const exact = agyList.find((m) => m.id.toLowerCase() === raw || m.label.toLowerCase() === raw);
+  if (exact) return groupAgyFamilies(agyList).find((g) => g.family === exact.family) || null;
+  if (fam) {
+    const byFam = groupAgyFamilies(agyList).find((g) => g.family.toLowerCase() === fam);
+    if (byFam) return byFam;
+  }
+  const stripped = raw.replace(/\s*·\s*(low|medium|high|xhigh|max)\s*$/i, '').trim();
+  if (stripped) {
+    return groupAgyFamilies(agyList).find((g) => g.family.toLowerCase() === stripped) || null;
+  }
+  return null;
+}
+
+function renderModelBar(s) {
+  const bar = $('modelBar');
+  if (!s || s.kind === 'shell') {
+    bar.style.display = 'none';
+    return;
+  }
+  bar.style.display = 'flex';
+  const busy = s.status === 'working' || state.switchingModel;
+  bar.classList.toggle('busy', busy);
+  $('modelPickBtn').disabled = busy;
+
+  const agyFam = s.kind === 'agy' ? resolveCurrentAgyFamily(s) : null;
+  const inferredEff = (String(s.model || '').match(/(?:·\s*|-|\()(low|medium|high|xhigh|max)\)?\s*$/i)?.[1] || '').toLowerCase();
+  const curEffort = String(s.effort || inferredEff).toLowerCase();
+  const displayModel = agyFam?.family || s.modelFamily || (s.model ? s.model.replace(/\s*·\s*(low|medium|high|xhigh|max)\s*$/i, '') : '') || `${(KIND_LABEL[s.kind] || s.kind).toUpperCase()} MODEL`;
+  if ($('modelPickText').textContent !== displayModel) $('modelPickText').textContent = displayModel;
+
+  const supportsEffort = s.kind === 'agy' || s.kind === 'dsh' || s.kind === 'claude';
+  $('effortWrap').style.display = supportsEffort ? 'inline-flex' : 'none';
+  if (supportsEffort) {
+    $('effortGroup').querySelectorAll('.eff-btn').forEach((btn) => {
+      const eff = btn.dataset.eff;
+      const allowed = agyFam ? agyFam.variants.has(eff) : true;
+      btn.disabled = busy || !allowed;
+      btn.classList.toggle('active', curEffort === eff);
+    });
+  }
+
+  if (state.modelFlash && Date.now() - state.modelFlashAt > 3500) state.modelFlash = '';
+  $('modelSwitchMsg').textContent = state.switchingModel ? 'SWITCHING…' : state.modelFlash;
+}
+
+async function applyModelSwitch({ model = '', effort = '', label = '' } = {}) {
+  const s = selectedSession();
+  if (!s || state.switchingModel) return;
+  if (s.status === 'working') {
+    alert('当前会话正在思考/生成中，请先等待结束或点击 STOP 后再切换模型与思考强度。');
+    return;
+  }
+  state.switchingModel = true;
+  renderModelBar(s);
+  try {
+    const res = await api(`/api/session/${encodeURIComponent(s.key)}/model`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, effort }),
+    });
+    if (res.model) s.model = res.model;
+    if (res.modelFamily !== undefined) s.modelFamily = res.modelFamily;
+    if (res.effort !== undefined) s.effort = res.effort;
+    state.modelFlash = `✓ ${label || res.model || effort.toUpperCase()}`;
+    state.modelFlashAt = Date.now();
+    setTimeout(() => renderModelBar(selectedSession()), 3600);
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    state.switchingModel = false;
+    renderSessions();
+    renderModelBar(selectedSession());
+  }
+}
+
+async function openModelDialog(forceRefresh = false) {
+  const s = selectedSession();
+  if (!s || s.kind === 'shell') return;
+  $('modelDialogTitle').textContent = `切换模型与思考强度 // ${s.name}`;
+  const listEl = $('modelList');
+  listEl.innerHTML = '<div class="empty" style="padding:18px">LOADING MODELS…</div>';
+  if (!$('modelDialog').open) $('modelDialog').showModal();
+  const cat = await ensureModelCatalog(forceRefresh);
+  const inferredEff = (String(s.model || '').match(/(?:·\s*|-|\()(low|medium|high|xhigh|max)\)?\s*$/i)?.[1] || '').toLowerCase();
+  const curEffort = String(s.effort || inferredEff).toLowerCase();
+  const EFF_LABEL = { low: 'LOW', medium: 'MED', high: 'HIGH', xhigh: 'XHIGH', max: 'MAX' };
+
+  if (s.kind === 'agy') {
+    const curFam = resolveCurrentAgyFamily(s)?.family || '';
+    const groups = groupAgyFamilies(cat.agy || []);
+    listEl.innerHTML = groups.map((g) => {
+      const isCur = g.family === curFam || String(s.model || '').toLowerCase() === g.rawId.toLowerCase();
+      let btns = '';
+      if (g.variants.size) {
+        btns = ['low', 'medium', 'high', 'xhigh'].filter((e) => g.variants.has(e)).map((e) => {
+          const vid = g.variants.get(e);
+          const act = isCur && curEffort === e;
+          return `<button type="button" class="btn xs ${act ? 'cyan' : 'ghost'}" data-mid="${esc(vid)}" data-mlbl="${esc(`${g.family} · ${e}`)}">${EFF_LABEL[e] || e.toUpperCase()}</button>`;
+        }).join('');
+      } else {
+        btns = `<button type="button" class="btn xs ${isCur ? 'cyan' : 'ghost'}" data-mid="${esc(g.rawId)}" data-mlbl="${esc(g.family)}">${isCur ? 'ACTIVE' : 'SELECT'}</button>`;
+      }
+      return `<div class="model-row${isCur ? ' current' : ''}"><span class="model-fam">${esc(g.family)}</span><div class="model-variants">${btns}</div></div>`;
+    }).join('');
+  } else {
+    const presets = cat.presets?.[s.kind] || [];
+    listEl.innerHTML = presets.length
+      ? presets.map((id) => {
+          const isCur = String(s.model || '').toLowerCase() === id.toLowerCase();
+          return `<div class="model-row${isCur ? ' current' : ''}"><span class="model-fam">${esc(id)}</span><div class="model-variants"><button type="button" class="btn xs ${isCur ? 'cyan' : 'ghost'}" data-mid="${esc(id)}" data-mlbl="${esc(id)}">${isCur ? 'ACTIVE' : 'SELECT'}</button></div></div>`;
+        }).join('')
+      : '<div class="empty" style="padding:14px">在下方输入要切换的模型名称</div>';
+  }
+  $('customEffortWrap').style.display = (s.kind === 'agy' || s.kind === 'dsh' || s.kind === 'claude') ? '' : 'none';
+  listEl.querySelectorAll('[data-mid]').forEach((btn) => {
+    btn.onclick = async () => {
+      $('modelDialog').close();
+      await applyModelSwitch({ model: btn.dataset.mid, label: btn.dataset.mlbl });
+    };
+  });
+}
+
 async function renderWorkspace({ forceScroll = false } = {}) {
   if (state.mode !== 'sessions') return;
   const s = selectedSession();
   $('wsBar').style.display = s ? '' : 'none';
   $('composer').style.display = s ? '' : 'none';
   if (!s) {
+    $('modelBar').style.display = 'none';
     $('hlBar').style.display = 'none';
     $('wsWatermark').textContent = 'PRTS';
     $('cornerBg').style.display = 'none';
@@ -2420,6 +2665,8 @@ async function renderWorkspace({ forceScroll = false } = {}) {
   $('taskBadge').textContent = String(count);
   $('taskBadge').style.display = count ? '' : 'none';
   syncStopButton(s);
+  renderModelBar(s);
+  if (s.kind === 'agy' && !state.modelCatalog) ensureModelCatalog().then(() => renderModelBar(selectedSession()));
   document.querySelectorAll('#wsSubtabs .subtab').forEach((b) => b.classList.toggle('active', b.dataset.tab === state.tab));
 
   // Instant 0ms paint from sessionCache on tab/session switch so UI never blinks waiting for network!
@@ -2722,6 +2969,31 @@ document.querySelectorAll('#wsSubtabs .subtab').forEach((b) => {
 });
 $('escBtn').onclick = () => sendKeys(['esc']);
 $('stopBtn').onclick = () => { if (!$('stopBtn').disabled) stopSession(); };
+$('modelPickBtn').onclick = () => openModelDialog(false);
+$('wsModel').style.cursor = 'pointer';
+$('wsModel').title = '点击切换模型与思考强度';
+$('wsModel').onclick = () => openModelDialog(false);
+$('refreshModelsBtn').onclick = () => openModelDialog(true);
+$('effortGroup').onclick = (e) => {
+  const btn = e.target.closest('.eff-btn');
+  if (!btn || btn.disabled) return;
+  const s = selectedSession();
+  if (!s) return;
+  const eff = btn.dataset.eff;
+  const agyFam = s.kind === 'agy' ? resolveCurrentAgyFamily(s) : null;
+  const variantId = agyFam?.variants.get(eff) || '';
+  if (variantId) applyModelSwitch({ model: variantId, label: `${agyFam.family} · ${eff}` });
+  else applyModelSwitch({ effort: eff, label: `EFFORT · ${eff.toUpperCase()}` });
+};
+$('customModelForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const model = $('customModelInput').value.trim();
+  const effort = $('customEffortSelect').value;
+  if (!model && !effort) return;
+  $('customModelInput').value = '';
+  $('modelDialog').close();
+  await applyModelSwitch({ model, effort, label: [model, effort].filter(Boolean).join(' · ') });
+};
 $('killBtn').onclick = async () => { const s = selectedSession(); if (s && confirm(`确认终止 tmux 会话 ${s.name}？`)) await api(`/api/session/${encodeURIComponent(s.key)}/kill`, { method: 'POST' }); };
 $('logoutBtn').onclick = async () => { await fetch('/auth/logout', { method: 'POST' }); location.reload(); };
 

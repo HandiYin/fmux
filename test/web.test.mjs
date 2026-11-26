@@ -327,4 +327,67 @@ test('agy task tracking rejects foreign session task IDs and clears tasks on ser
   // Also verify Enter does NOT submit composer in ui.html (TRANSMIT click required).
   const uiHtml = fs.readFileSync(path.resolve('src/web/ui.html'), 'utf8');
   assert.doesNotMatch(uiHtml, /e\.key === 'Enter' && !e\.shiftKey/);
+  assert.match(uiHtml, /id="modelBar"/);
+  assert.match(uiHtml, /id="modelDialog"/);
+});
+
+test('agy model catalog, live footer parser, and WebMUX /model & /effort switching API work end-to-end', async () => {
+  const { parseAgyFooter, parseAgyModelsOutput } = await import('../src/agy.mjs');
+
+  assert.deepEqual(
+    parseAgyFooter('>\n────\n? for shortcuts                                                    Gemini 4 Carbon · high'),
+    { family: 'Gemini 4 Carbon', effort: 'high', display: 'Gemini 4 Carbon · high' },
+  );
+  assert.deepEqual(
+    parseAgyFooter('esc to cancel                                                      Gemini 4 Neon · xhigh'),
+    { family: 'Gemini 4 Neon', effort: 'xhigh', display: 'Gemini 4 Neon · xhigh' },
+  );
+  assert.deepEqual(
+    parseAgyFooter('? for shortcuts                                                    Orchestrator (Neon)'),
+    { family: 'Orchestrator (Neon)', effort: '', display: 'Orchestrator (Neon)' },
+  );
+
+  const parsed = parseAgyModelsOutput('\x1b[2K⠋ Fetching available models...\rgemini-4-neon-xhigh    Gemini 4 Neon (XHigh)\ngemini-pro-orchestrator   Orchestrator (Carbon)\n');
+  assert.deepEqual(parsed, [
+    { id: 'gemini-4-neon-xhigh', label: 'Gemini 4 Neon (XHigh)', family: 'Gemini 4 Neon', effort: 'xhigh' },
+    { id: 'gemini-pro-orchestrator', label: 'Orchestrator (Carbon)', family: 'Orchestrator (Carbon)', effort: '' },
+  ]);
+
+  const s = session({ kind: 'agy', status: 'idle', model: 'Gemini 4 Carbon · high' });
+  const h = harness({ sessions: [s] });
+  h.tmux.screens.set('%1', '>\n────\n? for shortcuts                                                    Gemini 4 Neon · xhigh');
+  h.cfg.web = { enabled: true, host: '127.0.0.1', port: 0, token: 'tok' };
+  h.cfg.highlight = { enabled: false };
+
+  const web = await startWebServer({ router: h.router, cfg: h.cfg });
+  const base = `http://127.0.0.1:${web.port}`;
+  const headers = { Authorization: 'Bearer tok', 'Content-Type': 'application/json' };
+
+  try {
+    const cat = await (await fetch(`${base}/api/models`, { headers })).json();
+    assert.ok(Array.isArray(cat.agy) && cat.agy.length > 5);
+
+    // Switching to an agy variant sends a single `/model <id>` command and refreshes live footer model/effort.
+    const sw1 = await (await fetch(`${base}/api/session/%251/model`, {
+      method: 'POST', headers, body: JSON.stringify({ model: 'gemini-4-neon-xhigh', effort: 'xhigh' }),
+    })).json();
+    assert.equal(sw1.ok, true);
+    assert.deepEqual(h.tmux.sent.at(-1), ['%1', '/model gemini-4-neon-xhigh']);
+
+    // Switching effort alone sends `/effort <level>`.
+    const sw2 = await (await fetch(`${base}/api/session/%251/model`, {
+      method: 'POST', headers, body: JSON.stringify({ effort: 'medium' }),
+    })).json();
+    assert.equal(sw2.ok, true);
+    assert.deepEqual(h.tmux.sent.at(-1), ['%1', '/effort medium']);
+
+    // Rejects switching while session is actively working.
+    s.status = 'working';
+    const busyRes = await fetch(`${base}/api/session/%251/model`, {
+      method: 'POST', headers, body: JSON.stringify({ effort: 'low' }),
+    });
+    assert.equal(busyRes.status, 409);
+  } finally {
+    await web.close();
+  }
 });

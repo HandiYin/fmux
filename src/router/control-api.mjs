@@ -6,7 +6,7 @@ export function createControlApi(router) {
   const summary = (s) => ({
     name: s.name, key: s.key, unitId: s.unitId || 0, kind: s.kind, status: s.status,
     since: new Date(s.statusSince).toISOString(), stoppedAt: s.stoppedAt || 0, note: s.note,
-    cwd: s.cwd, title: s.title, model: s.model || '', attached: router.attachedKey() === s.key,
+    cwd: s.cwd, title: s.title, model: s.model || '', modelFamily: s.modelFamily || '', effort: s.effort || '', attached: router.attachedKey() === s.key,
     runningTasks: runningTasks(s).length,
     tasks: listTasks(s).slice(0, 10).map((t) => ({
       id: t.id, shortId: t.shortId, kind: t.kind, status: t.status, description: t.description,

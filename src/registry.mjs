@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { inferEffortFromModel, parseAgyFooter } from './agy.mjs';
 import { applyTaskEvent, convIdFromTranscript, runningTasks, seedTasksFromTranscript, taskNote } from './agy-tasks.mjs';
 import { CodexBindingStore } from './codex-bindings.mjs';
 import { pick } from './match.mjs';
@@ -159,7 +160,7 @@ export class Registry extends EventEmitter {
           key: pane.paneId, unitId: this.unitIds.get(pane.paneId), kind: null, agentPid: null, status: null, statusSince: Date.now(),
           note: '', dialog: null, lastText: '', lastPrompt: '', turn: null, transcript: null,
           tail: null, pending: null, bindingLostAt: 0, agentSeenAt: 0, firstSeenAt: Date.now(),
-          stoppedAt: 0, model: '', tasks: new Map(),
+          stoppedAt: 0, model: '', modelFamily: '', effort: '', tasks: new Map(),
         };
         this.sessions.set(pane.paneId, session);
       } else {
@@ -178,7 +179,7 @@ export class Registry extends EventEmitter {
       this.sessions.delete(key);
       this.emit('removed', session);
     }
-    const signature = this.list().map((s) => [s.key, s.name, s.kind, s.status, s.note, s.title, s.lastText.slice(0, 80), runningTasks(s).length, s.tasks.size].join('\u0001')).join('\u0002');
+    const signature = this.list().map((s) => [s.key, s.name, s.kind, s.status, s.model, s.effort, s.note, s.title, s.lastText.slice(0, 80), runningTasks(s).length, s.tasks.size].join('\u0001')).join('\u0002');
     if (signature !== this.signature) {
       this.signature = signature;
       this.emit('changed');
@@ -210,6 +211,8 @@ export class Registry extends EventEmitter {
       s.bindingLostAt = 0;
       s.dialog = null;
       s.model = '';
+      s.modelFamily = '';
+      s.effort = '';
       s.tasks = new Map();
       if (!isNew) s.lastText = '';
     }
@@ -221,7 +224,14 @@ export class Registry extends EventEmitter {
 
     const detected = await this.detectStatus(pane, snap, kind, meta);
     let { status, note } = detected;
-    const { dialog } = detected;
+    const { dialog, footer } = detected;
+    if (footer) {
+      s.modelFamily = footer.family;
+      s.effort = footer.effort;
+      s.model = footer.display;
+    } else if (s.model && !s.effort) {
+      s.effort = inferEffortFromModel(s.model);
+    }
     // If a turn is actively emitting thoughts/tools in the transcript (e.g., agy running in another terminal
     // or silently executing tools), reflect `working` even if the tmux screen lacks a spinner — unless stopped.
     const activeSinceStop = !s.stoppedAt || (s.lastActivityAt && s.lastActivityAt > s.stoppedAt + 3000);
@@ -318,7 +328,8 @@ export class Registry extends EventEmitter {
     const screen = await this.tmux.capture(pane.paneId);
     const dialog = findDialog(screen);
     const status = dialog ? 'blocked' : looksWorking(screen) ? 'working' : 'idle';
-    return { status, note: '', dialog };
+    const footer = kind === 'agy' ? parseAgyFooter(screen) : null;
+    return { status, note: '', dialog, footer };
   }
 
   async followTranscript(s, kind, meta) {

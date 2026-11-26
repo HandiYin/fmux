@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { inferEffortFromModel, listAgyModels } from './agy.mjs';
 import { listTasks, readTaskLog } from './agy-tasks.mjs';
 import { createFeishuOidc, parseCookies } from './feishu-oidc.mjs';
 import { GpuRegistry } from './gpu.mjs';
@@ -397,6 +398,21 @@ export function startWebServer({
         return;
       }
 
+      if (req.method === 'GET' && url.pathname === '/api/models') {
+        const force = url.searchParams.get('refresh') === '1';
+        const agyModels = await listAgyModels({ force });
+        sendJson(res, 200, {
+          agy: agyModels,
+          efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+          presets: {
+            dsh: ['deepseek-chat', 'deepseek-reasoner'],
+            claude: ['claude-opus-4-6', 'claude-sonnet-4-6', 'opus', 'sonnet', 'haiku'],
+            codex: ['gpt-5-codex', 'o3', 'o4-mini'],
+          },
+        });
+        return;
+      }
+
       if (req.method === 'POST' && url.pathname === '/api/highlight') {
         const body = await readJsonBody(req);
         sendJson(res, 200, highlighter.request(body.text || '', { marksOnly: Boolean(body.marks_only) }));
@@ -538,6 +554,35 @@ export function startWebServer({
             selectedTaskId: selected?.id || null,
             log: selected ? readTaskLog(selected, { maxLines: lines }) : '',
           });
+          return;
+        }
+        if (req.method === 'POST' && action === 'model') {
+          if (session.kind === 'shell') return sendJson(res, 400, { error: 'shell 会话不支持切换模型' });
+          if (session.status === 'working') return sendJson(res, 409, { error: '当前会话正在思考/生成中，请先等待完成或点击 STOP 后再切换' });
+          const body = await readJsonBody(req);
+          const model = String(body.model || '').trim();
+          const effort = String(body.effort || '').trim().toLowerCase();
+          if (!model && !effort) return sendJson(res, 400, { error: 'model or effort required' });
+          if (model && !/^[A-Za-z0-9._:/-]+$/.test(model)) return sendJson(res, 400, { error: 'invalid model identifier' });
+          if (effort && !/^(low|medium|high|xhigh|max)$/.test(effort)) return sendJson(res, 400, { error: 'invalid effort level' });
+
+          if (model) {
+            await router.tmux.sendText(session.key, `/model ${model}`, { keys: true });
+            session.model = model;
+            const inferred = inferEffortFromModel(model);
+            if (inferred) session.effort = inferred;
+          }
+          const modelAlreadyHasEffort = model && effort && model.toLowerCase().endsWith(`-${effort}`);
+          if (effort && !modelAlreadyHasEffort) {
+            if (model) await new Promise((r) => setTimeout(r, 420));
+            await router.tmux.sendText(session.key, `/effort ${effort}`, { keys: true });
+            session.effort = effort;
+          }
+          router.touchAttached(session);
+          await new Promise((r) => setTimeout(r, 550));
+          await router.registry.poll().catch(() => {});
+          broadcast();
+          sendJson(res, 200, { ok: true, model: session.model, modelFamily: session.modelFamily, effort: session.effort });
           return;
         }
         if (req.method === 'POST' && action === 'send') {
