@@ -411,3 +411,53 @@ test('agy model catalog, live footer parser, and WebMUX /model & /effort switchi
     await web.close();
   }
 });
+
+test('agy session stays RUNNING without READY flip-flop across long thinking/tool steps until turn_end or STOP', async () => {
+  const { Registry } = await import('../src/registry.mjs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fmux-no-flip-'));
+  const trFile = path.join(dir, 'transcript_full.jsonl');
+  fs.writeFileSync(trFile, '');
+  const append = (row) => fs.appendFileSync(trFile, `${JSON.stringify(row)}\n`);
+
+  let dbOpen = false;
+  let screen = '? for shortcuts                                                    Gemini 4 Carbon · high';
+  const tmux = {
+    listPanes: async () => [{ sessionName: 'agy-1', windowIndex: 0, windowName: 'agy', paneIndex: 0, paneId: '%1', panePid: 200, command: 'agy', cwd: '/tmp', title: '', tty: '/dev/pts/1', clients: 0, activityAt: 1000, inMode: false, single: true }],
+    lastClientActivity: async () => 0,
+    capture: async () => screen,
+    sendKeys: async () => {},
+  };
+  const reg = new Registry({
+    tmux,
+    probe: {
+      snapshot: async () => ({ procs: new Map(), children: new Map() }),
+      findAgent: async () => ({ kind: 'agy', pid: 201 }),
+      readClaudeMeta: () => null,
+      locateTranscript: async () => trFile,
+      hasAgyActiveDb: async () => dbOpen,
+    },
+  });
+
+  await reg.poll();
+  const s = reg.sessions.get('%1');
+  assert.equal(s.status, 'idle');
+
+  // User submits a prompt and agy opens its conversation DB while thinking for 60s (even if screen briefly redraws without spinner!).
+  dbOpen = true;
+  append({ type: 'USER_INPUT', content: '<USER_REQUEST>\n深思考60秒并调工具\n</USER_REQUEST>' });
+  await reg.poll();
+  assert.equal(s.status, 'working');
+
+  // Simulate 5 polls where screen has no spinner (e.g. redraw / tool execution / tall input box): must NOT drop to idle!
+  for (let i = 0; i < 5; i++) {
+    await reg.poll();
+    assert.equal(s.status, 'working');
+  }
+
+  // Turn finishes: DB closes and final PLANNER_RESPONSE (no tools) arrives -> settles cleanly to idle after debounce.
+  dbOpen = false;
+  append({ type: 'PLANNER_RESPONSE', status: 'DONE', content: '已完成分析。' });
+  await reg.poll();
+  await reg.poll();
+  assert.equal(s.status, 'idle');
+});

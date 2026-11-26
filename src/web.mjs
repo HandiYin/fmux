@@ -592,7 +592,12 @@ export function startWebServer({
           if (!String(text).trim()) return sendJson(res, 400, { error: 'text is empty' });
           session.stoppedAt = 0;
           const sent = await router.deliver(session, String(text).trim());
-          setTimeout(() => router.registry.poll().catch(() => {}), 450);
+          if (sent && session.kind !== 'shell') {
+            session.sentAt = Date.now();
+            router.registry.commit?.(session, 'working');
+          }
+          setTimeout(() => router.registry.poll().then(() => broadcast()).catch(() => {}), 800);
+          setTimeout(() => router.registry.poll().then(() => broadcast()).catch(() => {}), 2200);
           broadcast();
           sendJson(res, sent ? 200 : 409, { ok: sent, blocked: !sent });
           return;

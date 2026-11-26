@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { inferEffortFromModel, parseAgyFooter, readAgyConversationTitle } from './agy.mjs';
+import { hasAgyActiveDb, inferEffortFromModel, parseAgyFooter, readAgyConversationTitle } from './agy.mjs';
 import { applyTaskEvent, convIdFromTranscript, runningTasks, seedTasksFromTranscript, taskNote } from './agy-tasks.mjs';
 import { CodexBindingStore } from './codex-bindings.mjs';
 import { pick } from './match.mjs';
@@ -46,7 +46,7 @@ export class Registry extends EventEmitter {
   constructor({ tmux = realTmux, intervalMs = 2000, hide = [], probe = {}, store = null } = {}) {
     super();
     this.tmux = tmux;
-    this.probe = { snapshot, findAgent, readClaudeMeta, locateTranscript, ...probe };
+    this.probe = { snapshot, findAgent, readClaudeMeta, locateTranscript, hasAgyActiveDb, ...probe };
     this.intervalMs = intervalMs;
     this.hide = new Set([...hide, HUB_SESSION]);
     this.codexBindings = new CodexBindingStore(store);
@@ -93,9 +93,11 @@ export class Registry extends EventEmitter {
   markStopped(s) {
     if (!s) return;
     s.stoppedAt = Date.now();
+    s.sentAt = 0;
     s.turn = null;
     s.lastActivityAt = 0;
     s.pending = null;
+    s.pendingAt = 0;
     if (s.status === 'working') {
       const next = runningTasks(s).length > 0 ? 'background' : 'idle';
       this.commit(s, next);
@@ -159,8 +161,8 @@ export class Registry extends EventEmitter {
         session = {
           key: pane.paneId, unitId: this.unitIds.get(pane.paneId), kind: null, agentPid: null, status: null, statusSince: Date.now(),
           note: '', dialog: null, lastText: '', lastPrompt: '', turn: null, transcript: null,
-          tail: null, pending: null, bindingLostAt: 0, agentSeenAt: 0, firstSeenAt: Date.now(),
-          stoppedAt: 0, model: '', modelFamily: '', effort: '', tasks: new Map(),
+          tail: null, pending: null, pendingAt: 0, bindingLostAt: 0, agentSeenAt: 0, firstSeenAt: Date.now(),
+          stoppedAt: 0, sentAt: 0, model: '', modelFamily: '', effort: '', tasks: new Map(),
         };
         this.sessions.set(pane.paneId, session);
       } else {
@@ -236,10 +238,24 @@ export class Registry extends EventEmitter {
     } else if (s.model && !s.effort) {
       s.effort = inferEffortFromModel(s.model);
     }
-    // If a turn is actively emitting thoughts/tools in the transcript (e.g., agy running in another terminal
-    // or silently executing tools), reflect `working` even if the tmux screen lacks a spinner — unless stopped.
+    // 1) Startup grace right after WebMUX/router delivers a prompt (prevents READY->RUNNING->READY dip).
     const activeSinceStop = !s.stoppedAt || (s.lastActivityAt && s.lastActivityAt > s.stoppedAt + 3000);
-    if (status === 'idle' && !sawTurnEnd && s.turn && s.lastActivityAt && activeSinceStop && Date.now() - s.lastActivityAt < 25000 && (s.turn.tools > 0 || s.turn.thinking)) {
+    const recentSend = s.sentAt && (!s.stoppedAt || s.sentAt > s.stoppedAt) && Date.now() - s.sentAt < 5000;
+    if (status === 'idle' && !sawTurnEnd && recentSend) {
+      status = 'working';
+    }
+    // 2) For `agy`, an open `conversations/<uuid>.db` FD means a turn is actively running in-process
+    //    even across 90s thinking steps or synchronous tool executions where the TUI briefly redraws.
+    if (status === 'idle' && kind === 'agy' && s.agentPid && (!s.stoppedAt || Date.now() - s.stoppedAt > 4000)) {
+      if (await this.probe.hasAgyActiveDb?.(s.agentPid)) {
+        status = 'working';
+        if (!note && s.turn?.lastTool) note = s.turn.lastTool;
+      }
+    }
+    // 3) Transcript-activity bridge: hold `working` across multi-step tool calls & long reasoning (up to 120s)
+    //    until `turn_end` arrives, unless an explicit status file (`claude` idle) or `markStopped` says otherwise.
+    const claudeExplicitIdle = kind === 'claude' && meta?.status === 'idle';
+    if (status === 'idle' && !claudeExplicitIdle && !sawTurnEnd && s.turn && s.lastActivityAt && activeSinceStop && Date.now() - s.lastActivityAt < 120000 && (s.turn.inProgress || s.turn.tools > 0 || s.turn.thinking)) {
       status = 'working';
       if (!note && s.turn.lastTool) note = s.turn.lastTool;
     }
@@ -253,14 +269,22 @@ export class Registry extends EventEmitter {
     s.note = note || (kind === 'codex' && !s.transcript ? '未定位到回复记录，请用 /rename 设置唯一会话名；可点「终端」查看回复。' : '');
     s.dialog = dialog;
 
+    const minHoldMs = this.timer ? 1500 : 0;
     if (status === s.status) {
       s.pending = null;
-    } else if (isNew || s.status === null || status === 'working' || s.pending === status) {
-      // Going to "working" shows at once; leaving it must hold for two polls, so a
-      // gap between two queued prompts does not read as a finished turn.
+      s.pendingAt = 0;
+    } else if (
+      isNew
+      || s.status === null
+      || status === 'working'
+      || (s.pending === status && Date.now() - (s.pendingAt || 0) >= minHoldMs)
+    ) {
+      // Going to "working" shows at once; leaving it must hold for two polls (and >=1.5s on live daemon),
+      // so a brief TUI redraw or gap between tool calls never flip-flops READY <-> RUNNING.
       this.commit(s, status, { silent: isNew, since: isNew ? Number(meta?.statusUpdatedAt) || 0 : 0 });
-    } else {
+    } else if (s.pending !== status) {
       s.pending = status;
+      s.pendingAt = Date.now();
     }
 
     // A reply that started and finished between two polls never showed as "working".
@@ -277,6 +301,10 @@ export class Registry extends EventEmitter {
       if (ev.type === 'user') {
         s.lastPrompt = ev.text;
         s.stoppedAt = 0;
+        s.turn ??= newTurn(s);
+        s.turn.prompt = ev.text;
+        s.turn.inProgress = true;
+        s.lastActivityAt = Date.now();
         continue;
       }
       if (ev.type === 'model') {
@@ -290,6 +318,8 @@ export class Registry extends EventEmitter {
       }
       if (ev.type === 'turn_end') {
         sawTurnEnd = true;
+        if (s.turn) s.turn.inProgress = false;
+        s.sentAt = 0;
         s.lastActivityAt = 0;
         continue;
       }
@@ -415,6 +445,7 @@ export class Registry extends EventEmitter {
     s.status = status;
     s.statusSince = since || Date.now();
     s.pending = null;
+    s.pendingAt = 0;
     if (status === 'working') {
       s.turn ??= { ...newTurn(s), startedAt: s.statusSince };
       s.turn.worked = true;

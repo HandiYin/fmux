@@ -257,6 +257,18 @@ export function createAgyLocator({ home = defaultAgyHome(), files = openFiles, a
   };
 }
 
+// While an `agy` turn is actively executing (including long thinking pauses and tool calls),
+// `agy` holds `conversations/<uuid>.db` open and closes it as soon as the turn finishes or cancels.
+export async function hasAgyActiveDb(pid, { files = openFiles } = {}) {
+  if (!pid) return false;
+  try {
+    const opened = await files(pid);
+    return opened.some((f) => CONV_DB_RE.test(f));
+  } catch {
+    return false;
+  }
+}
+
 const DEFAULT_AGY_MODEL_LINES = [
   ['gemini-4-neon-xhigh', 'Gemini 4 Neon (XHigh)'],
   ['gemini-4-neon-high', 'Gemini 4 Neon (High)'],
