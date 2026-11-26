@@ -67,7 +67,7 @@ test('every card is valid and stays under the size limit with very long content'
     cards.newSessionCard({ conversations: Array.from({ length: 15 }, (_, i) => ({ agent: i % 2 ? 'codex' : 'claude', id: `id-${i}`, title: long, cwd: `/home/u/${'d'.repeat(200)}`, updatedAt: Date.now() })) }),
     cards.conciergeCard({ state: 'working', text: long, tools: 3, lastTool: 'bash · ls', startedAt: Date.now() }),
     cards.conciergeCard({ state: 'done', text: '', tools: 0, startedAt: Date.now(), endedAt: Date.now(), error: 'boom' }),
-    cards.infoCard({ title: 't', text: 'x', buttons: [{ label: 'b', value: { a: 'dash' } }] }),
+    cards.infoCard({ title: 't', text: 'x', buttons: [{ label: 'b', value: { a: 'new.form' } }] }),
     cards.helpCard(),
     cards.stubCard(long),
   ]) check(card);

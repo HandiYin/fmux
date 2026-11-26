@@ -6,6 +6,9 @@ import { expandHome, sh } from './util.mjs';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const CONFIG_PATH = process.env.FMUX_CONFIG || path.join(os.homedir(), '.config', 'fmux', 'config.json');
+// Groups are closed with a chat id that cannot exist so only the owner's direct chat reaches the hub.
+export const CLOSED_GROUPS = ['oc_fmux_groups_closed'];
+export const feishuDomain = (tenant) => (tenant === 'lark' ? { domain: 'https://open.larksuite.com' } : {});
 
 const DEFAULTS = {
   app: { id: '', tenant: 'feishu', secret: null },
@@ -26,6 +29,10 @@ const DEFAULTS = {
     // Return to the dashboard after this many minutes without input, while the session is idle.
     // 0 keeps the attachment until the owner leaves explicitly.
     idleMinutes: 10,
+  },
+  live: {
+    // How long a session or terminal card keeps refreshing itself.
+    peekMinutes: 10,
   },
   // How a new session starts each agent. {name} is the tmux session name, {id} a conversation id.
   // `continue` resumes the latest conversation of the directory, `resume` a chosen one.

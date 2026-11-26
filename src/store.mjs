@@ -2,21 +2,25 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const MAX_MESSAGES = 400;
+const DEFAULTS = { chatId: '', attached: null, live: [], messages: [], transcripts: {} };
 
-// Small persistent state: which session the chat is attached to, the live dashboard
-// message, and which session each card we sent belongs to.
+// Small persistent state: owner chat, attached session, live cards, card->session map,
+// and confirmed Codex transcript offsets. Unknown legacy keys from older branches are ignored.
 export class Store {
   constructor(file) {
     this.file = file;
-    this.data = { chatId: '', attached: null, dash: null, messages: [] };
+    this.data = { ...DEFAULTS, live: [], messages: [], transcripts: {} };
     if (file && fs.existsSync(file)) {
       try {
-        this.data = { ...this.data, ...JSON.parse(fs.readFileSync(file, 'utf8')) };
+        const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+        for (const key of Object.keys(DEFAULTS)) {
+          if (parsed[key] !== undefined) this.data[key] = parsed[key];
+        }
       } catch {
         // A damaged state file only loses the attachment; start clean.
       }
     }
-    this.byMessage = new Map(this.data.messages);
+    this.byMessage = new Map(Array.isArray(this.data.messages) ? this.data.messages : []);
     this.timer = null;
   }
 

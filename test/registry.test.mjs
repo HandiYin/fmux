@@ -239,3 +239,16 @@ test('an agent that exits to the shell in the middle of a turn ends the turn', a
   assert.deepEqual(ended[0][1].texts, ['halfway']);
   assert.equal(registry.resolve('work').kind, 'shell');
 });
+
+test('Store drops unknown legacy keys when loading and flushing state', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fmux-store-'));
+  const file = path.join(dir, 'state.json');
+  fs.writeFileSync(file, JSON.stringify({ chatId: 'oc_1', attached: null, dash: { messageId: 'om_old' }, managedSessions: { a: 1 }, live: [], messages: [], transcripts: {} }));
+  const store = new Store(file);
+  assert.equal(store.get('chatId'), 'oc_1');
+  assert.equal(store.get('dash'), undefined);
+  assert.equal(store.get('managedSessions'), undefined);
+  store.flush();
+  const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.deepEqual(Object.keys(saved).sort(), ['attached', 'chatId', 'live', 'messages', 'transcripts']);
+});

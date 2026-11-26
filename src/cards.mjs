@@ -4,7 +4,7 @@
 // orange: waiting for the owner, red: error). Everything else is plain. A card carries
 // only the buttons that make sense in its state.
 import { compactScreen } from './screen.mjs';
-import { fmtClock, fmtDuration, oneLine, shortPath, truncate, truncateHead } from './util.mjs';
+import { fmtClock, fmtClockSec, fmtDuration, oneLine, shortPath, truncate, truncateHead } from './util.mjs';
 
 export const KIND_LABEL = { claude: 'Claude', codex: 'Codex', pi: 'pi', shell: 'shell' };
 
@@ -51,7 +51,7 @@ export function light(s, now = Date.now()) {
   return { dot: '⚪', label: '已结束', color: 'neutral', detail: [`${fmtClock(s.statusSince)} 结束`, s.note].filter(Boolean).join(' · ') };
 }
 
-export function statusText(s, now = Date.now()) {
+function statusText(s, now = Date.now()) {
   const l = light(s, now);
   return [l.label, l.detail].filter(Boolean).join(' · ');
 }
@@ -66,10 +66,11 @@ const note = (content) => ({ tag: 'markdown', content, text_size: 'notation' });
 const plain = (content) => ({ tag: 'plain_text', content });
 const icon = (token) => ({ tag: 'standard_icon', token });
 const tag = (content, color = 'neutral') => ({ tag: 'text_tag', text: plain(content), color });
-const clock = (ms) => new Date(ms).toTimeString().slice(0, 8);
 
-function btn(label, value, { type = 'default', confirm, icon: token, size } = {}) {
+function btn(label, value, { type = 'default', confirm, icon: token, size, name, submit = false } = {}) {
   const button = { tag: 'button', text: plain(label), type, behaviors: [{ type: 'callback', value }] };
+  if (name) button.name = name;
+  if (submit) button.form_action_type = 'submit';
   if (token) button.icon = icon(token);
   if (size) button.size = size;
   if (confirm) button.confirm = { title: plain(confirm.title), text: plain(confirm.text) };
@@ -136,8 +137,8 @@ function toolNote(count, lastTool) {
 
 // The last line of a card that is kept current after it was sent.
 function liveNote(live, now) {
-  if (live === 'off') return note(`已停止刷新（${clock(now)}）`);
-  return note(`更新于 ${clock(now)}`);
+  if (live === 'off') return note(`已停止刷新（${fmtClockSec(now)}）`);
+  return note(`更新于 ${fmtClockSec(now)}`);
 }
 
 const ref = (s) => ({ s: s.key, n: s.name });
@@ -151,15 +152,7 @@ function replyForm(session, placeholder, extra = {}) {
     name: 'reply',
     elements: [
       { tag: 'input', name: 'text', placeholder: plain(placeholder), required: true },
-      row([{
-        tag: 'button',
-        name: 'send',
-        text: plain('发送'),
-        icon: icon(ICON.send),
-        type: 'primary',
-        form_action_type: 'submit',
-        behaviors: [{ type: 'callback', value: { a: 'reply', ...ref(session), ...extra } }],
-      }]),
+      row([btn('发送', { a: 'reply', ...ref(session), ...extra }, { name: 'send', type: 'primary', icon: ICON.send, submit: true })]),
     ],
   };
 }
@@ -400,15 +393,7 @@ export function newSessionCard({ error, agents = ['claude', 'codex', 'pi', 'shel
           { tag: 'input', name: 'name', label: plain('会话名'), placeholder: plain('留空自动起名') },
           { tag: 'input', name: 'prompt', label: plain('第一条消息'), placeholder: plain('可以留空') },
           note('选「恢复」时，类型和目录按那次对话来。'),
-          row([{
-            tag: 'button',
-            name: 'create',
-            text: plain('创建并接入'),
-            icon: icon(ICON.add),
-            type: 'primary',
-            form_action_type: 'submit',
-            behaviors: [{ type: 'callback', value: { a: 'new.submit' } }],
-          }]),
+          row([btn('创建并接入', { a: 'new.submit' }, { name: 'create', type: 'primary', icon: ICON.add, submit: true })]),
         ],
       },
     ],

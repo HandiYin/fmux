@@ -290,17 +290,17 @@ the state and socket of the service.
 
 | File | Role |
 |---|---|
-| `src/registry.mjs` | Poll tmux, classify panes, track state and turns, emit events |
-| `src/procs.mjs`, `src/win/procs.ps1` | Find the agent process of a pane: `/proc`, `ps` and `lsof`, or the Windows process table |
-| `src/transcript.mjs` | Find and follow the transcript of Claude Code, Codex and pi |
+| `src/registry.mjs`, `src/codex-bindings.mjs` | Poll tmux, classify panes, track state/turns, persist Codex rollout offsets |
+| `src/procs.mjs`, `src/procs/`, `src/win/procs.ps1` | Find the agent process of a pane: `/proc`, `ps` + `lsof`, or Windows PowerShell |
+| `src/transcript.mjs`, `src/codex-transcript.mjs`, `src/agent-files.mjs`, `src/jsonl.mjs` | Shared JSONL/agent metadata readers; locate and follow Claude Code, Codex and pi transcripts |
 | `src/screen.mjs` | Read dialogs and "working" markers from a captured screen |
-| `src/router.mjs` | Route messages and clicks, turn registry events into cards |
+| `src/router.mjs`, `src/router/` | Route messages, commands, card actions, live cards, session creation/handoff, and control API |
 | `src/cards.mjs` | Card JSON 2.0 builders |
 | `src/concierge.mjs` | The pi RPC client |
-| `src/feishu.mjs` | Feishu channel wrapper, card update throttle, fake channel |
+| `src/feishu.mjs`, `src/bot-menu.mjs` | Feishu channel wrapper, card update throttle, bot menu handler, fake channel |
 | `src/control.mjs`, `bin/fmuxctl.mjs` | Control socket and its CLI |
 | `src/setup.mjs`, `bin/fmux.mjs` | `fmux setup`, `pair`, `install-service`, `doctor` |
-| `src/service.mjs` | The service: systemd unit, launchd job, or a tmux session (psmux on Windows) |
+| `src/service.mjs`, `src/service/templates.mjs` | Service detection/installers and systemd/launchd/tmux/Windows templates |
 | `test/integration/` | End-to-end test with stub agents on a tmux server of its own |
 | `src/history.mjs`, `src/match.mjs` | Past conversations to resume; loose name matching |
 | `agent/CONCIERGE.md` | Instructions for the pi concierge |

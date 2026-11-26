@@ -2,12 +2,13 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import * as realTmux from './tmux.mjs';
-import { findAgent, snapshot } from './procs.mjs';
-import { HUB_SESSION } from './service.mjs';
-import { Tail, adapters, lastExchange, locateTranscript, readClaudeMeta } from './transcript.mjs';
+import { CodexBindingStore } from './codex-bindings.mjs';
 import { pick } from './match.mjs';
+import { findAgent, snapshot } from './procs.mjs';
 import { findDialog, looksWorking } from './screen.mjs';
+import { HUB_SESSION } from './service.mjs';
+import * as realTmux from './tmux.mjs';
+import { Tail, adapters, lastExchange, locateTranscript, readClaudeMeta } from './transcript.mjs';
 import { log } from './util.mjs';
 
 const SHELLS = new Set(['bash', 'zsh', 'fish', 'sh', 'dash', 'pwsh', 'powershell', 'cmd', 'nu']);
@@ -15,8 +16,6 @@ const SHELLS = new Set(['bash', 'zsh', 'fish', 'sh', 'dash', 'pwsh', 'powershell
 const INTERNAL_SESSION = /^__warm/;
 const CLAUDE_STATUS = { busy: 'working', idle: 'idle', shell: 'idle', waiting: 'blocked' };
 const MAX_TURN_TEXTS = 60;
-// A stale/zero offset must never make a restart allocate and parse a multi-hundred-MB rollout.
-const MAX_RESTORE_REPLAY = 8 * 1024 * 1024;
 
 function cleanTitle(title, sessionName) {
   const t = String(title || '').replace(/^[^\p{L}\p{N}]+/u, '').trim();
@@ -36,16 +35,14 @@ function newTurn(session) {
 //   changed()                      something the dashboard shows is different
 export class Registry extends EventEmitter {
   // `probe` is how the registry looks at processes and transcripts; tests replace it.
-  // `store` keeps the last confirmed transcript per pane, so a hub restart during a Codex
-  // turn can resume the same rollout even while the pane title has only the spinner and cwd.
+  // `store` keeps the last confirmed Codex transcript per pane across hub restarts.
   constructor({ tmux = realTmux, intervalMs = 2000, hide = [], probe = {}, store = null } = {}) {
     super();
     this.tmux = tmux;
     this.probe = { snapshot, findAgent, readClaudeMeta, locateTranscript, ...probe };
     this.intervalMs = intervalMs;
     this.hide = new Set([...hide, HUB_SESSION]);
-    this.store = store;
-    this.bindings = new Map(Object.entries(store?.get('transcripts') || {}));
+    this.codexBindings = new CodexBindingStore(store);
     this.sessions = new Map();
     this.localActiveAt = 0;
     this.polls = 0;
@@ -91,81 +88,6 @@ export class Registry extends EventEmitter {
     return this.lookup(ref).match;
   }
 
-  // ---- last confirmed transcript per pane ----
-
-  rememberTranscript(s) {
-    if (s.kind !== 'codex' || !this.store || !s.transcript) return;
-    const entry = {
-      agentPid: s.agentPid,
-      tmuxSession: s.tmuxSession,
-      cwd: s.cwd,
-      file: s.transcript,
-      offset: s.tail?.offset || 0,
-      at: Date.now(),
-    };
-    const prior = this.bindings.get(s.key);
-    if (prior && prior.agentPid === entry.agentPid && prior.tmuxSession === entry.tmuxSession
-      && prior.cwd === entry.cwd && prior.file === entry.file && prior.offset === entry.offset) return;
-    this.bindings.set(s.key, entry);
-    this.store.set('transcripts', Object.fromEntries(this.bindings));
-  }
-
-  // Output arrives in batches; writing every poll would rewrite state.json every 2 s. The
-  // offset is a recovery hint, so a few seconds of replay (not loss) is the right trade.
-  checkpointTranscript(s) {
-    if (s.kind !== 'codex' || !this.store || !s.transcript || !s.tail) return;
-    const now = Date.now();
-    if (now - (s.transcriptSavedAt || 0) < 10000) return;
-    s.transcriptSavedAt = now;
-    this.rememberTranscript(s);
-  }
-
-  forgetTranscript(s) {
-    if (!this.bindings.delete(s.key)) return;
-    this.store?.set('transcripts', Object.fromEntries(this.bindings));
-  }
-
-  // After a hub restart the Codex title may be only a spinner and the cwd. Resume the rollout
-  // that this pane and agent confirmed earlier, from the last read offset, instead of waiting
-  // for the name to come back (which would skip the whole turn).
-  restoreTranscript(s, kind) {
-    if (kind !== 'codex' || !s.agentPid || s.transcript) return false;
-    const saved = this.bindings.get(s.key);
-    if (!saved) return false;
-    if (saved.agentPid !== s.agentPid || saved.tmuxSession !== s.tmuxSession || saved.cwd !== s.cwd
-      || !saved.file || !fs.existsSync(saved.file)) {
-      this.forgetTranscript(s);
-      return false;
-    }
-    const offset = Number.isFinite(saved.offset) && saved.offset >= 0 ? saved.offset : 0;
-    let size;
-    try {
-      size = fs.statSync(saved.file).size;
-    } catch {
-      this.forgetTranscript(s);
-      return false;
-    }
-    // Keep a restart bounded even if the offset was never checkpointed (or state is old).
-    let start = offset;
-    if (start > size || size - start > MAX_RESTORE_REPLAY) start = Math.max(0, size - MAX_RESTORE_REPLAY);
-    if (start !== offset) log('warn', 'transcript.restore_clamped', { session: s.name, offset, size, start });
-    s.transcript = saved.file;
-    s.tail = new Tail(saved.file, adapters[kind], { offset: start });
-    s.transcriptSavedAt = Date.now();
-    s.bindingLostAt = 0;
-    if (start >= size) {
-      try {
-        const last = lastExchange(saved.file, adapters[kind]);
-        s.lastText = last.text || '';
-        s.lastPrompt = last.prompt || '';
-      } catch {
-        // the tail will report the file gone on its next read
-      }
-    }
-    log('info', 'transcript.restored', { session: s.name, title: s.paneTitle, file: path.basename(saved.file), offset: start });
-    return true;
-  }
-
   // Polls never overlap: a caller that needs fresh state right now queues behind the running one.
   poll() {
     this.chain = (this.chain || Promise.resolve()).catch(() => {}).then(() => this.pollOnce());
@@ -200,7 +122,7 @@ export class Registry extends EventEmitter {
     }
     for (const [key, session] of this.sessions) {
       if (seen.has(key)) continue;
-      this.forgetTranscript(session);
+      this.codexBindings.forget(session);
       this.sessions.delete(key);
       this.emit('removed', session);
     }
@@ -226,8 +148,8 @@ export class Registry extends EventEmitter {
     const kind = agent?.kind || 'shell';
     if (kind !== s.kind || (agent?.pid ?? null) !== s.agentPid) {
       // A new session object may be the same pane after a hub restart: keep the saved
-      // transcript long enough for restoreTranscript() below to use it.
-      if (!isNew) this.forgetTranscript(s);
+      // transcript long enough for codexBindings.restore() below to use it.
+      if (!isNew) this.codexBindings.forget(s);
       s.kind = kind;
       s.agentPid = agent?.pid ?? null;
       s.agentSeenAt = isNew ? 0 : Date.now();
@@ -241,6 +163,31 @@ export class Registry extends EventEmitter {
 
     await this.followTranscript(s, kind, meta);
     const events = s.tail ? s.tail.read() : [];
+    const sawTurnEnd = this.applyTranscriptEvents(s, events);
+
+    const { status, note, dialog } = await this.detectStatus(pane, snap, kind, meta);
+    s.note = note || (kind === 'codex' && !s.transcript ? '未定位到回复记录，请用 /rename 设置唯一会话名；可点「终端」查看回复。' : '');
+    s.dialog = dialog;
+
+    if (status === s.status) {
+      s.pending = null;
+    } else if (isNew || s.status === null || status === 'working' || s.pending === status) {
+      // Going to "working" shows at once; leaving it must hold for two polls, so a
+      // gap between two queued prompts does not read as a finished turn.
+      this.commit(s, status, { silent: isNew, since: isNew ? Number(meta?.statusUpdatedAt) || 0 : 0 });
+    } else {
+      s.pending = status;
+    }
+
+    // A reply that started and finished between two polls never showed as "working".
+    if (s.turn && s.status === 'idle' && !s.pending) {
+      s.turn.quietPolls = events.length ? 0 : (s.turn.quietPolls || 0) + 1;
+      if (sawTurnEnd || s.turn.quietPolls >= 2) this.endTurn(s);
+    }
+    this.codexBindings.checkpoint(s);
+  }
+
+  applyTranscriptEvents(s, events) {
     let sawTurnEnd = false;
     for (const ev of events) {
       if (ev.type === 'user') {
@@ -262,48 +209,32 @@ export class Registry extends EventEmitter {
       }
     }
     if (events.length) this.emit('output', s, events);
+    return sawTurnEnd;
+  }
 
-    let status;
-    let note = '';
-    let dialog = null;
+  async detectStatus(pane, snap, kind, meta) {
     if (kind === 'shell') {
-      status = 'shell';
       // A shell with a child is running something, even when tmux still reports the shell (a script).
       const child = (snap.children.get(pane.panePid) || [])[0];
-      note = SHELLS.has(pane.command.replace(/\.exe$/i, '').toLowerCase()) ? (child ? snap.procs.get(child)?.comm || '' : '') : pane.command;
-    } else if (kind === 'claude' && CLAUDE_STATUS[meta?.status]) {
-      status = CLAUDE_STATUS[meta.status];
-      if (meta.status === 'shell') note = '后台命令运行中';
+      const note = SHELLS.has(pane.command.replace(/\.exe$/i, '').toLowerCase()) ? (child ? snap.procs.get(child)?.comm || '' : '') : pane.command;
+      return { status: 'shell', note, dialog: null };
+    }
+    if (kind === 'claude' && CLAUDE_STATUS[meta?.status]) {
+      let status = CLAUDE_STATUS[meta.status];
+      let note = meta.status === 'shell' ? '后台命令运行中' : '';
+      let dialog = null;
       if (status !== 'working') {
         // The status file does not cover every dialog (the folder trust prompt comes before it exists).
         dialog = findDialog(await this.tmux.capture(pane.paneId));
         if (dialog) status = 'blocked';
         if (status === 'blocked') note = meta.waitingFor || '';
       }
-    } else {
-      const screen = await this.tmux.capture(pane.paneId);
-      dialog = findDialog(screen);
-      status = dialog ? 'blocked' : looksWorking(screen) ? 'working' : 'idle';
+      return { status, note, dialog };
     }
-    s.note = note || (kind === 'codex' && !s.transcript ? '未定位到回复记录，请用 /rename 设置唯一会话名；可点「终端」查看回复。' : '');
-    s.dialog = dialog;
-
-    if (status === s.status) {
-      s.pending = null;
-    } else if (isNew || s.status === null || status === 'working' || s.pending === status) {
-      // Going to "working" shows at once; leaving it must hold for two polls, so a
-      // gap between two queued prompts does not read as a finished turn.
-      this.commit(s, status, { silent: isNew, since: isNew ? Number(meta?.statusUpdatedAt) || 0 : 0 });
-    } else {
-      s.pending = status;
-    }
-
-    // A reply that started and finished between two polls never showed as "working".
-    if (s.turn && s.status === 'idle' && !s.pending) {
-      s.turn.quietPolls = events.length ? 0 : (s.turn.quietPolls || 0) + 1;
-      if (sawTurnEnd || s.turn.quietPolls >= 2) this.endTurn(s);
-    }
-    this.checkpointTranscript(s);
+    const screen = await this.tmux.capture(pane.paneId);
+    const dialog = findDialog(screen);
+    const status = dialog ? 'blocked' : looksWorking(screen) ? 'working' : 'idle';
+    return { status, note: '', dialog };
   }
 
   async followTranscript(s, kind, meta) {
@@ -313,17 +244,14 @@ export class Registry extends EventEmitter {
     if (this.polls % every !== 0) return;
     const file = await this.probe.locateTranscript(kind, s.agentPid, meta, { cwd: s.cwd, title: s.paneTitle });
     // Both unknown: after a hub restart this may be a pane whose confirmed rollout is on disk.
-    if (!file && !s.transcript && kind === 'codex' && this.restoreTranscript(s, kind)) return;
+    if (!file && !s.transcript && kind === 'codex' && this.codexBindings.restore(s, kind)) return;
     if (file === s.transcript) {
       s.bindingLostAt = 0;
       return;
     }
     if (!file) {
-      // A Codex TUI often replaces its title with only a spinner and the cwd while it works
-      // ("⠧ ubuntu"), and with "Action Required | …" while a dialog waits. Those are not a
-      // different conversation: keep reading the last confirmed rollout, otherwise every reply
-      // produced during that window is skipped when the title comes back. A title that really
-      // resolves to another thread returns that file above and rebinds immediately.
+      // Codex replaces its title with only a spinner/cwd while working or "Action Required" while
+      // blocked. Keep reading the last confirmed rollout so replies are not skipped.
       if (kind === 'codex' && s.transcript && !s.bindingLostAt) {
         s.bindingLostAt = Date.now();
         log('info', 'transcript.holding', { session: s.name, title: s.paneTitle, file: path.basename(s.transcript) });
@@ -333,7 +261,7 @@ export class Registry extends EventEmitter {
     if (kind === 'codex') {
       log('info', 'transcript.bound', { session: s.name, title: s.paneTitle, file: path.basename(file) });
       // A different thread: drop the previous conversation and start at the new file's position.
-      this.forgetTranscript(s);
+      this.codexBindings.forget(s);
       s.transcript = null;
       s.tail = null;
       s.lastText = '';
@@ -356,7 +284,7 @@ export class Registry extends EventEmitter {
       s.lastText = last.text || s.lastText;
       s.lastPrompt = last.prompt || s.lastPrompt;
     }
-    if (kind === 'codex') this.rememberTranscript(s);
+    if (kind === 'codex') this.codexBindings.remember(s);
   }
 
   commit(s, status, { silent = false, since = 0 } = {}) {

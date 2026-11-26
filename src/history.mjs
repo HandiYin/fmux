@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { defaultCodexHome, listOpenClaudeSessionIds, readCodexIndex, scanCodexRollouts } from './agent-files.mjs';
+import { parseJsonLines, readFileSlice } from './jsonl.mjs';
 import { pick } from './match.mjs';
 import { alive } from './procs.mjs';
 
@@ -9,56 +11,12 @@ import { alive } from './procs.mjs';
 
 const HOME = os.homedir();
 
-function readSlice(file, start, length) {
-  const fd = fs.openSync(file, 'r');
-  try {
-    const buf = Buffer.alloc(length);
-    const n = fs.readSync(fd, buf, 0, length, start);
-    return buf.toString('utf8', 0, n);
-  } finally {
-    fs.closeSync(fd);
-  }
-}
-
-function jsonLines(text) {
-  const out = [];
-  for (const line of text.split('\n')) {
-    if (!line.startsWith('{')) continue;
-    try {
-      out.push(JSON.parse(line));
-    } catch {
-      // a line cut by the slice boundary
-    }
-  }
-  return out;
-}
-
-// Session ids that a running Claude Code has open. Resuming one of these would open it twice.
-function openClaudeSessions() {
-  const open = new Set();
-  const dir = path.join(HOME, '.claude', 'sessions');
-  try {
-    for (const name of fs.readdirSync(dir)) {
-      if (!name.endsWith('.json')) continue;
-      if (!alive(name.slice(0, -5))) continue;
-      try {
-        open.add(JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')).sessionId);
-      } catch {
-        // half-written file
-      }
-    }
-  } catch {
-    // Claude Code never ran here
-  }
-  return open;
-}
-
 function claudeConversation(file, st) {
-  const head = jsonLines(readSlice(file, 0, Math.min(st.size, 48 * 1024)));
+  const head = parseJsonLines(readFileSlice(file, 0, Math.min(st.size, 48 * 1024)));
   const first = head.find((d) => d.cwd);
   if (!first || (first.entrypoint && first.entrypoint !== 'cli')) return null;
   const tailStart = Math.max(0, st.size - 256 * 1024);
-  const tail = jsonLines(readSlice(file, tailStart, st.size - tailStart));
+  const tail = parseJsonLines(readFileSlice(file, tailStart, st.size - tailStart));
   let aiTitle = '';
   let customTitle = '';
   let lastPrompt = '';
@@ -98,7 +56,7 @@ function claudeConversations(limit) {
     return [];
   }
   files.sort((a, b) => b.st.mtimeMs - a.st.mtimeMs);
-  const open = openClaudeSessions();
+  const open = listOpenClaudeSessionIds(alive);
   const out = [];
   for (const { file, st } of files) {
     if (out.length >= limit) break;
@@ -109,43 +67,23 @@ function claudeConversations(limit) {
   return out;
 }
 
-function codexRollouts() {
-  const byId = new Map();
-  const root = path.join(HOME, '.codex', 'sessions');
-  const walk = (dir, depth) => {
-    let entries;
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      if (entry.isDirectory() && depth < 3) walk(path.join(dir, entry.name), depth + 1);
-      else if (entry.name.startsWith('rollout-') && entry.name.endsWith('.jsonl')) byId.set(entry.name.slice(-42, -6), path.join(dir, entry.name));
-    }
-  };
-  walk(root, 0);
-  return byId;
-}
-
 function codexConversations(limit) {
-  let index;
+  const root = defaultCodexHome();
+  let latest;
   try {
-    index = jsonLines(fs.readFileSync(path.join(HOME, '.codex', 'session_index.jsonl'), 'utf8'));
+    latest = readCodexIndex(root);
   } catch {
     return [];
   }
-  const latest = new Map();
-  for (const row of index) if (row.id) latest.set(row.id, row);
   const rows = [...latest.values()].sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
-  const rollouts = codexRollouts();
+  const rollouts = scanCodexRollouts(root);
   const out = [];
   for (const row of rows) {
     if (out.length >= limit) break;
     const file = rollouts.get(row.id);
     if (!file) continue;
     // The first line holds the whole system prompt, so the two fields are cut out of its start.
-    const head = readSlice(file, 0, 4096);
+    const head = readFileSlice(file, 0, 4096);
     const cwd = head.match(/"cwd":"((?:[^"\\]|\\.)*)"/)?.[1];
     const originator = head.match(/"originator":"([^"]*)"/)?.[1];
     // Only conversations held in the terminal UI; threads driven by a script (app-server) are not resumable by hand.

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { Tail, adapters, cwdNeedle, lastExchange, lastTurns, piSessionDir } from '../src/transcript.mjs';
+import { Tail, adapters, lastExchange, lastTurns, piSessionDir } from '../src/transcript.mjs';
 import { expandHome, quoteArg, shortPath } from '../src/util.mjs';
 
 const claudeLines = [
@@ -119,12 +119,6 @@ test('a pasted block in a Claude prompt: the prompt is what was typed around it'
   assert.deepEqual(user('照着改 <pasted_content id="1">\nA\nB\n</pasted_content id="1">'), [{ type: 'user', text: '照着改' }]);
   assert.deepEqual(user('\n\n<pasted_content id="2">\nonly pasted\nlines\n</pasted_content id="2">\n'), [{ type: 'user', text: 'only pasted\nlines' }]);
   assert.deepEqual(user('<local-command-stdout>x</local-command-stdout>'), []);
-});
-
-test('a working directory is matched in a Codex rollout the way JSON writes it', () => {
-  assert.equal(cwdNeedle('/home/u/proj', 'linux'), '"cwd":"/home/u/proj"');
-  const line = JSON.stringify({ type: 'session_meta', payload: { cwd: 'C:\\Users\\Me\\proj' } });
-  assert.ok(line.toLowerCase().includes(cwdNeedle('c:\\users\\me\\proj', 'win32')), 'Windows paths differ in case');
 });
 
 test('the pi session directory follows the rule pi uses, for both kinds of path', () => {

@@ -100,7 +100,6 @@ async function main() {
       if (!args.length) return console.log(JSON.stringify(await call('form')));
       const resume = take(args, '--resume') || (has(args, '--continue') ? 'last' : 'new');
       const params = { agent: take(args, '--agent') || 'claude', cwd: take(args, '--cwd') || '~', prompt: take(args, '--prompt') || '', attach: !has(args, '--no-attach'), yolo: !has(args, '--no-yolo'), resume };
-      has(args, '--yolo');
       return console.log(JSON.stringify(await call('new', { name: args[0], ...params }), null, 2));
     }
     case 'kill':

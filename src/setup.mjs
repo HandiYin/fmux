@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { CONFIG_PATH, loadConfig, readRawConfig, resolveSecret, writeRawConfig } from './config.mjs';
+import { CLOSED_GROUPS, CONFIG_PATH, feishuDomain, loadConfig, readRawConfig, resolveSecret, writeRawConfig } from './config.mjs';
 import { callControl } from './control.mjs';
 import { BACKEND } from './procs.mjs';
 import { HUB_SESSION, installService as installAs, installedKind, isWsl, serviceCommands, serviceKind } from './service.mjs';
@@ -23,8 +23,12 @@ export const NEEDS = {
   callbacks: ['card.action.trigger'],
 };
 
-const CLOSED_GROUPS = ['oc_fmux_groups_closed'];
-const domainOf = (tenant) => (tenant === 'lark' ? { domain: 'https://open.larksuite.com' } : {});
+function writeSecretFile(secret) {
+  const secretFile = path.join(path.dirname(CONFIG_PATH), 'app-secret');
+  fs.mkdirSync(path.dirname(secretFile), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(secretFile, `${secret.trim()}\n`, { mode: 0o600 });
+  return secretFile;
+}
 
 async function daemonRunning() {
   try {
@@ -61,9 +65,7 @@ export async function createApp({ force = false, registerApp, renderQr, print = 
       print(`也可以在手机飞书里打开这个链接（${Math.round(expireIn / 60)} 分钟内有效）：\n${url}\n`);
     },
   });
-  const secretFile = path.join(path.dirname(CONFIG_PATH), 'app-secret');
-  fs.mkdirSync(path.dirname(secretFile), { recursive: true, mode: 0o700 });
-  fs.writeFileSync(secretFile, `${result.client_secret}\n`, { mode: 0o600 });
+  const secretFile = writeSecretFile(result.client_secret);
   const config = {
     ...existing,
     app: { id: result.client_id, tenant: result.user_info?.tenant_brand || 'feishu', secret: { source: 'file', path: secretFile } },
@@ -89,10 +91,7 @@ export async function useExistingApp({ appId, secret, fromBridge = false, tenant
     await resolveSecret(secretRef);
   } else {
     if (!secret) throw new Error('没有收到 App Secret。');
-    const secretFile = path.join(path.dirname(CONFIG_PATH), 'app-secret');
-    fs.mkdirSync(path.dirname(secretFile), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(secretFile, `${secret.trim()}\n`, { mode: 0o600 });
-    secretRef = { source: 'file', path: secretFile };
+    secretRef = { source: 'file', path: writeSecretFile(secret) };
   }
   const config = { ...existing, app: { id: appId, tenant, secret: secretRef }, owner: { openId: '', chatId: '' } };
   writeRawConfig(config);
@@ -145,7 +144,7 @@ export async function pair({ timeoutMs = 10 * 60 * 1000, createChannel, print = 
   const channel = createChannel({
     appId: cfg.app.id,
     appSecret: await resolveSecret(cfg.app.secret),
-    ...domainOf(cfg.app.tenant),
+    ...feishuDomain(cfg.app.tenant),
     policy: { dmMode: 'open', groupAllowlist: CLOSED_GROUPS, requireMention: true },
     source: 'fmux',
   });

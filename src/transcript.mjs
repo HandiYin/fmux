@@ -1,9 +1,13 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { oneLine } from './util.mjs';
-import { procCwd, procStartMs } from './procs.mjs';
+import { readClaudeMeta } from './agent-files.mjs';
 import { createCodexLocator } from './codex-transcript.mjs';
+import { parseJsonLines, readTailSlice } from './jsonl.mjs';
+import { procCwd, procStartMs } from './procs.mjs';
+import { oneLine } from './util.mjs';
+
+export { readClaudeMeta };
 
 // Each adapter turns one transcript line (parsed JSON) into zero or more events:
 //   { type: 'text', text }           assistant prose
@@ -11,7 +15,7 @@ import { createCodexLocator } from './codex-transcript.mjs';
 //   { type: 'user', text }           a prompt typed by the user
 //   { type: 'turn_end', durationMs } the agent handed control back
 
-function toolSummary(name, input) {
+function toolSummary(input) {
   if (input == null) return '';
   if (typeof input === 'string') return oneLine(input, 90);
   if (Array.isArray(input.command)) return oneLine(input.command.join(' '), 90);
@@ -39,7 +43,7 @@ export const adapters = {
       const out = [];
       for (const b of d.message?.content || []) {
         if (b.type === 'text' && b.text?.trim()) out.push({ type: 'text', text: b.text.trim() });
-        else if (b.type === 'tool_use') out.push({ type: 'tool', name: b.name, summary: toolSummary(b.name, b.input) });
+        else if (b.type === 'tool_use') out.push({ type: 'tool', name: b.name, summary: toolSummary(b.input) });
       }
       return out;
     }
@@ -68,7 +72,7 @@ export const adapters = {
       }
       if (p.type === 'function_call' || p.type === 'custom_tool_call' || p.type === 'local_shell_call') {
         const args = parseArgs(p.arguments ?? p.input ?? p.action);
-        return [{ type: 'tool', name: p.name || 'shell', summary: toolSummary(p.name, args) }];
+        return [{ type: 'tool', name: p.name || 'shell', summary: toolSummary(args) }];
       }
       return [];
     }
@@ -91,7 +95,7 @@ export const adapters = {
       const out = [];
       for (const b of m.content || []) {
         if (b.type === 'text' && b.text?.trim()) out.push({ type: 'text', text: b.text.trim() });
-        else if (b.type === 'toolCall') out.push({ type: 'tool', name: b.name, summary: toolSummary(b.name, b.arguments) });
+        else if (b.type === 'toolCall') out.push({ type: 'tool', name: b.name, summary: toolSummary(b.arguments) });
       }
       if (m.stopReason && m.stopReason !== 'toolUse') out.push({ type: 'turn_end' });
       return out;
@@ -104,20 +108,7 @@ export const adapters = {
   },
 };
 
-function parseLines(chunk, adapter) {
-  const events = [];
-  for (const line of chunk.split('\n')) {
-    if (!line.trim()) continue;
-    let d;
-    try {
-      d = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    events.push(...adapter(d));
-  }
-  return events;
-}
+const adaptLines = (text, adapter) => parseJsonLines(text).flatMap(adapter);
 
 // Follows a JSONL transcript from a byte offset and returns the events appended since the last read.
 export class Tail {
@@ -158,7 +149,7 @@ export class Tail {
       const text = this.partial + buf.toString('utf8');
       const cut = text.lastIndexOf('\n');
       this.partial = cut < 0 ? text : text.slice(cut + 1);
-      return cut < 0 ? [] : parseLines(text.slice(0, cut), this.adapter);
+      return cut < 0 ? [] : adaptLines(text.slice(0, cut), this.adapter);
     } finally {
       fs.closeSync(fd);
     }
@@ -167,25 +158,10 @@ export class Tail {
 
 // Last assistant prose and last user prompt near the end of a transcript, for the dashboard preview.
 export function lastExchange(file, adapter, maxBytes = 768 * 1024) {
-  let size;
-  try {
-    size = fs.statSync(file).size;
-  } catch {
-    return {};
-  }
-  const start = Math.max(0, size - maxBytes);
-  const fd = fs.openSync(file, 'r');
-  let text;
-  try {
-    const buf = Buffer.alloc(size - start);
-    fs.readSync(fd, buf, 0, buf.length, start);
-    text = buf.toString('utf8');
-  } finally {
-    fs.closeSync(fd);
-  }
-  if (start > 0) text = text.slice(text.indexOf('\n') + 1);
+  const text = readTailSlice(file, maxBytes);
+  if (text === null) return {};
   const result = {};
-  for (const ev of parseLines(text, adapter)) {
+  for (const ev of adaptLines(text, adapter)) {
     if (ev.type === 'text') result.text = ev.text;
     else if (ev.type === 'user') result.prompt = ev.text;
   }
@@ -195,26 +171,11 @@ export function lastExchange(file, adapter, maxBytes = 768 * 1024) {
 // The turns near the end of a transcript, oldest first: { prompt, texts, done }.
 // A turn starts at a prompt typed by the user. `done` is false for a turn the agent is still working on.
 export function lastTurns(file, adapter, maxBytes = 2 * 1024 * 1024) {
-  let size;
-  try {
-    size = fs.statSync(file).size;
-  } catch {
-    return [];
-  }
-  const start = Math.max(0, size - maxBytes);
-  const fd = fs.openSync(file, 'r');
-  let text;
-  try {
-    const buf = Buffer.alloc(size - start);
-    fs.readSync(fd, buf, 0, buf.length, start);
-    text = buf.toString('utf8');
-  } finally {
-    fs.closeSync(fd);
-  }
-  if (start > 0) text = text.slice(text.indexOf('\n') + 1);
+  const text = readTailSlice(file, maxBytes);
+  if (text === null) return [];
   const turns = [];
   let current = null;
-  for (const ev of parseLines(text, adapter)) {
+  for (const ev of adaptLines(text, adapter)) {
     if (ev.type === 'user') {
       if (current) current.done = true;
       current = { prompt: ev.text, texts: [], done: false };
@@ -236,14 +197,6 @@ export function lastTurns(file, adapter, maxBytes = 2 * 1024 * 1024) {
 
 const HOME = os.homedir();
 const claudeTranscripts = new Map();
-
-export function readClaudeMeta(pid) {
-  try {
-    return JSON.parse(fs.readFileSync(path.join(HOME, '.claude', 'sessions', `${pid}.json`), 'utf8'));
-  } catch {
-    return null;
-  }
-}
 
 function claudeTranscript(sessionId) {
   if (!sessionId) return null;
@@ -276,12 +229,6 @@ function newestSince(files, sinceMs) {
     }
   }
   return best?.file || null;
-}
-
-// The working directory inside a JSON line, as Codex writes it. Windows paths differ in case.
-export function cwdNeedle(cwd, platform = process.platform) {
-  const needle = `"cwd":${JSON.stringify(cwd)}`;
-  return platform === 'win32' ? needle.toLowerCase() : needle;
 }
 
 // pi names the session directory of a working directory: "/home/u/proj" gives "--home-u-proj--",

@@ -42,6 +42,10 @@ export function fmtClock(ms) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+export function fmtClockSec(ms) {
+  return new Date(ms).toTimeString().slice(0, 8);
+}
+
 // Cut by code points so a surrogate pair is never split.
 export function truncate(s, max, tail = '…') {
   const cps = Array.from(s ?? '');
