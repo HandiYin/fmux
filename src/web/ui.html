@@ -1115,17 +1115,19 @@ function renderSessions() {
   });
 }
 
-// ---- Top-Right Async Mini-HUD directly below Highlight bar ----
+// ---- Top-Right Async Mini-HUD directly below Highlight bar (running tasks only) ----
 async function renderCornerBg(s) {
   const box = $('cornerBg');
-  const tasks = s?.tasks || [];
+  const tasks = (s?.tasks || []).filter((t) => t.status === 'running');
   if (state.tab !== 'chat' || !tasks.length) { box.style.display = 'none'; return; }
   box.style.display = '';
   box.classList.toggle('collapsed', state.cornerCollapsed);
   $('cornerToggle').textContent = state.cornerCollapsed ? '+' : '−';
-  const running = tasks.filter((t) => t.status === 'running').length;
-  $('cornerDot').className = running ? 'corner-bg-dot' : 'corner-bg-dot idle';
-  $('cornerTitle').textContent = running ? `ASYNC // ${running} RUNNING` : `ASYNC // ${tasks.length} DONE`;
+  $('cornerDot').className = 'corner-bg-dot';
+  $('cornerTitle').textContent = `ASYNC // ${tasks.length} RUNNING`;
+  if (state.cornerExpandedTaskId && !tasks.some((t) => t.id === state.cornerExpandedTaskId)) {
+    state.cornerExpandedTaskId = null;
+  }
 
   let inlineLog = '';
   if (!state.cornerCollapsed && state.cornerExpandedTaskId) {
@@ -1136,12 +1138,12 @@ async function renderCornerBg(s) {
   }
 
   $('cornerBody').innerHTML = tasks.slice(0, 4).map((t) => {
-    const dur = fmtSec(((t.endedAt || Date.now()) - t.startedAt) / 1000);
+    const dur = fmtSec((Date.now() - t.startedAt) / 1000);
     const expanded = state.cornerExpandedTaskId === t.id;
-    return `<div class="corner-task ${esc(t.status)}" data-ctid="${esc(t.id)}">
+    return `<div class="corner-task running" data-ctid="${esc(t.id)}">
       <div class="corner-task-top">
         <span>${esc(t.shortId)} · ${esc(t.kind.toUpperCase())}</span>
-        <span>${esc(t.status.toUpperCase())} ${dur}</span>
+        <span>RUNNING ${dur}</span>
       </div>
       <div class="corner-task-desc">${esc(t.description)}${t.summary ? ` · ${esc(t.summary)}` : ''}</div>
       ${expanded ? `<pre class="corner-task-log">${esc(inlineLog)}</pre>` : ''}
@@ -1179,7 +1181,7 @@ async function renderWorkspace() {
   $('wsModel').style.display = s.model ? '' : 'none';
   $('wsSub').textContent = [s.cwd, s.title].filter(Boolean).join('  //  ');
   $('attachBtn').textContent = s.attached ? 'FEISHU LINKED ✓' : 'LINK FEISHU';
-  const count = s.runningTasks || s.tasks?.length || 0;
+  const count = s.runningTasks || 0;
   $('taskBadge').textContent = String(count);
   $('taskBadge').style.display = count ? '' : 'none';
   document.querySelectorAll('.subtab').forEach((b) => b.classList.toggle('active', b.dataset.tab === state.tab));
@@ -1227,26 +1229,27 @@ async function renderWorkspace() {
       panel.scrollTop = panel.scrollHeight;
     } else if (state.tab === 'tasks') {
       $('cornerBg').style.display = 'none';
-      const q = state.selectedTaskId ? `&taskId=${encodeURIComponent(state.selectedTaskId)}` : '';
+      const validSel = state.selectedTaskId && (s.tasks || []).some((t) => t.id === state.selectedTaskId && t.status === 'running');
+      const q = validSel ? `&taskId=${encodeURIComponent(state.selectedTaskId)}` : '';
       const data = await api(`/api/session/${keyEnc}/tasks?lines=120${q}`);
-      state.selectedTaskId = data.selectedTaskId;
-      if (!data.tasks.length) {
-        panel.innerHTML = '<div class="empty"><strong>NO ASYNC OPERATIONS</strong>AGY 后台命令、定时任务与子代理将自动在此监控</div>';
+      const runningTasks = (data.tasks || []).filter((t) => t.status === 'running');
+      if (!runningTasks.length) {
+        state.selectedTaskId = null;
+        panel.innerHTML = '<div class="empty"><strong>NO RUNNING ASYNC OPERATIONS</strong>当前无运行中的后台任务</div>';
         return;
       }
-      const tiles = data.tasks.map((t, idx) => {
-        const sel = t.id === data.selectedTaskId ? ' selected' : '';
-        const dur = fmtSec(((t.endedAt || Date.now()) - t.startedAt) / 1000);
-        const stClass = t.status === 'running' ? 'st-background' : t.status === 'done' ? 'st-working' : 'st-blocked';
-        return `<div class="op-card clickable ${esc(t.status)}${sel}" data-tid="${esc(t.id)}">
-          <div class="op-top"><span class="op-code">OP-${pad2(idx + 1)} // ${esc(t.shortId)}</span><span class="u-chip ${stClass}">${esc(t.status)}</span></div>
+      const activeId = runningTasks.some((t) => t.id === data.selectedTaskId) ? data.selectedTaskId : runningTasks[0].id;
+      state.selectedTaskId = activeId;
+      const tiles = runningTasks.map((t, idx) => {
+        const sel = t.id === activeId ? ' selected' : '';
+        const dur = fmtSec((Date.now() - t.startedAt) / 1000);
+        return `<div class="op-card clickable running${sel}" data-tid="${esc(t.id)}">
+          <div class="op-top"><span class="op-code">OP-${pad2(idx + 1)} // ${esc(t.shortId)}</span><span class="u-chip st-background">running</span></div>
           <div class="op-desc">${esc(t.description)}</div>
           <div class="op-foot"><span>${esc(t.kind.toUpperCase())}${t.summary ? ` · ${esc(t.summary)}` : ''}</span><span>ELAPSED ${dur}</span></div>
         </div>`;
       }).join('');
-      const logBox = data.selectedTaskId
-        ? `<div class="console-frame"><div class="console-bar"><span>LIVE STREAM // ${esc(data.selectedTaskId)}</span><button id="refreshTasks" class="btn xs ghost">SYNC</button></div><pre class="terminal-box">${esc(data.log || '(awaiting log output...)')}</pre></div>`
-        : '';
+      const logBox = `<div class="console-frame"><div class="console-bar"><span>LIVE STREAM // ${esc(activeId)}</span><button id="refreshTasks" class="btn xs ghost">SYNC</button></div><pre class="terminal-box">${esc(data.log || '(awaiting log output...)')}</pre></div>`;
       panel.innerHTML = `<div class="ops-grid">${tiles}</div>${logBox}`;
       panel.querySelectorAll('.op-card').forEach((el) => { el.onclick = () => { state.selectedTaskId = el.dataset.tid; renderWorkspace(); }; });
       const rt = $('refreshTasks');
