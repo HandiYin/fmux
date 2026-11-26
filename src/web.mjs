@@ -549,6 +549,16 @@ export function startWebServer({
           sendJson(res, sent ? 200 : 409, { ok: sent, blocked: !sent });
           return;
         }
+        if (req.method === 'POST' && action === 'stop') {
+          const keys = session.kind === 'shell' ? ['c-c'] : ['esc'];
+          await router.tmux.sendKeys(session.key, keys);
+          router.touchAttached(session);
+          setTimeout(() => router.registry.poll().then(() => broadcast()).catch(() => {}), 250);
+          setTimeout(() => router.registry.poll().then(() => broadcast()).catch(() => {}), 900);
+          broadcast();
+          sendJson(res, 200, { ok: true, stopped: session.name, keys });
+          return;
+        }
         if (req.method === 'POST' && action === 'keys') {
           const { keys = [] } = await readJsonBody(req);
           if (!Array.isArray(keys) || !keys.length) return sendJson(res, 400, { error: 'keys must be a non-empty array' });

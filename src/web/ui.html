@@ -522,15 +522,27 @@
   .tool-name { color: var(--amber); font-weight: 700; flex-shrink: 0; }
   .tool-sum { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .live-pulse {
-    align-self: flex-start; display: inline-flex; align-items: center; gap: 8px;
-    padding: 6px 12px; border: 1px solid var(--green); background: var(--green-dim);
+    align-self: flex-start; display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 6px 10px 6px 12px; border: 1px solid var(--green); background: var(--green-dim);
     font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; color: var(--green);
   }
   .live-pulse .dot { width: 7px; height: 7px; background: var(--green); box-shadow: 0 0 8px var(--green); animation: blink 1.1s infinite; }
   .pending-ack {
-    align-self: flex-end; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em;
-    color: var(--amber); margin-top: -4px;
+    align-self: flex-end; display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em;
+    color: var(--amber); margin-top: -2px;
   }
+  .stop-ack {
+    align-self: flex-start; display: inline-flex; align-items: center; gap: 8px;
+    padding: 5px 11px; border: 1px solid var(--red); background: var(--red-dim);
+    font-family: var(--mono); font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; color: var(--red);
+  }
+  .stop-btn { flex-shrink: 0; font-weight: 800; }
+  .stop-btn.active-run {
+    background: var(--red); border-color: var(--red); color: #fff;
+    box-shadow: 0 0 14px rgba(255, 77, 79, 0.42);
+  }
+  .stop-btn.active-run:hover { filter: brightness(1.1); }
 
   .msg-bot-body { padding: 14px 18px; font-size: 14px; line-height: 1.72; color: var(--ink); word-break: break-word; }
   .msg-bot-body p { margin: 0 0 10px; }
@@ -900,8 +912,8 @@
       </div>
 
       <div class="ws-actions">
-        <button id="escBtn" class="btn amber">ESC</button>
-        <button id="killBtn" class="btn danger">KILL</button>
+        <button id="escBtn" class="btn danger" title="中断当前生成 / 取消刚发出的消息">■ STOP</button>
+        <button id="killBtn" class="btn ghost" title="销毁整个 tmux 会话">KILL</button>
       </div>
     </div>
 
@@ -940,9 +952,10 @@
     <form id="composer" class="composer" style="display:none">
       <div class="composer-box">
         <span class="composer-prompt">&gt;_</span>
-        <textarea id="input" rows="1" placeholder="输入指令发送至当前会话（Enter 发送，Shift+Enter 换行）"></textarea>
+        <textarea id="input" rows="1" placeholder="输入指令发送至当前会话（Enter 发送，Shift+Enter 换行，空输入按 Esc 停止）"></textarea>
       </div>
-      <button type="submit" class="btn solid">TRANSMIT</button>
+      <button id="stopBtn" type="button" class="btn danger stop-btn" title="停止当前回合 / 取消发错的消息">■ STOP</button>
+      <button id="sendBtn" type="submit" class="btn solid">TRANSMIT</button>
     </form>
   </section>
 </main>
@@ -1211,7 +1224,7 @@ const state = {
   ops: { heartbeats: [], goals: [] },
   gpu: { hostName: 'local', localGpus: [], leases: [], summary: {} },
   selectedKey: null, mode: 'sessions', tab: 'chat', gpuClusterFilter: 'all', selectedTaskId: null,
-  lastChatSig: '', lastChatKey: '', boostPollUntil: 0, pendingSend: null,
+  lastChatSig: '', lastChatKey: '', boostPollUntil: 0, pendingSend: null, stopNotice: null,
   cornerCollapsed: false, cornerExpandedTaskId: null,
   theme: (() => { try { return localStorage.getItem('fmux_theme') || 'night'; } catch { return 'night'; } })(),
   wp: {
@@ -2087,6 +2100,11 @@ async function renderWorkspace({ forceScroll = false } = {}) {
         if (matched || Date.now() - state.pendingSend.at > 45000) state.pendingSend = null;
       }
       const pend = state.pendingSend && state.pendingSend.key === s.key ? state.pendingSend : null;
+      if (state.stopNotice && Date.now() - state.stopNotice.at > 4000) state.stopNotice = null;
+      const stopNote = state.stopNotice && state.stopNotice.key === s.key ? state.stopNotice : null;
+      const isTurnActive = Boolean(s.status === 'working' || (last && !last.done) || pend);
+      $('stopBtn').classList.toggle('active-run', isTurnActive);
+      $('stopBtn').textContent = isTurnActive ? '■ 停止' : '■ STOP';
       const sig = JSON.stringify([
         s.key,
         s.status,
@@ -2103,6 +2121,7 @@ async function renderWorkspace({ forceScroll = false } = {}) {
         last?.tools?.at(-1)?.summary || '',
         Boolean(last?.done),
         pend?.at || 0,
+        stopNote?.at || 0,
         screenData?.dialog?.question || '',
       ]);
       if (sig === state.lastChatSig && state.lastChatKey === s.key) {
@@ -2143,18 +2162,22 @@ async function renderWorkspace({ forceScroll = false } = {}) {
             const fullText = t.texts.join('\n\n');
             chunks.push(`<div class="msg-bot-wrap" data-raw="${esc(fullText)}"><div class="msg-bot-head"><span>${esc((KIND_LABEL[s.kind] || s.kind).toUpperCase())} // ${esc(s.model || 'RESPONSE')}<span class="hl-status"></span></span><span>${t.done ? 'DONE' : 'STREAMING'}</span></div><div class="msg-bot-body">${renderMarkdown(fullText)}</div></div>`);
           }
-          if (isLast && (!t.done || s.status === 'working')) {
+          if (isLast && (!t.done || s.status === 'working') && !stopNote) {
             const lastTool = t.tools?.at(-1);
             const actText = lastTool ? `RUNNING · ${lastTool.name}${lastTool.summary ? ` — ${lastTool.summary.slice(0, 60)}` : ''}` : 'AGENT THINKING / STREAMING…';
-            chunks.push(`<div class="live-pulse"><span class="dot"></span><span>${esc(actText)}</span></div>`);
+            chunks.push(`<div class="live-pulse"><span class="dot"></span><span>${esc(actText)}</span><button type="button" class="btn xs danger js-stop-turn">■ 停止</button></div>`);
           }
           parts.push(`<div class="turn-block">${chunks.join('')}</div>`);
         }
         if (pend) {
-          parts.push(`<div class="turn-block"><div class="msg-user-label">OPERATOR // SENT TO TMUX</div><div class="msg-user">${esc(pend.text)}</div><div class="pending-ack">⏳ 已注入 tmux（${esc(s.name)}），等待模型确认接收…（若长时间未确认请切 TTY 检查）</div></div>`);
+          parts.push(`<div class="turn-block"><div class="msg-user-label">OPERATOR // SENT TO TMUX</div><div class="msg-user">${esc(pend.text)}</div><div class="pending-ack"><span>⏳ 已注入 tmux（${esc(s.name)}），等待模型确认接收…</span><button type="button" class="btn xs danger js-stop-turn">■ 立即停止</button></div></div>`);
+        }
+        if (stopNote) {
+          parts.push(`<div class="stop-ack">■ 已向 ${esc(s.name)} 发送中断指令（${esc(stopNote.keyHint)}）</div>`);
         }
       }
       panel.innerHTML = parts.join('');
+      panel.querySelectorAll('.js-stop-turn').forEach((btn) => { btn.onclick = () => stopSession(); });
       panel.querySelectorAll('.hazard-box button').forEach((btn) => { btn.onclick = () => sendKeys([btn.dataset.key]); });
       panel.querySelectorAll('.code-copy').forEach((btn) => {
         btn.onclick = () => {
@@ -2436,8 +2459,26 @@ async function sendKeys(keys) {
   setTimeout(renderWorkspace, 350);
 }
 
+async function stopSession() {
+  const s = selectedSession();
+  if (!s) return;
+  if (state.pendingSend?.key === s.key) state.pendingSend = null;
+  state.stopNotice = { key: s.key, at: Date.now(), keyHint: s.kind === 'shell' ? 'Ctrl+C' : 'ESC' };
+  state.boostPollUntil = Date.now() + 12000;
+  state.lastChatSig = '';
+  renderWorkspace({ forceScroll: true });
+  try {
+    await api(`/api/session/${encodeURIComponent(s.key)}/stop`, { method: 'POST' });
+    setTimeout(() => renderWorkspace(), 450);
+    setTimeout(() => { state.lastChatSig = ''; renderWorkspace(); }, 4100);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
 document.querySelectorAll('.subtab').forEach((b) => { b.onclick = () => { state.tab = b.dataset.tab; state.lastChatSig = ''; renderWorkspace({ forceScroll: true }); }; });
-$('escBtn').onclick = () => sendKeys(['esc']);
+$('escBtn').onclick = () => stopSession();
+$('stopBtn').onclick = () => stopSession();
 $('killBtn').onclick = async () => { const s = selectedSession(); if (s && confirm(`确认终止 tmux 会话 ${s.name}？`)) await api(`/api/session/${encodeURIComponent(s.key)}/kill`, { method: 'POST' }); };
 $('logoutBtn').onclick = async () => { await fetch('/auth/logout', { method: 'POST' }); location.reload(); };
 
@@ -2463,7 +2504,10 @@ $('composer').onsubmit = async (e) => {
     alert(err.message);
   }
 };
-$('input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('composer').requestSubmit(); } });
+$('input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('composer').requestSubmit(); return; }
+  if (e.key === 'Escape' && !$('input').value) { e.preventDefault(); stopSession(); }
+});
 
 $('newBtn').onclick = async () => {
   const agentList = state.agents.length ? state.agents : ['agy', 'dsh', 'claude', 'codex', 'pi', 'shell'];

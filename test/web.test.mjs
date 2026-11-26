@@ -79,6 +79,12 @@ test('Web server enforces token auth, serves UI, APIs, agy task logs, and SSE st
     assert.equal(keyRes.status, 200);
     assert.deepEqual(h.tmux.keys.at(-1), ['%1', ['esc']]);
 
+    h.tmux.keys.length = 0;
+    const stopRes = await (await fetch(`${base}/api/session/%251/stop`, { method: 'POST', headers: auth })).json();
+    assert.equal(stopRes.ok, true);
+    assert.deepEqual(stopRes.keys, ['esc']);
+    assert.deepEqual(h.tmux.keys.at(-1), ['%1', ['esc']]);
+
     // Highlight API extracts result/problem/action/fact marks and TL;DR without hashing.
     const hl = await (await fetch(`${base}/api/highlight`, {
       method: 'POST',
@@ -190,8 +196,8 @@ test('WebMUX UI supports full GFM Markdown tables, lists, links, and wallpaper c
   const vm = await import('node:vm');
   const html = fs.readFileSync(path.resolve('src/web/ui.html'), 'utf8');
 
-  // Verify wallpaper cropper UI controls are present.
-  for (const id of ['wpCropPane', 'wpCropFrame', 'wpCropBox', 'wpCropApply', 'wpRatioGroup', 'wpRecropBtn']) {
+  // Verify wallpaper cropper & stop button UI controls are present.
+  for (const id of ['wpCropPane', 'wpCropFrame', 'wpCropBox', 'wpCropApply', 'wpRatioGroup', 'wpRecropBtn', 'stopBtn']) {
     assert.ok(html.includes(`id="${id}"`), `missing #${id} in ui.html`);
   }
 
