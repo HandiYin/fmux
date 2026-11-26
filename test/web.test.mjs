@@ -92,6 +92,21 @@ test('Web server enforces token auth, serves UI, APIs, agy task logs, and SSE st
     assert.ok(hl.marks.some((m) => m.k === 'action'));
     assert.ok(hl.tldr.length > 0);
 
+    // Wallpaper upload, serve, and reset APIs work cleanly without hashing.
+    assert.equal((await fetch(`${base}/api/wallpaper`, { headers: auth })).status, 404);
+    const png1x1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    const up = await (await fetch(`${base}/api/wallpaper`, {
+      method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl: png1x1 }),
+    })).json();
+    assert.equal(up.ok, true);
+    assert.ok(up.updatedAt > 0);
+    const wpGet = await fetch(`${base}/api/wallpaper`, { headers: auth });
+    assert.equal(wpGet.status, 200);
+    assert.equal(wpGet.headers.get('content-type'), 'image/png');
+    const del = await (await fetch(`${base}/api/wallpaper`, { method: 'DELETE', headers: auth })).json();
+    assert.equal(del.ok, true);
+    assert.equal((await fetch(`${base}/api/wallpaper`, { headers: auth })).status, 404);
+
     // SSE pushes initial state immediately.
     const controller = new AbortController();
     const sseRes = await fetch(`${base}/api/events`, { headers: auth, signal: controller.signal });

@@ -179,12 +179,65 @@ export function startWebServer({
 
   const sseClients = new Set();
 
+  // Optional custom wallpaper stored in stateDir (shared across desktop/mobile browsers).
+  const wpDir = cfg.stateDir && cfg.stateDir !== '/nonexistent' ? cfg.stateDir : '';
+  const wpBin = wpDir ? path.join(wpDir, 'wallpaper.bin') : '';
+  const wpMetaFile = wpDir ? path.join(wpDir, 'wallpaper.json') : '';
+  let memWallpaper = null;
+
+  function readWallpaperMeta() {
+    if (memWallpaper) return { mime: memWallpaper.mime, updatedAt: memWallpaper.updatedAt };
+    if (wpMetaFile && wpBin && fs.existsSync(wpMetaFile) && fs.existsSync(wpBin)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(wpMetaFile, 'utf8'));
+        if (parsed?.mime && parsed?.updatedAt) return parsed;
+      } catch {
+        // ignore damaged metadata
+      }
+    }
+    return null;
+  }
+
+  function readWallpaper() {
+    if (memWallpaper) return memWallpaper;
+    const meta = readWallpaperMeta();
+    if (!meta || !wpBin || !fs.existsSync(wpBin)) return null;
+    try {
+      return { ...meta, buf: fs.readFileSync(wpBin) };
+    } catch {
+      return null;
+    }
+  }
+
+  function saveWallpaper(mime, buf) {
+    const updatedAt = Date.now();
+    memWallpaper = { mime, updatedAt, buf };
+    if (wpDir) {
+      fs.mkdirSync(wpDir, { recursive: true });
+      const tmpBin = `${wpBin}.tmp`;
+      const tmpMeta = `${wpMetaFile}.tmp`;
+      fs.writeFileSync(tmpBin, buf, { mode: 0o600 });
+      fs.renameSync(tmpBin, wpBin);
+      fs.writeFileSync(tmpMeta, JSON.stringify({ mime, updatedAt }), { mode: 0o600 });
+      fs.renameSync(tmpMeta, wpMetaFile);
+    }
+    return updatedAt;
+  }
+
+  function clearWallpaper() {
+    memWallpaper = null;
+    for (const f of [wpBin, wpMetaFile]) {
+      if (f && fs.existsSync(f)) try { fs.unlinkSync(f); } catch {}
+    }
+  }
+
   const snapshot = async () => ({
     sessions: await router.api.ls(),
     status: await router.api.status(),
     agents: Object.keys(cfg.agents || {}),
     ops: opsEngine.snapshot(),
     gpu: gpuRegistry.snapshot(),
+    wallpaperVersion: readWallpaperMeta()?.updatedAt || 0,
     oidcEnabled,
     now: Date.now(),
   });
@@ -304,6 +357,38 @@ export function startWebServer({
         sseClients.add(res);
         res.write(`event: state\ndata: ${JSON.stringify({ ...(await snapshot()), user: auth.user, authMode: auth.mode })}\n\n`);
         req.on('close', () => sseClients.delete(res));
+        return;
+      }
+
+      if (req.method === 'GET' && url.pathname === '/api/wallpaper') {
+        const wp = readWallpaper();
+        if (!wp) return sendJson(res, 404, { error: 'no wallpaper configured' });
+        res.writeHead(200, {
+          'Content-Type': wp.mime,
+          'Content-Length': wp.buf.length,
+          'Cache-Control': 'private, max-age=300',
+        });
+        res.end(wp.buf);
+        return;
+      }
+
+      if (req.method === 'POST' && url.pathname === '/api/wallpaper') {
+        const body = await readJsonBody(req, 16 * 1024 * 1024);
+        const match = String(body.dataUrl || '').match(/^data:(image\/(?:png|jpeg|jpg|webp|gif));base64,([A-Za-z0-9+/=\s]+)$/i);
+        if (!match) return sendJson(res, 400, { error: 'invalid image dataUrl (supports PNG/JPG/WebP/GIF)' });
+        const mime = match[1].toLowerCase() === 'image/jpg' ? 'image/jpeg' : match[1].toLowerCase();
+        const buf = Buffer.from(match[2].replace(/\s+/g, ''), 'base64');
+        if (!buf.length || buf.length > 12 * 1024 * 1024) return sendJson(res, 400, { error: 'image must be under 12 MB' });
+        const updatedAt = saveWallpaper(mime, buf);
+        broadcast();
+        sendJson(res, 200, { ok: true, updatedAt, bytes: buf.length });
+        return;
+      }
+
+      if (req.method === 'DELETE' && url.pathname === '/api/wallpaper') {
+        clearWallpaper();
+        broadcast();
+        sendJson(res, 200, { ok: true, updatedAt: 0 });
         return;
       }
 

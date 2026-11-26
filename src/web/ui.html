@@ -123,6 +123,59 @@
     background-size: 100% 100%, 100% 100%, 36px 36px, 36px 36px;
   }
 
+  /* ---- Optional Wallpaper Behind Frosted Tactical Grid ---- */
+  #wpLayer, #wpFrost { position: fixed; inset: 0; pointer-events: none; display: none; }
+  #wpLayer {
+    z-index: 0; background-size: cover; background-position: center; background-repeat: no-repeat;
+    opacity: var(--wp-opacity, 0.45); transform: scale(1.03);
+  }
+  #wpFrost {
+    z-index: 0;
+    backdrop-filter: blur(var(--wp-blur, 6px));
+    -webkit-backdrop-filter: blur(var(--wp-blur, 6px));
+    background-color: rgba(13, 15, 19, 0.42);
+    background-image:
+      radial-gradient(circle at 12% 0%, var(--glow-a), transparent 42%),
+      radial-gradient(circle at 88% 100%, var(--glow-b), transparent 40%),
+      linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+    background-size: 100% 100%, 100% 100%, 36px 36px, 36px 36px;
+  }
+  html[data-theme="day"] #wpFrost {
+    background-color: rgba(236, 239, 244, 0.48);
+    background-image:
+      radial-gradient(circle at 12% 0%, var(--glow-a), transparent 42%),
+      radial-gradient(circle at 88% 100%, var(--glow-b), transparent 40%),
+      linear-gradient(rgba(17, 22, 31, 0.065) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(17, 22, 31, 0.065) 1px, transparent 1px);
+  }
+  html.has-wallpaper body { background-image: none; }
+  html.has-wallpaper #wpLayer, html.has-wallpaper #wpFrost { display: block; }
+  html.has-wallpaper .prts-rail,
+  html.has-wallpaper header,
+  html.has-wallpaper main,
+  html.has-wallpaper .ops-view { position: relative; z-index: 1; }
+  html.has-wallpaper aside { background: rgba(13, 16, 22, 0.68); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+  html.has-wallpaper header { background: rgba(16, 19, 26, 0.78); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+  html.has-wallpaper .ws-header, html.has-wallpaper .composer { background: rgba(16, 20, 27, 0.72); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+  html.has-wallpaper .hl-bar { background: rgba(11, 14, 19, 0.68); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  html.has-wallpaper .msg-bot-wrap, html.has-wallpaper .op-card, html.has-wallpaper .kpi-box { background: rgba(18, 22, 30, 0.76); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  html[data-theme="day"].has-wallpaper aside { background: rgba(244, 247, 251, 0.72); }
+  html[data-theme="day"].has-wallpaper header { background: rgba(255, 255, 255, 0.8); }
+  html[data-theme="day"].has-wallpaper .ws-header, html[data-theme="day"].has-wallpaper .composer { background: rgba(250, 252, 255, 0.76); }
+  html[data-theme="day"].has-wallpaper .hl-bar { background: rgba(235, 240, 247, 0.74); }
+  html[data-theme="day"].has-wallpaper .msg-bot-wrap, html[data-theme="day"].has-wallpaper .op-card, html[data-theme="day"].has-wallpaper .kpi-box { background: rgba(255, 255, 255, 0.8); }
+  .wp-preview {
+    width: 100%; height: 140px; border: 1px solid var(--line-strong); margin-bottom: 12px;
+    background: var(--bg-rail) center/cover no-repeat; position: relative; overflow: hidden;
+    display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 11px; color: var(--muted);
+  }
+  .wp-preview::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
   /* ---- Top Micro Telemetry Rail ---- */
   .prts-rail {
     height: 24px; padding: 0 18px;
@@ -637,6 +690,8 @@
 </style>
 </head>
 <body>
+<div id="wpLayer" aria-hidden="true"></div>
+<div id="wpFrost" aria-hidden="true"></div>
 
 <div class="prts-rail">
   <div class="rail-left">
@@ -672,6 +727,7 @@
 
   <div class="header-right">
     <button id="themeBtn" class="btn ghost" title="切换日间 / 夜间模式">☀ DAY</button>
+    <button id="wpBtn" class="btn ghost" title="上传磨砂网格背景壁纸">BG</button>
     <span id="opBadge" class="op-badge" style="display:none"></span>
     <button id="newBtn" class="btn solid">+ DEPLOY</button>
     <button id="logoutBtn" class="btn ghost" style="display:none">LOGOUT</button>
@@ -942,6 +998,30 @@
   </form>
 </dialog>
 
+<!-- Modal: Wallpaper Settings -->
+<dialog id="wpDialog">
+  <div class="modal-stripe"></div>
+  <div class="modal-body">
+    <div style="font-family:var(--mono);font-size:10px;letter-spacing:0.2em;color:var(--cyan);margin-bottom:4px">PRTS // BACKDROP WALLPAPER</div>
+    <h3 style="margin:0 0 12px;font-size:17px">磨砂网格背景壁纸</h3>
+    <div id="wpPreview" class="wp-preview">DEFAULT TACTICAL GRID</div>
+    <input id="wpFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none" />
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <button id="wpUploadBtn" type="button" class="btn solid" style="flex:1;justify-content:center">UPLOAD IMAGE</button>
+      <button id="wpResetBtn" type="button" class="btn danger">RESET DEFAULT</button>
+    </div>
+    <label class="field">WALLPAPER OPACITY (<span id="wpOpVal">45</span>%)
+      <input id="wpOpRange" type="range" min="10" max="90" step="5" value="45" style="padding:0" />
+    </label>
+    <label class="field">FROSTED BLUR (<span id="wpBlurVal">6</span>px)
+      <input id="wpBlurRange" type="range" min="0" max="20" step="1" value="6" style="padding:0" />
+    </label>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px">
+      <button type="button" class="btn ghost" onclick="document.getElementById('wpDialog').close()">CLOSE</button>
+    </div>
+  </div>
+</dialog>
+
 <script>
 const STATUS_LABEL = { working: 'RUNNING', background: 'ASYNC', blocked: 'CONFIRM', idle: 'READY', shell: 'SHELL' };
 const KIND_LABEL = { agy: 'AGY', dsh: 'DSH', claude: 'CLAUDE', codex: 'CODEX', pi: 'PI', shell: 'SHELL' };
@@ -958,6 +1038,11 @@ const state = {
   lastChatSig: '', lastChatKey: '', boostPollUntil: 0,
   cornerCollapsed: false, cornerExpandedTaskId: null,
   theme: (() => { try { return localStorage.getItem('fmux_theme') || 'night'; } catch { return 'night'; } })(),
+  wp: {
+    version: 0,
+    opacity: LS.get('fmux_wp_opacity', 45),
+    blur: LS.get('fmux_wp_blur', 6),
+  },
   hl: { on: LS.get('fmux_hl_on', true), fade: LS.get('fmux_hl_fade', false), tldr: LS.get('fmux_hl_tldr', false), cache: new Map() },
 };
 
@@ -986,6 +1071,72 @@ function applyTheme(mode) {
 }
 applyTheme(state.theme);
 $('themeBtn').onclick = () => applyTheme(state.theme === 'day' ? 'night' : 'day');
+
+// ---- Optional Wallpaper Behind Frosted Grid ----
+function applyWallpaper(version = state.wp.version) {
+  state.wp.version = Number(version) || 0;
+  const has = state.wp.version > 0;
+  document.documentElement.classList.toggle('has-wallpaper', has);
+  document.documentElement.style.setProperty('--wp-opacity', String(state.wp.opacity / 100));
+  document.documentElement.style.setProperty('--wp-blur', `${state.wp.blur}px`);
+  const url = has ? `url('/api/wallpaper?v=${state.wp.version}')` : 'none';
+  $('wpLayer').style.backgroundImage = url;
+  $('wpBtn').classList.toggle('cyan', has);
+  $('wpBtn').classList.toggle('ghost', !has);
+  $('wpOpRange').value = String(state.wp.opacity);
+  $('wpOpVal').textContent = String(state.wp.opacity);
+  $('wpBlurRange').value = String(state.wp.blur);
+  $('wpBlurVal').textContent = String(state.wp.blur);
+  const pv = $('wpPreview');
+  pv.style.backgroundImage = url;
+  pv.textContent = has ? '' : 'DEFAULT TACTICAL GRID';
+}
+applyWallpaper(0);
+$('wpBtn').onclick = () => { applyWallpaper(); $('wpDialog').showModal(); };
+$('wpUploadBtn').onclick = () => $('wpFile').click();
+$('wpFile').onchange = async () => {
+  const file = $('wpFile').files?.[0];
+  $('wpFile').value = '';
+  if (!file) return;
+  if (file.size > 12 * 1024 * 1024) return alert('图片不能超过 12 MB');
+  $('wpUploadBtn').disabled = true;
+  $('wpUploadBtn').textContent = 'UPLOADING...';
+  try {
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error('读取图片失败'));
+      reader.readAsDataURL(file);
+    });
+    const res = await api('/api/wallpaper', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dataUrl }),
+    });
+    applyWallpaper(res.updatedAt);
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    $('wpUploadBtn').disabled = false;
+    $('wpUploadBtn').textContent = 'UPLOAD IMAGE';
+  }
+};
+$('wpResetBtn').onclick = async () => {
+  try {
+    await api('/api/wallpaper', { method: 'DELETE' });
+    applyWallpaper(0);
+  } catch (err) { alert(err.message); }
+};
+$('wpOpRange').oninput = () => {
+  state.wp.opacity = Number($('wpOpRange').value);
+  LS.set('fmux_wp_opacity', state.wp.opacity);
+  applyWallpaper();
+};
+$('wpBlurRange').oninput = () => {
+  state.wp.blur = Number($('wpBlurRange').value);
+  LS.set('fmux_wp_blur', state.wp.blur);
+  applyWallpaper();
+};
 
 // ---- Highlight Controls ----
 function syncHlClasses() {
@@ -1804,6 +1955,9 @@ function connectSSE() {
     if (data.gpu) state.gpu = data.gpu;
     if (data.user) state.user = data.user;
     if (data.authMode) state.authMode = data.authMode;
+    if (data.wallpaperVersion !== undefined && data.wallpaperVersion !== state.wp.version) {
+      applyWallpaper(data.wallpaperVersion);
+    }
     renderSessions();
     if (state.mode === 'sessions') renderWorkspace();
     else if (state.mode === 'heartbeat') renderHeartbeats();
