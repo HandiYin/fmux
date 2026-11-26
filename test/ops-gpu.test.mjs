@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { loadConfig } from '../src/config.mjs';
+import { createDshLocator, dshAdapter } from '../src/dsh.mjs';
 import { GpuRegistry, parseNvidiaApps, parseNvidiaGpus } from '../src/gpu.mjs';
 import { cronMatches, OpsEngine } from '../src/ops.mjs';
 import { classify } from '../src/procs/common.mjs';
@@ -21,6 +22,34 @@ test('dsh process classification and default full-permission (yolo) agent templa
   assert.equal(cfg.agents.codex.flags, '--yolo');
   assert.equal(cfg.agents.agy.flags, '--dangerously-skip-permissions');
   assert.equal(cfg.agents.dsh.command, 'dsh-tui');
+
+  // dshAdapter parses model, real user messages (ignoring system reminders), assistant replies, tool calls, and turn_end.
+  assert.deepEqual(dshAdapter({ type: 'request/context', data: { model: 'deepseek-flash' } }), [{ type: 'model', model: 'deepseek-flash' }]);
+  assert.deepEqual(dshAdapter({ type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: '测试' }] } }), [{ type: 'user', text: '测试' }]);
+  assert.deepEqual(dshAdapter({ type: 'user/message', data: { source: { kind: 'user-approval' }, content: [{ type: 'text', text: 'approval changed' }] } }), []);
+  assert.deepEqual(dshAdapter({ type: 'assistant/message', data: { message: { content: [{ type: 'reasoning', text: 'hmm' }, { type: 'text', text: '收到 ✅' }] } } }), [{ type: 'text', text: '收到 ✅' }]);
+  assert.deepEqual(dshAdapter({ type: 'tool/call', data: { name: 'bash', arguments: '{"command":"ls"}' } }), [{ type: 'tool', name: 'bash', summary: 'ls' }]);
+  assert.deepEqual(dshAdapter({ type: 'turn/end', data: {} }), [{ type: 'turn_end' }]);
+});
+
+test('createDshLocator resolves session.v4.jsonl.zstd via child host-entry session.lock fd', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fmux-dsh-'));
+  const sessDir = path.join(dir, '.dsh', 'sessions', '--home-u--', 'abc-123');
+  fs.mkdirSync(sessDir, { recursive: true });
+  const lockFile = path.join(sessDir, 'session.lock');
+  const zstdFile = path.join(sessDir, 'session.v4.jsonl.zstd');
+  fs.writeFileSync(lockFile, '');
+  fs.writeFileSync(zstdFile, '');
+  const locator = createDshLocator({
+    home: dir,
+    io: {
+      snapshot: async () => ({ children: new Map([[100, [101]]]) }),
+      openFiles: async (pid) => (pid === 101 ? [lockFile] : []),
+      procCwd: async () => '/home/u',
+      procStartMs: async () => Date.now(),
+    },
+  });
+  assert.equal(await locator(100, { cwd: '/home/u' }), zstdFile);
 });
 
 test('cronMatches evaluates standard 5-field expressions accurately', () => {
@@ -94,8 +123,10 @@ test('OpsEngine runs Heartbeat tasks and Long-Horizon Goal supervision with pers
   assert.equal(opsReloaded.data.goals[0].progress, 45);
 });
 
-test('GpuRegistry parses nvidia-smi telemetry and manages unified GPU leases over HTTP', async () => {
+test('GpuRegistry parses nvidia-smi, polls Gongji live jobs, and classifies local/gongji/volc leases over HTTP', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fmux-gpu-'));
+  const gjEnv = path.join(dir, 'gongji.env');
+  fs.writeFileSync(gjEnv, 'SUANLI_TOKEN=fake_tok\nSUANLI_BASE_URL=https://openapi.suanli.test\n');
   const gpus = parseNvidiaGpus('0, GPU-abc, NVIDIA GeForce RTX 4090, 62, 18400, 49140, 67, 290.5, 450.0\n');
   assert.equal(gpus.length, 1);
   assert.equal(gpus[0].name, 'NVIDIA GeForce RTX 4090');
@@ -110,10 +141,29 @@ test('GpuRegistry parses nvidia-smi telemetry and manages unified GPU leases ove
     if (args[0].includes('query-gpu')) return '0, GPU-abc, NVIDIA GeForce RTX 4090, 62, 18400, 49140, 67, 290.5, 450.0\n';
     return 'GPU-abc, 4242, /usr/bin/python3, 18200\n';
   };
-  const gpu = new GpuRegistry({ registry: h.router.registry, stateDir: dir, exec: mockExec });
-  await gpu.poll();
+  const mockFetch = async () => new Response(JSON.stringify({
+    code: '0000',
+    data: {
+      results: [
+        { task_id: 3897077, task_name: 'handi-v72-1card-obj-0198', status: 'Pending', job_status: { status: 'Running' }, sub_type: 'Spot', create_time: '2026-11-26 18:52:00', billing_value: 0, forecast_value: 500000 },
+        { task_id: 3893246, task_name: 'colleague-job', status: 'Running', job_status: { status: 'Running' }, sub_type: '按需', create_time: '2026-11-26 13:31:00', billing_value: 11750000, forecast_value: 0 },
+      ],
+    },
+  }), { status: 200 });
+
+  const gpu = new GpuRegistry({
+    registry: h.router.registry,
+    stateDir: dir,
+    gongjiHome: dir,
+    gongjiEnvFile: gjEnv,
+    exec: mockExec,
+    fetchImpl: mockFetch,
+  });
+  await gpu.poll({ forceGongji: true });
   assert.equal(gpu.localGpus.length, 1);
   assert.equal(gpu.localGpus[0].processes.length, 1);
+  assert.equal(gpu.gongjiJobs.length, 2);
+  assert.equal(gpu.gongjiJobs.filter((j) => j.own).length, 1);
 
   h.cfg.web = { enabled: true, host: '127.0.0.1', port: 0, token: 'gpu-tok' };
   h.cfg.highlight = { enabled: false };
@@ -122,27 +172,47 @@ test('GpuRegistry parses nvidia-smi telemetry and manages unified GPU leases ove
   const headers = { Authorization: 'Bearer gpu-tok', 'Content-Type': 'application/json' };
 
   try {
-    const reg = await (await fetch(`${base}/api/gpu/register`, {
+    const volcReg = await (await fetch(`${base}/api/gpu/register`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ host: 'h100-node-02', gpus: '0,1', session: 'train_hand', task: 'SFT v3', model: 'H100 80GB', memoryGb: 140 }),
+      body: JSON.stringify({ cluster: 'volc', host: 'cn-beijing', jobId: 't-20261126-abc', gpus: '8', session: 'train_hand', task: 'SFT v3', model: 'A100-80G', memoryGb: 640 }),
     })).json();
-    assert.ok(reg.id.startsWith('gpu_'));
-    assert.deepEqual(reg.gpus, ['0', '1']);
+    assert.ok(volcReg.id.startsWith('gpu_'));
+    assert.equal(volcReg.cluster, 'volc');
+
+    // Re-registering same (cluster, jobId) upserts idempotently instead of duplicating.
+    const volcUpsert = await (await fetch(`${base}/api/gpu/register`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ cluster: 'volc', host: 'cn-beijing', jobId: 't-20261126-abc', gpus: '8', session: 'train_hand', task: 'SFT v3 updated', model: 'A100-80G' }),
+    })).json();
+    assert.equal(volcUpsert.id, volcReg.id);
+    assert.equal(volcUpsert.task, 'SFT v3 updated');
+
+    const gjReg = await (await fetch(`${base}/api/gpu/register`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ cluster: 'gongji', host: 'tj1q', jobId: '3897077', gpus: '1', session: 'obj', task: 'handi-v72-1card-obj-0198', model: 'RTX 5090' }),
+    })).json();
+    assert.equal(gjReg.cluster, 'gongji');
 
     const snap = await (await fetch(`${base}/api/gpu`, { headers })).json();
     assert.equal(snap.summary.localCount, 1);
     assert.equal(snap.summary.localBusy, 1);
-    assert.equal(snap.summary.activeLeases, 1);
-    assert.equal(snap.summary.registeredGpus, 2);
+    assert.equal(snap.summary.gongjiOwn, 1);
+    assert.equal(snap.summary.gongjiTotal, 2);
+    assert.equal(snap.summary.volcLeases, 1);
+    assert.equal(snap.summary.volcGpus, 8);
+    assert.equal(snap.clusters.gongji.leases.length, 1);
+    assert.equal(snap.clusters.volc.leases.length, 1);
 
     const rel = await (await fetch(`${base}/api/gpu/release`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ id: reg.id }),
+      body: JSON.stringify({ jobId: 't-20261126-abc', cluster: 'volc' }),
     })).json();
     assert.equal(rel.released, 1);
-    assert.equal(gpu.snapshot().summary.activeLeases, 0);
+    assert.equal(gpu.snapshot().summary.volcLeases, 0);
   } finally {
     await web.close();
   }

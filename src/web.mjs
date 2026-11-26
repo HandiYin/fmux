@@ -398,7 +398,7 @@ export function startWebServer({
         return;
       }
       if (req.method === 'POST' && url.pathname === '/api/gpu/poll') {
-        await gpuRegistry.poll();
+        await gpuRegistry.poll({ forceGongji: true });
         sendJson(res, 200, gpuRegistry.snapshot());
         return;
       }

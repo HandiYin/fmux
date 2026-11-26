@@ -38,9 +38,9 @@ not see them. You get the messages only while nothing is attached, or when the o
 | `fmuxctl dashboard` | Post the session dashboard card (buttons to attach and peek) |
 | `fmuxctl show <session> [--terminal\|--tasks]` | Post the session's card: state/last reply, terminal with key pad, or live background tasks card |
 | `fmuxctl notify <text>` | Post a plain card to the chat |
-| `fmuxctl gpu ls` | Show live local GPU telemetry (`nvidia-smi`) and all registered GPU resource leases |
-| `fmuxctl gpu register --gpus <ids> --session <name> --task <desc> [--host <host>]` | Register GPU compute usage so all sessions can see active allocations on the GPU board |
-| `fmuxctl gpu release --id <leaseId>\|--session <name>` | Release a registered GPU lease when the job finishes |
+| `fmuxctl gpu ls` | Show live local (`local`) + Gongji (`gongji`) GPUs and all registered leases across `local` / `gongji` / `volc` |
+| `fmuxctl gpu register --cluster local\|gongji\|volc --gpus <ids\|count> --session <name> --task <desc> [--job-id <id>] [--model <gpu>] [--host <host>]` | Register GPU compute usage so all sessions can track allocations across本机器/共绩集群/火山集群 |
+| `fmuxctl gpu release <leaseId>\|--job-id <id>\|--session <name>` | Release a registered GPU lease when the job finishes |
 | `fmuxctl status` | Hub health |
 
 `<session>` is the number from `fmuxctl ls`, or a loose name: part of the tmux name, of the agent's

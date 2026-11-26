@@ -681,22 +681,49 @@
   <div class="section-bar">
     <div>
       <div class="section-title">04 // GPU COMPUTE REGISTER</div>
-      <div class="section-sub">统一 GPU 计算资源注册入口与实时遥测看板 · 汇聚本机 nvidia-smi 与全会话登记的本地/集群 GPU</div>
+      <div class="section-sub">统一 GPU 调度与遥测看板 · 按「本机器 / 共绩集群 / 火山集群」三类实时追踪全会话算力占用</div>
     </div>
     <div style="display:flex;gap:8px">
-      <button id="pollGpuBtn" class="btn ghost">SYNC NVIDIA-SMI</button>
+      <button id="pollGpuBtn" class="btn ghost">SYNC ALL CLUSTERS</button>
       <button id="addGpuBtn" class="btn solid">+ REGISTER GPU</button>
     </div>
   </div>
   <div id="gpuKpis" class="gpu-kpis"></div>
-  <div class="cli-hint">
-    <span>AGENT 统一注册命令：<code>fmuxctl gpu register --gpus 0 --session &lt;会话名&gt; --task "&lt;训练/推理任务&gt;" --host local</code></span>
-    <button id="copyGpuCli" class="btn xs cyan" type="button">COPY CLI</button>
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+    <div id="gpuClusterTabs" class="subtabs">
+      <button class="subtab active" data-cluster="all">ALL CLUSTERS</button>
+      <button class="subtab" data-cluster="local">01 // 本机器</button>
+      <button class="subtab" data-cluster="gongji">02 // 共绩集群</button>
+      <button class="subtab" data-cluster="volc">03 // 火山集群</button>
+    </div>
+    <div class="cli-hint" style="flex:1;min-width:280px">
+      <span>AGENT 登记：<code>fmuxctl gpu register --cluster local|gongji|volc --gpus 1 --job-id &lt;id&gt; --session &lt;会话&gt; --task "&lt;任务&gt;"</code></span>
+      <button id="copyGpuCli" class="btn xs cyan" type="button">COPY CLI</button>
+    </div>
   </div>
-  <div style="font-family:var(--mono);font-size:11px;letter-spacing:0.16em;color:var(--muted)">LOCAL HARDWARE TELEMETRY</div>
-  <div id="gpuLocalList" class="ops-grid"></div>
-  <div style="font-family:var(--mono);font-size:11px;letter-spacing:0.16em;color:var(--muted);margin-top:6px">REGISTERED GPU LEASES (ALL CONVERSATIONS &amp; CLUSTERS)</div>
-  <div id="gpuLeaseWrap"></div>
+  <div id="gpuClusterLocal" style="display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;align-items:center;justify-content:space-between;border-left:3px solid var(--green);padding-left:10px">
+      <span style="font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:0.16em">01 // 本机器 (LOCAL MACHINE · NVIDIA-SMI)</span>
+      <span id="gpuLocalMeta" style="font-family:var(--mono);font-size:10px;color:var(--muted)"></span>
+    </div>
+    <div id="gpuLocalList" class="ops-grid"></div>
+    <div id="gpuLocalLeases"></div>
+  </div>
+  <div id="gpuClusterGongji" style="display:flex;flex-direction:column;gap:10px;margin-top:4px">
+    <div style="display:flex;align-items:center;justify-content:space-between;border-left:3px solid var(--cyan);padding-left:10px">
+      <span style="font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:0.16em">02 // 共绩集群 (GONGJI · SUANLI.CN LIVE + REGISTERED)</span>
+      <span id="gpuGongjiMeta" style="font-family:var(--mono);font-size:10px;color:var(--muted)"></span>
+    </div>
+    <div id="gpuGongjiLive" class="ops-grid"></div>
+    <div id="gpuGongjiLeases"></div>
+  </div>
+  <div id="gpuClusterVolc" style="display:flex;flex-direction:column;gap:10px;margin-top:4px">
+    <div style="display:flex;align-items:center;justify-content:space-between;border-left:3px solid var(--amber);padding-left:10px">
+      <span style="font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:0.16em">03 // 火山集群 (VOLCANO MLP · REGISTERED LEASES)</span>
+      <span id="gpuVolcMeta" style="font-family:var(--mono);font-size:10px;color:var(--muted)"></span>
+    </div>
+    <div id="gpuVolcLeases"></div>
+  </div>
 </section>
 
 <!-- Modal: Deploy New Session (Always tmux + full yolo permissions) -->
@@ -781,12 +808,22 @@
     <div style="font-family:var(--mono);font-size:10px;letter-spacing:0.2em;color:var(--cyan);margin-bottom:4px">PRTS // REGISTER GPU COMPUTE LEASE</div>
     <h3 style="margin:0 0 14px;font-size:17px">登记占用的 GPU 资源</h3>
     <div class="field-row">
-      <label class="field">HOST / CLUSTER<input id="gpuHost" value="local" placeholder="local 或远程节点名" /></label>
-      <label class="field">GPU IDS (COMMA)<input id="gpuIds" value="0" required placeholder="0 或 0,1,2,3" /></label>
+      <label class="field">CLUSTER (集群分类)
+        <select id="gpuCluster">
+          <option value="local">本机器 (local)</option>
+          <option value="gongji">共绩集群 (gongji)</option>
+          <option value="volc">火山集群 (volc)</option>
+        </select>
+      </label>
+      <label class="field">JOB ID (OPTIONAL)<input id="gpuJobId" placeholder="如 3897077 或 t-2026..." /></label>
+    </div>
+    <div class="field-row">
+      <label class="field">HOST / QUEUE / REGION<input id="gpuHost" value="local" placeholder="local / tj1q / cn-beijing" /></label>
+      <label class="field">GPU IDS OR COUNT<input id="gpuIds" value="0" required placeholder="本机填 0，集群填卡数如 1 / 8" /></label>
     </div>
     <div class="field-row">
       <label class="field">OWNER SESSION<select id="gpuSess"></select></label>
-      <label class="field">GPU MODEL (OPTIONAL)<input id="gpuModel" placeholder="如 RTX 4090 / H100" /></label>
+      <label class="field">GPU MODEL (OPTIONAL)<input id="gpuModel" placeholder="如 RTX 4090 / 5090 / A100-80G" /></label>
     </div>
     <label class="field">TASK DESCRIPTION<input id="gpuTask" required placeholder="正在运行的训练/评估/推理任务" /></label>
     <div class="field-row">
@@ -812,7 +849,7 @@ const state = {
   sessions: [], status: null, agents: [], user: null, authMode: 'local',
   ops: { heartbeats: [], goals: [] },
   gpu: { hostName: 'local', localGpus: [], leases: [], summary: {} },
-  selectedKey: null, mode: 'sessions', tab: 'chat', selectedTaskId: null,
+  selectedKey: null, mode: 'sessions', tab: 'chat', gpuClusterFilter: 'all', selectedTaskId: null,
   cornerCollapsed: false, cornerExpandedTaskId: null,
   theme: (() => { try { return localStorage.getItem('fmux_theme') || 'night'; } catch { return 'night'; } })(),
   hl: { on: LS.get('fmux_hl_on', true), fade: LS.get('fmux_hl_fade', false), tldr: LS.get('fmux_hl_tldr', false), cache: new Map() },
@@ -1371,19 +1408,58 @@ function renderGoals() {
   });
 }
 
-// ---- 04 // GPU REGISTER VIEW ----
-function renderGpu() {
-  const g = state.gpu || { localGpus: [], leases: [], summary: {} };
-  const sum = g.summary || {};
-  $('gpuKpis').innerHTML = `
-    <div class="kpi-box"><div class="kpi-val">${pad2(sum.localCount || 0)}</div><div class="kpi-lbl">LOCAL GPUS (${esc(g.hostName || 'HOST')})</div></div>
-    <div class="kpi-box"><div class="kpi-val" style="color:var(--green)">${pad2(sum.localBusy || 0)}</div><div class="kpi-lbl">LOCAL BUSY</div></div>
-    <div class="kpi-box"><div class="kpi-val" style="color:var(--cyan)">${pad2(sum.activeLeases || 0)}</div><div class="kpi-lbl">ACTIVE LEASES</div></div>
-    <div class="kpi-box"><div class="kpi-val" style="color:var(--amber)">${pad2(sum.registeredGpus || 0)}</div><div class="kpi-lbl">REGISTERED GPUS</div></div>`;
+// ---- 04 // GPU REGISTER VIEW (3 Clusters: 本机器 / 共绩集群 / 火山集群) ----
+function renderLeaseTable(el, leases, emptyMsg) {
+  if (!leases?.length) {
+    el.innerHTML = emptyMsg ? `<div class="empty" style="padding:18px 14px">${emptyMsg}</div>` : '';
+    return;
+  }
+  el.innerHTML = `<table class="lease-table">
+    <thead><tr><th>ID / JOB</th><th>HOST / SPEC</th><th>GPUS</th><th>SESSION</th><th>TASK</th><th>STATUS</th><th>TTL</th><th>ACTION</th></tr></thead>
+    <tbody>${leases.map((l) => {
+      const rem = l.expiresAt ? (l.expired ? 'EXPIRED' : `${Math.max(0, Math.round((l.expiresAt - Date.now()) / 60000))}m`) : '∞';
+      return `<tr>
+        <td>${esc(l.jobId || l.id)}</td>
+        <td>${esc(l.host)}${l.model ? ` · ${esc(l.model)}` : ''}</td>
+        <td><span class="u-chip st-background">${esc(l.gpus.join(','))}</span></td>
+        <td>${esc(l.session || '-')}</td>
+        <td>${esc(l.task)}${l.memoryGb ? ` · ${l.memoryGb}GB` : ''}${l.note ? ` (${esc(l.note)})` : ''}</td>
+        <td><span class="u-chip ${l.expired ? 'st-error' : 'st-working'}">${l.expired ? 'EXPIRED' : esc(l.status)}</span></td>
+        <td>${rem}</td>
+        <td><button class="btn xs danger" data-gpurel="${esc(l.id)}">RELEASE</button></td>
+      </tr>`;
+    }).join('')}</tbody></table>`;
+  el.querySelectorAll('[data-gpurel]').forEach((b) => {
+    b.onclick = () => api('/api/gpu/release', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: b.dataset.gpurel }) });
+  });
+}
 
+function renderGpu() {
+  const g = state.gpu || { localGpus: [], gongjiJobs: [], leases: [], clusters: {}, summary: {} };
+  const sum = g.summary || {};
+  const cl = g.clusters || {};
+  const localLeases = cl.local?.leases || (g.leases || []).filter((l) => (l.cluster || 'local') === 'local');
+  const gongjiLeases = cl.gongji?.leases || (g.leases || []).filter((l) => l.cluster === 'gongji');
+  const volcLeases = cl.volc?.leases || (g.leases || []).filter((l) => l.cluster === 'volc');
+  const gongjiLive = g.gongjiJobs || cl.gongji?.liveJobs || [];
+
+  $('gpuKpis').innerHTML = `
+    <div class="kpi-box"><div class="kpi-val" style="color:var(--green)">${pad2(sum.localBusy || 0)}/${pad2(sum.localCount || 0)}</div><div class="kpi-lbl">01 本机器 BUSY/TOTAL</div></div>
+    <div class="kpi-box"><div class="kpi-val" style="color:var(--cyan)">${pad2(sum.gongjiOwn || 0)} (${pad2(sum.gongjiTotal || 0)})</div><div class="kpi-lbl">02 共绩集群 OUR (TEAM)</div></div>
+    <div class="kpi-box"><div class="kpi-val" style="color:var(--amber)">${pad2(sum.volcGpus || 0)} GPU</div><div class="kpi-lbl">03 火山集群 (${sum.volcLeases || 0} JOBS)</div></div>
+    <div class="kpi-box"><div class="kpi-val">${pad2(sum.activeLeases || 0)}</div><div class="kpi-lbl">ALL REGISTERED LEASES</div></div>`;
+
+  const f = state.gpuClusterFilter || 'all';
+  $('gpuClusterLocal').style.display = (f === 'all' || f === 'local') ? 'flex' : 'none';
+  $('gpuClusterGongji').style.display = (f === 'all' || f === 'gongji') ? 'flex' : 'none';
+  $('gpuClusterVolc').style.display = (f === 'all' || f === 'volc') ? 'flex' : 'none';
+  $('gpuClusterTabs').querySelectorAll('[data-cluster]').forEach((b) => b.classList.toggle('active', b.dataset.cluster === f));
+
+  // 01 // 本机器
+  $('gpuLocalMeta').textContent = `${g.hostName || 'LOCAL'} · ${g.localGpus?.length || 0} CARDS · ${localLeases.length} LEASES`;
   const localWrap = $('gpuLocalList');
   if (!g.localGpus?.length) {
-    localWrap.innerHTML = '<div class="empty"><strong>NO LOCAL NVIDIA GPU DETECTED</strong>仍可通过下方统一注册接口登记远程算力节点 GPU</div>';
+    localWrap.innerHTML = '<div class="empty" style="padding:18px 14px"><strong>NO LOCAL NVIDIA GPU DETECTED</strong>本机无可用 nvidia-smi 显卡</div>';
   } else {
     localWrap.innerHTML = g.localGpus.map((card) => {
       const memPct = card.memoryTotalMb ? Math.round((card.memoryUsedMb / card.memoryTotalMb) * 100) : 0;
@@ -1408,30 +1484,38 @@ function renderGpu() {
       </div>`;
     }).join('');
   }
+  renderLeaseTable($('gpuLocalLeases'), localLeases, '');
 
-  const leaseWrap = $('gpuLeaseWrap');
-  if (!g.leases?.length) {
-    leaseWrap.innerHTML = '<div class="empty"><strong>NO REGISTERED GPU LEASES</strong>所有对话均可通过 fmuxctl gpu register 或 + REGISTER GPU 登记</div>';
+  // 02 // 共绩集群
+  $('gpuGongjiMeta').textContent = g.gongjiError
+    ? `SYNC ERR: ${g.gongjiError}`
+    : `LIVE ${gongjiLive.length} JOBS (${sum.gongjiOwn || 0} OUR) · ${gongjiLeases.length} REGISTERED · SYNC ${fmtTime(g.gongjiPolledAt)}`;
+  const gjWrap = $('gpuGongjiLive');
+  if (!gongjiLive.length) {
+    gjWrap.innerHTML = '<div class="empty" style="padding:18px 14px"><strong>NO ACTIVE GONGJI LIVE JOBS</strong>当前共绩集群无 Pending/Running 任务</div>';
   } else {
-    leaseWrap.innerHTML = `<table class="lease-table">
-      <thead><tr><th>ID</th><th>HOST</th><th>GPUS</th><th>SESSION</th><th>TASK</th><th>STATUS</th><th>TTL</th><th>ACTION</th></tr></thead>
-      <tbody>${g.leases.map((l) => {
-        const rem = l.expiresAt ? (l.expired ? 'EXPIRED' : `${Math.max(0, Math.round((l.expiresAt - Date.now()) / 60000))}m`) : '∞';
-        return `<tr>
-          <td>${esc(l.id)}</td>
-          <td>${esc(l.host)}${l.model ? ` (${esc(l.model)})` : ''}</td>
-          <td><span class="u-chip st-background">${esc(l.gpus.join(','))}</span></td>
-          <td>${esc(l.session || '-')}</td>
-          <td>${esc(l.task)}${l.memoryGb ? ` · ${l.memoryGb}GB` : ''}</td>
-          <td><span class="u-chip ${l.expired ? 'st-error' : 'st-working'}">${l.expired ? 'EXPIRED' : esc(l.status)}</span></td>
-          <td>${rem}</td>
-          <td><button class="btn xs danger" data-gpurel="${esc(l.id)}">RELEASE</button></td>
-        </tr>`;
-      }).join('')}</tbody></table>`;
-    leaseWrap.querySelectorAll('[data-gpurel]').forEach((b) => {
-      b.onclick = () => api('/api/gpu/release', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: b.dataset.gpurel }) });
-    });
+    gjWrap.innerHTML = gongjiLive.map((j) => {
+      const stCls = j.status === 'Running' ? 'st-working' : 'st-blocked';
+      return `<div class="op-card ${j.own ? 'running' : ''}">
+        <div class="op-top">
+          <span class="op-code">#${esc(j.taskId)} // ${esc(j.name)}</span>
+          <span class="u-chip ${j.own ? 'st-background' : ''}">${j.own ? 'OUR · handi' : 'TEAM'}</span>
+        </div>
+        <div class="u-meta">
+          <span class="u-chip ${stCls}">${esc(j.status)}${j.jobStatus && j.jobStatus !== j.status ? ` / ${esc(j.jobStatus)}` : ''}</span>
+          <span class="u-chip">${esc(j.subType)}</span>
+          <span class="u-chip">${esc(j.gpuCount)}× ${esc(j.model)}${j.region ? ` @ ${esc(j.region)}` : ''}</span>
+          <span class="u-chip">¥${Number(j.costYuan || 0).toFixed(2)}</span>
+        </div>
+        <div class="op-foot"><span>CREATED ${esc(j.createTime || '-')}</span><span>SUANLI.CN LIVE</span></div>
+      </div>`;
+    }).join('');
   }
+  renderLeaseTable($('gpuGongjiLeases'), gongjiLeases, '');
+
+  // 03 // 火山集群
+  $('gpuVolcMeta').textContent = `${volcLeases.length} REGISTERED LEASES · ${sum.volcGpus || 0} ACTIVE GPUS`;
+  renderLeaseTable($('gpuVolcLeases'), volcLeases, '<strong>NO REGISTERED VOLCANO MLP JOBS</strong>提交火山 MLP 任务后通过 <code>fmuxctl gpu register --cluster volc --gpus 8 --job-id &lt;id&gt; --task "..."</code> 登记');
 }
 
 // ---- Actions & Dialog Wiring ----
@@ -1547,8 +1631,16 @@ $('goalForm').onsubmit = async (e) => {
 };
 
 $('pollGpuBtn').onclick = () => api('/api/gpu/poll', { method: 'POST' });
+$('gpuClusterTabs').querySelectorAll('[data-cluster]').forEach((b) => {
+  b.onclick = () => { state.gpuClusterFilter = b.dataset.cluster; renderGpu(); };
+});
+$('gpuCluster').onchange = () => {
+  const c = $('gpuCluster').value;
+  $('gpuHost').value = c === 'gongji' ? 'tj1q' : c === 'volc' ? 'cn-beijing' : 'local';
+  $('gpuIds').value = c === 'local' ? '0' : '1';
+};
 $('copyGpuCli').onclick = () => {
-  navigator.clipboard?.writeText('fmuxctl gpu register --gpus 0 --session <session> --task "<task>" --host local');
+  navigator.clipboard?.writeText('fmuxctl gpu register --cluster local --gpus 0 --session <session> --task "<task>"');
   $('copyGpuCli').textContent = 'COPIED';
   setTimeout(() => { $('copyGpuCli').textContent = 'COPY CLI'; }, 1200);
 };
@@ -1559,7 +1651,9 @@ $('gpuForm').onsubmit = async (e) => {
     await api('/api/gpu/register', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        host: $('gpuHost').value.trim() || 'local',
+        cluster: $('gpuCluster').value,
+        jobId: $('gpuJobId').value.trim(),
+        host: $('gpuHost').value.trim(),
         gpus: $('gpuIds').value.trim(),
         session: $('gpuSess').value,
         model: $('gpuModel').value.trim(),

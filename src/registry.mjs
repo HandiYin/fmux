@@ -260,8 +260,8 @@ export class Registry extends EventEmitter {
 
   async followTranscript(s, kind, meta) {
     if (kind === 'shell') return;
-    // Recheck Claude/Codex/agy identity every poll (agy can switch conversations inside one TUI).
-    const every = kind === 'claude' || kind === 'codex' || kind === 'agy' ? 1 : s.transcript ? 15 : 3;
+    // Recheck Claude/Codex/agy/dsh identity every poll (agy/dsh can switch conversations inside one TUI).
+    const every = kind === 'claude' || kind === 'codex' || kind === 'agy' || kind === 'dsh' ? 1 : s.transcript ? 15 : 3;
     if (this.polls % every !== 0) return;
     const file = await this.probe.locateTranscript(kind, s.agentPid, meta, { cwd: s.cwd, title: s.paneTitle });
     // Both unknown: after a hub restart this may be a pane whose confirmed rollout is on disk.
@@ -279,7 +279,7 @@ export class Registry extends EventEmitter {
       }
       return;
     }
-    if (kind === 'codex' || kind === 'agy') {
+    if (kind === 'codex' || kind === 'agy' || kind === 'dsh') {
       log('info', 'transcript.bound', { session: s.name, kind, title: s.paneTitle, file: path.basename(file) });
       if (kind === 'codex') this.codexBindings.forget(s);
       s.transcript = null;
@@ -304,6 +304,7 @@ export class Registry extends EventEmitter {
       const last = lastExchange(file, adapters[kind]);
       s.lastText = last.text || s.lastText;
       s.lastPrompt = last.prompt || s.lastPrompt;
+      if (last.model) s.model = last.model;
       if (kind === 'agy') {
         const seeded = seedTasksFromTranscript(file, adapters.agy);
         s.tasks = seeded.tasks;

@@ -23,9 +23,9 @@ const USAGE = `fmuxctl — control the running fmux
   fmuxctl history [--json]                past Claude Code, Codex and agy conversations that can be resumed
   fmuxctl tasks <session> [-n LINES] [--task ID] [--json]
                                           show background tasks and task logs of a session (agy)
-  fmuxctl gpu ls [--json]                 show live local GPUs and all registered GPU leases
-  fmuxctl gpu register --gpus 0,1 --session NAME --task DESC [--host local] [--model NAME] [--ttl 240]
-  fmuxctl gpu release <lease-id> | --session NAME
+  fmuxctl gpu ls [--json]                 show live local/gongji GPUs and all registered leases by cluster
+  fmuxctl gpu register --cluster local|gongji|volc --gpus 0|1|8 --session NAME --task DESC [--job-id ID] [--model NAME] [--host HOST] [--ttl 240]
+  fmuxctl gpu release <lease-id> | --job-id ID | --session NAME [--cluster C]
   fmuxctl kill <session> --yes            end the tmux session
   fmuxctl notify <text…> [--title T]      send a card to the owner's chat
   fmuxctl dashboard                       post a fresh session dashboard card
@@ -134,33 +134,59 @@ async function main() {
         const json = has(args, '--json');
         const snap = await call('gpu.ls');
         if (json) return console.log(JSON.stringify(snap, null, 2));
-        console.log(`Local GPUs (${snap.localGpus.length}) on ${snap.hostName}:`);
+        console.log(`=== 本机器 (local · ${snap.hostName}) ===`);
         for (const g of snap.localGpus) {
           console.log(`  GPU ${g.index} ${g.name} | ${g.utilization}% | ${g.memoryUsedMb}/${g.memoryTotalMb} MiB | ${g.temperatureC}C | ${g.powerW}W`);
         }
-        console.log(`Registered Leases (${snap.leases.length}):`);
-        for (const l of snap.leases) {
-          console.log(`  ${l.id} [${l.expired ? 'EXPIRED' : l.status}] ${l.host} GPU:${l.gpus.join(',')} session=${l.session || '-'} task=${l.task}`);
+        for (const l of snap.clusters?.local?.leases || []) {
+          console.log(`  [LEASE ${l.id}] GPU:${l.gpus.join(',')} session=${l.session || '-'} task=${l.task} (${l.expired ? 'EXPIRED' : l.status})`);
+        }
+        console.log(`=== 共绩集群 (gongji · ${snap.gongjiJobs?.length || 0} live) ===`);
+        for (const j of snap.gongjiJobs || []) {
+          console.log(`  [LIVE ${j.taskId}] ${j.own ? 'OUR' : 'TEAM'} ${j.status}/${j.jobStatus} ${j.subType} ${j.gpuCount}x${j.model} ¥${j.costYuan} — ${j.name}`);
+        }
+        for (const l of snap.clusters?.gongji?.leases || []) {
+          console.log(`  [LEASE ${l.id}] job=${l.jobId || '-'} GPU:${l.gpus.join(',')} ${l.model || ''} session=${l.session || '-'} task=${l.task}`);
+        }
+        console.log(`=== 火山集群 (volc · ${snap.clusters?.volc?.leases?.length || 0} leases) ===`);
+        for (const l of snap.clusters?.volc?.leases || []) {
+          console.log(`  [LEASE ${l.id}] job=${l.jobId || '-'} GPU:${l.gpus.join(',')} ${l.model || ''} session=${l.session || '-'} task=${l.task} (${l.expired ? 'EXPIRED' : l.status})`);
         }
         return undefined;
       }
       if (sub === 'register') {
         const params = {
+          cluster: take(args, '--cluster') || '',
           gpus: take(args, '--gpus') || '0',
-          host: take(args, '--host') || 'local',
+          host: take(args, '--host') || '',
+          jobId: take(args, '--job-id') || '',
           session: take(args, '--session') || '',
           task: take(args, '--task') || args.join(' '),
           model: take(args, '--model') || '',
           note: take(args, '--note') || '',
+          status: take(args, '--status') || 'running',
           ttlMinutes: Number(take(args, '--ttl') || 240),
         };
         return console.log(JSON.stringify(await call('gpu.register', params), null, 2));
       }
+      if (sub === 'heartbeat') {
+        const id = take(args, '--id') || take(args, '--job-id') || args[0];
+        const params = {
+          id,
+          status: take(args, '--status'),
+          note: take(args, '--note'),
+          ttlMinutes: take(args, '--ttl') ? Number(take(args, '--ttl')) : undefined,
+        };
+        return console.log(JSON.stringify(await call('gpu.heartbeat', params), null, 2));
+      }
       if (sub === 'release') {
         const session = take(args, '--session');
-        return console.log(JSON.stringify(await call('gpu.release', session ? { session } : { id: args[0] }), null, 2));
+        const jobId = take(args, '--job-id');
+        const cluster = take(args, '--cluster');
+        const id = take(args, '--id') || (!session && !jobId ? args[0] : undefined);
+        return console.log(JSON.stringify(await call('gpu.release', { id, jobId, session, cluster }), null, 2));
       }
-      throw new Error('usage: fmuxctl gpu ls|register|release');
+      throw new Error('usage: fmuxctl gpu ls|register|heartbeat|release');
     }
     case 'dev': {
       const sub = args.shift();

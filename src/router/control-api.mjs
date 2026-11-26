@@ -85,7 +85,7 @@ export function createControlApi(router) {
     },
     'gpu.ls': async () => {
       if (!router.gpu) throw new Error('GPU registry is not initialized');
-      await router.gpu.poll();
+      await router.gpu.poll({ forceGongji: true });
       return router.gpu.snapshot();
     },
     'gpu.register': async (params) => {

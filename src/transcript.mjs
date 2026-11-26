@@ -4,6 +4,7 @@ import path from 'node:path';
 import { readClaudeMeta } from './agent-files.mjs';
 import { agyAdapter, createAgyLocator } from './agy.mjs';
 import { createCodexLocator } from './codex-transcript.mjs';
+import { createDshLocator, dshAdapter, readZstdText } from './dsh.mjs';
 import { parseJsonLines, readTailSlice } from './jsonl.mjs';
 import { procCwd, procStartMs } from './procs.mjs';
 import { oneLine } from './util.mjs';
@@ -109,18 +110,40 @@ export const adapters = {
   },
 
   agy: agyAdapter,
+  dsh: dshAdapter,
 };
 
 const adaptLines = (text, adapter) => parseJsonLines(text).flatMap(adapter);
 
-// Follows a JSONL transcript from a byte offset and returns the events appended since the last read.
+function readTranscriptText(file, maxBytes) {
+  if (String(file || '').endsWith('.zstd')) {
+    const full = readZstdText(file);
+    return full === null ? null : (full.length > maxBytes ? full.slice(-maxBytes) : full);
+  }
+  return readTailSlice(file, maxBytes);
+}
+
+// Follows a JSONL (or multi-frame .zstd JSONL) transcript and returns events appended since the last read.
 export class Tail {
   constructor(file, adapter, { fromStart = false, offset = null } = {}) {
     this.file = file;
     this.adapter = adapter;
+    this.isZstd = String(file || '').endsWith('.zstd');
     this.partial = '';
     this.offset = 0;
+    this.lineCount = 0;
     if (fromStart) return;
+    if (this.isZstd) {
+      try {
+        this.offset = fs.statSync(file).size;
+        const text = readZstdText(file);
+        this.lineCount = text ? text.split('\n').filter(Boolean).length : 0;
+      } catch {
+        this.offset = 0;
+        this.lineCount = 0;
+      }
+      return;
+    }
     if (Number.isFinite(offset) && offset >= 0) {
       this.offset = offset;
       return;
@@ -138,6 +161,17 @@ export class Tail {
       size = fs.statSync(this.file).size;
     } catch {
       return [];
+    }
+    if (this.isZstd) {
+      if (size === this.offset) return [];
+      const text = readZstdText(this.file);
+      if (text === null) return [];
+      const lines = text.split('\n').filter(Boolean);
+      if (lines.length < this.lineCount) this.lineCount = 0;
+      const fresh = lines.slice(this.lineCount);
+      this.lineCount = lines.length;
+      this.offset = size;
+      return fresh.length ? adaptLines(fresh.join('\n'), this.adapter) : [];
     }
     if (size < this.offset) {
       this.offset = 0;
@@ -159,14 +193,15 @@ export class Tail {
   }
 }
 
-// Last assistant prose and last user prompt near the end of a transcript, for the dashboard preview.
+// Last assistant prose, model, and last user prompt near the end of a transcript, for the dashboard preview.
 export function lastExchange(file, adapter, maxBytes = 768 * 1024) {
-  const text = readTailSlice(file, maxBytes);
+  const text = readTranscriptText(file, maxBytes);
   if (text === null) return {};
   const result = {};
   for (const ev of adaptLines(text, adapter)) {
     if (ev.type === 'text') result.text = ev.text;
     else if (ev.type === 'user') result.prompt = ev.text;
+    else if (ev.type === 'model') result.model = ev.model;
   }
   return result;
 }
@@ -174,7 +209,7 @@ export function lastExchange(file, adapter, maxBytes = 768 * 1024) {
 // The turns near the end of a transcript, oldest first: { prompt, texts, done }.
 // A turn starts at a prompt typed by the user. `done` is false for a turn the agent is still working on.
 export function lastTurns(file, adapter, maxBytes = 2 * 1024 * 1024) {
-  const text = readTailSlice(file, maxBytes);
+  const text = readTranscriptText(file, maxBytes);
   if (text === null) return [];
   const turns = [];
   let current = null;
@@ -244,6 +279,7 @@ export function piSessionDir(cwd) {
 // give the working directory of a process (Windows).
 const codexTranscript = createCodexLocator();
 const agyTranscript = createAgyLocator();
+const dshTranscript = createDshLocator();
 
 async function piTranscript(pid, hint) {
   const cwd = (await procCwd(pid)) || hint.cwd;
@@ -262,5 +298,6 @@ export async function locateTranscript(kind, pid, meta, hint = {}) {
   if (kind === 'codex') return codexTranscript(pid, hint);
   if (kind === 'pi') return piTranscript(pid, hint);
   if (kind === 'agy') return agyTranscript(pid, hint);
+  if (kind === 'dsh') return dshTranscript(pid, hint);
   return null;
 }
