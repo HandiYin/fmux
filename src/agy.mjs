@@ -131,6 +131,11 @@ function parseSystemMessage(d) {
   const sender = msgMatch[1];
   const body = msgMatch[2].replace(/<\/SYSTEM_MESSAGE>\s*$/g, '').trim();
 
+  // Server restart stops all prior subagents and background tasks in this conversation.
+  if (/All your subagents and background tasks have been stopped/i.test(body)) {
+    return [{ type: 'tasks_reset', summary: '会话重启已停止', endedAt: ts }];
+  }
+
   // Background task finished (command, one-shot timer, workflow):
   const finished = body.match(/Task id "([^"]+)" finished with result:\s*([\s\S]*)/);
   if (finished) {

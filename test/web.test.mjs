@@ -297,3 +297,34 @@ test('WebMUX preserves fixed unitIds in creation order and markStopped prevents 
   await reg.poll();
   assert.equal(s3.status, 'idle');
 });
+
+test('agy task tracking rejects foreign session task IDs and clears tasks on server restart notice', async () => {
+  const { seedTasksFromTranscript, runningTasks } = await import('../src/agy-tasks.mjs');
+  const { agyAdapter } = await import('../src/agy.mjs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fmux-agy-owner-'));
+  const ownId = '46bb36cb-e450-4407-8515-42f82eea482d';
+  const otherId = 'eedc81c4-f159-43c2-baac-d737f63db57f';
+  const logDir = path.join(dir, 'brain', ownId, '.system_generated', 'logs');
+  fs.mkdirSync(logDir, { recursive: true });
+  const trFile = path.join(logDir, 'transcript_full.jsonl');
+
+  fs.writeFileSync(trFile, [
+    // Foreign task inspected via grep/cat in a GENERIC output MUST NOT attach to ownId!
+    JSON.stringify({ type: 'GENERIC', status: 'DONE', content: `Task: ${otherId}/task-586\nStatus: RUNNING` }),
+    // Own task started before restart:
+    JSON.stringify({ type: 'GENERIC', status: 'RUNNING', content: `Tool is running as a background task with task id: ${ownId}/task-10\nTask Description: train.py` }),
+    // Server restart notice stops prior tasks:
+    JSON.stringify({ type: 'SYSTEM_MESSAGE', status: 'DONE', content: '[Message] timestamp=2026-11-26T14:11:36Z sender=system priority=MESSAGE_PRIORITY_LOW content=[Notice] All your subagents and background tasks have been stopped due to server restart.' }),
+    // Own fresh task after restart stays running:
+    JSON.stringify({ type: 'GENERIC', status: 'RUNNING', content: `Tool is running as a background task with task id: ${ownId}/task-20\nTask Description: eval.py` }),
+  ].join('\n') + '\n');
+
+  const seeded = seedTasksFromTranscript(trFile, agyAdapter);
+  assert.equal(seeded.tasks.has(`${otherId}/task-586`), false);
+  assert.equal(seeded.tasks.get(`${ownId}/task-10`)?.status, 'killed');
+  assert.deepEqual(runningTasks(seeded).map((t) => t.id), [`${ownId}/task-20`]);
+
+  // Also verify Enter does NOT submit composer in ui.html (TRANSMIT click required).
+  const uiHtml = fs.readFileSync(path.resolve('src/web/ui.html'), 'utf8');
+  assert.doesNotMatch(uiHtml, /e\.key === 'Enter' && !e\.shiftKey/);
+});

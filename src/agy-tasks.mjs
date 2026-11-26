@@ -3,10 +3,39 @@ import { oneLine } from './util.mjs';
 
 const MAX_FINISHED_TASKS = 15;
 const SEED_MAX_BYTES = 4 * 1024 * 1024;
+const BRAIN_CONV_RE = /[/\\]brain[/\\]([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})[/\\]/i;
+const UUID_PREFIX_RE = /^([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\/task-\d+$/i;
 
-// Apply a task lifecycle event (`task_start`, `task_tick`, `task_end`) onto a session's Map<taskId, task>.
-export function applyTaskEvent(tasks, ev) {
-  if (!ev || !ev.taskId) return false;
+export function convIdFromTranscript(file) {
+  const m = BRAIN_CONV_RE.exec(String(file || ''));
+  return m ? m[1].toLowerCase() : '';
+}
+
+function belongsToOwner(taskId, ownerId) {
+  if (!ownerId || !taskId) return true;
+  const m = UUID_PREFIX_RE.exec(String(taskId));
+  // If taskId carries a "<conv-uuid>/task-<N>" prefix, it MUST match this session's own conversation UUID.
+  if (m && m[1].toLowerCase() !== ownerId.toLowerCase()) return false;
+  return true;
+}
+
+// Apply a task lifecycle event (`task_start`, `task_tick`, `task_end`, `tasks_reset`) onto a session's Map<taskId, task>.
+export function applyTaskEvent(tasks, ev, { ownerId = '' } = {}) {
+  if (!ev) return false;
+  if (ev.type === 'tasks_reset') {
+    let changed = false;
+    for (const t of tasks.values()) {
+      if (t.status === 'running') {
+        t.status = 'killed';
+        t.endedAt = ev.endedAt || Date.now();
+        if (ev.summary) t.summary = ev.summary;
+        changed = true;
+      }
+    }
+    if (changed) pruneTasks(tasks);
+    return changed;
+  }
+  if (!ev.taskId || !belongsToOwner(ev.taskId, ownerId)) return false;
   if (ev.type === 'task_start') {
     tasks.set(ev.taskId, {
       id: ev.taskId,
@@ -84,12 +113,15 @@ function pruneTasks(tasks) {
 export function seedTasksFromTranscript(file, adapter, maxBytes = SEED_MAX_BYTES) {
   const tasks = new Map();
   let model = '';
+  const ownerId = convIdFromTranscript(file);
   const text = readTailSlice(file, maxBytes);
   if (text === null) return { tasks, model };
   for (const row of parseJsonLines(text)) {
     for (const ev of adapter(row)) {
       if (ev.type === 'model' && ev.model) model = ev.model;
-      else if (ev.type === 'task_start' || ev.type === 'task_tick' || ev.type === 'task_end') applyTaskEvent(tasks, ev);
+      else if (ev.type === 'task_start' || ev.type === 'task_tick' || ev.type === 'task_end' || ev.type === 'tasks_reset') {
+        applyTaskEvent(tasks, ev, { ownerId });
+      }
     }
   }
   return { tasks, model };

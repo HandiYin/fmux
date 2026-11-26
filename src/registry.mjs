@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { applyTaskEvent, runningTasks, seedTasksFromTranscript, taskNote } from './agy-tasks.mjs';
+import { applyTaskEvent, convIdFromTranscript, runningTasks, seedTasksFromTranscript, taskNote } from './agy-tasks.mjs';
 import { CodexBindingStore } from './codex-bindings.mjs';
 import { pick } from './match.mjs';
 import { findAgent, snapshot } from './procs.mjs';
@@ -269,8 +269,9 @@ export class Registry extends EventEmitter {
         s.model = ev.model;
         continue;
       }
-      if (ev.type === 'task_start' || ev.type === 'task_tick' || ev.type === 'task_end') {
-        if (applyTaskEvent(s.tasks, ev)) this.emit('task_update', s, ev);
+      if (ev.type === 'task_start' || ev.type === 'task_tick' || ev.type === 'task_end' || ev.type === 'tasks_reset') {
+        const ownerId = s.kind === 'agy' ? convIdFromTranscript(s.transcript) : '';
+        if (applyTaskEvent(s.tasks, ev, { ownerId })) this.emit('task_update', s, ev);
         continue;
       }
       if (ev.type === 'turn_end') {

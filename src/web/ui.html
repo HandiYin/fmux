@@ -953,7 +953,7 @@
     <form id="composer" class="composer" style="display:none">
       <div class="composer-box">
         <span class="composer-prompt">&gt;_</span>
-        <textarea id="input" rows="1" placeholder="输入指令发送至当前会话（Enter 发送，Shift+Enter 换行，空输入按 Esc 停止）"></textarea>
+        <textarea id="input" rows="1" placeholder="输入指令后点击右侧 TRANSMIT 发送（Enter 换行，空输入按 Esc 停止）"></textarea>
       </div>
       <button id="stopBtn" type="button" class="btn danger stop-btn" title="停止当前回合 / 取消发错的消息">■ STOP</button>
       <button id="sendBtn" type="submit" class="btn solid">TRANSMIT</button>
@@ -1226,7 +1226,7 @@ const state = {
   gpu: { hostName: 'local', localGpus: [], leases: [], summary: {} },
   selectedKey: null, mode: 'sessions', tab: 'chat', lastTab: 'chat', gpuClusterFilter: 'all', selectedTaskId: null,
   lastChatSig: '', lastChatKey: '', boostPollUntil: 0, pendingSend: null, stopNotice: null,
-  stoppedKeys: new Map(), lastTurnCount: new Map(),
+  stoppedKeys: new Map(), lastTurnCount: new Map(), sessionCache: new Map(), lastWsFetchAt: 0,
   cornerCollapsed: false, cornerExpandedTaskId: null,
   theme: (() => { try { return localStorage.getItem('fmux_theme') || 'night'; } catch { return 'night'; } })(),
   wp: {
@@ -1891,32 +1891,10 @@ function hlWrap(root, quote, kind) {
   return true;
 }
 
-async function loadHighlightFor(wrap, tries = 0) {
-  if (!wrap.isConnected || wrap.dataset.hlDone || (!state.hl.on && !state.hl.tldr)) return;
-  const raw = wrap.dataset.raw || '';
-  if (raw.length < 40) { wrap.dataset.hlDone = '1'; return; }
-  const badge = wrap.querySelector('.hl-status');
-  let got = state.hl.cache.get(raw);
-  if (!got) {
-    try {
-      const res = await api('/api/highlight', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: raw }),
-      });
-      if (res.pending) {
-        if (badge) badge.textContent = '· DEEPSEEK HIGHLIGHTING…';
-        if (tries < 25) setTimeout(() => loadHighlightFor(wrap, tries + 1), 2200);
-        else if (badge) badge.textContent = '';
-        return;
-      }
-      got = res;
-      state.hl.cache.set(raw, got);
-    } catch {
-      if (badge) badge.textContent = '';
-      return;
-    }
-  }
-  if (!wrap.isConnected) return;
+function paintHighlightOnto(wrap, got) {
+  if (!wrap || !got || wrap.dataset.hlDone) return;
   wrap.dataset.hlDone = '1';
+  const badge = wrap.querySelector('.hl-status');
   if (badge) badge.textContent = got.source?.startsWith('deepseek') ? '· DEEPSEEK HL' : '';
   if (got.tldr && !wrap.querySelector('.tldr-box')) {
     const head = wrap.querySelector('.msg-bot-head');
@@ -1927,6 +1905,30 @@ async function loadHighlightFor(wrap, tries = 0) {
     let wrapped = 0;
     for (const x of got.marks) if (hlWrap(body, x.q, x.k)) wrapped++;
     if (wrapped > 0) body.classList.add('has-hl');
+  }
+}
+
+async function loadHighlightFor(wrap, tries = 0) {
+  if (!wrap.isConnected || wrap.dataset.hlDone || (!state.hl.on && !state.hl.tldr)) return;
+  const raw = wrap.dataset.raw || '';
+  if (raw.length < 40) { wrap.dataset.hlDone = '1'; return; }
+  const cached = state.hl.cache.get(raw);
+  if (cached) { paintHighlightOnto(wrap, cached); return; }
+  const badge = wrap.querySelector('.hl-status');
+  try {
+    const res = await api('/api/highlight', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: raw }),
+    });
+    if (res.pending) {
+      if (badge && badge.textContent !== '· DEEPSEEK HIGHLIGHTING…') badge.textContent = '· DEEPSEEK HIGHLIGHTING…';
+      if (tries < 25) setTimeout(() => loadHighlightFor(wrap, tries + 1), 2200);
+      else if (badge) badge.textContent = '';
+      return;
+    }
+    state.hl.cache.set(raw, res);
+    if (wrap.isConnected) paintHighlightOnto(wrap, res);
+  } catch {
+    if (badge) badge.textContent = '';
   }
 }
 
@@ -2051,16 +2053,19 @@ function renderSessions() {
   });
 }
 
-// ---- Top-Right Async Mini-HUD directly below Highlight bar (running tasks only) ----
+// ---- Top-Right Async Mini-HUD directly below Highlight bar (running tasks only, patched in-place) ----
 async function renderCornerBg(s) {
   const box = $('cornerBg');
-  const tasks = (s?.tasks || []).filter((t) => t.status === 'running');
+  const tasks = (s?.tasks || [])
+    .filter((t) => t.status === 'running')
+    .sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0));
   if (state.tab !== 'chat' || !tasks.length) { box.style.display = 'none'; return; }
   box.style.display = '';
   box.classList.toggle('collapsed', state.cornerCollapsed);
-  $('cornerToggle').textContent = state.cornerCollapsed ? '+' : '−';
-  $('cornerDot').className = 'corner-bg-dot';
-  $('cornerTitle').textContent = `ASYNC // ${tasks.length} RUNNING`;
+  const togTxt = state.cornerCollapsed ? '+' : '−';
+  if ($('cornerToggle').textContent !== togTxt) $('cornerToggle').textContent = togTxt;
+  const titleTxt = `ASYNC // ${tasks.length} RUNNING`;
+  if ($('cornerTitle').textContent !== titleTxt) $('cornerTitle').textContent = titleTxt;
   if (state.cornerExpandedTaskId && !tasks.some((t) => t.id === state.cornerExpandedTaskId)) {
     state.cornerExpandedTaskId = null;
   }
@@ -2073,28 +2078,304 @@ async function renderCornerBg(s) {
     } catch { inlineLog = ''; }
   }
 
-  $('cornerBody').innerHTML = tasks.slice(0, 4).map((t) => {
-    const dur = fmtSec((Date.now() - t.startedAt) / 1000);
-    const expanded = state.cornerExpandedTaskId === t.id;
-    return `<div class="corner-task running" data-ctid="${esc(t.id)}">
-      <div class="corner-task-top">
-        <span>${esc(t.shortId)} · ${esc(t.kind.toUpperCase())}</span>
-        <span>RUNNING ${dur}</span>
-      </div>
-      <div class="corner-task-desc">${esc(t.description)}${t.summary ? ` · ${esc(t.summary)}` : ''}</div>
-      ${expanded ? `<pre class="corner-task-log">${esc(inlineLog)}</pre>` : ''}
-    </div>`;
-  }).join('');
+  const body = $('cornerBody');
+  const visible = tasks.slice(0, 4);
+  const existing = new Map();
+  body.querySelectorAll(':scope > .corner-task').forEach((el) => existing.set(el.dataset.ctid, el));
+  const keepIds = new Set(visible.map((t) => t.id));
+  for (const [id, el] of existing) if (!keepIds.has(id)) el.remove();
 
-  $('cornerBody').querySelectorAll('.corner-task').forEach((el) => {
-    el.onclick = () => {
-      state.cornerExpandedTaskId = state.cornerExpandedTaskId === el.dataset.ctid ? null : el.dataset.ctid;
-      renderCornerBg(s);
-    };
+  visible.forEach((t, idx) => {
+    let el = existing.get(t.id);
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'corner-task running';
+      el.dataset.ctid = t.id;
+      el.innerHTML = '<div class="corner-task-top"><span class="ct-id"></span><span class="ct-dur"></span></div><div class="corner-task-desc"></div>';
+      el.onclick = () => {
+        state.cornerExpandedTaskId = state.cornerExpandedTaskId === t.id ? null : t.id;
+        renderCornerBg(selectedSession());
+      };
+      body.appendChild(el);
+    } else if (body.children[idx] !== el) {
+      body.insertBefore(el, body.children[idx] || null);
+    }
+    const idTxt = `${t.shortId} · ${t.kind.toUpperCase()}`;
+    const durTxt = `RUNNING ${fmtSec((Date.now() - t.startedAt) / 1000)}`;
+    const descTxt = `${t.description}${t.summary ? ` · ${t.summary}` : ''}`;
+    const idEl = el.querySelector('.ct-id');
+    const durEl = el.querySelector('.ct-dur');
+    const descEl = el.querySelector('.corner-task-desc');
+    if (idEl.textContent !== idTxt) idEl.textContent = idTxt;
+    if (durEl.textContent !== durTxt) durEl.textContent = durTxt;
+    if (descEl.textContent !== descTxt) descEl.textContent = descTxt;
+    let pre = el.querySelector('.corner-task-log');
+    if (state.cornerExpandedTaskId === t.id) {
+      if (!pre) { pre = document.createElement('pre'); pre.className = 'corner-task-log'; el.appendChild(pre); }
+      if (pre.textContent !== inlineLog) pre.textContent = inlineLog;
+    } else if (pre) {
+      pre.remove();
+    }
   });
 }
 $('cornerToggle').onclick = () => { state.cornerCollapsed = !state.cornerCollapsed; renderCornerBg(selectedSession()); };
-$('cornerJump').onclick = () => { state.tab = 'tasks'; state.lastChatSig = ''; renderWorkspace({ forceScroll: true }); };
+$('cornerJump').onclick = () => {
+  state.tab = 'tasks';
+  document.querySelectorAll('#wsSubtabs .subtab').forEach((b) => b.classList.toggle('active', b.dataset.tab === 'tasks'));
+  renderWorkspace({ forceScroll: true });
+};
+
+function getSessionCache(key) {
+  let c = state.sessionCache.get(key);
+  if (!c) { c = { turns: null, dialog: null, tasksData: null, screenData: null }; state.sessionCache.set(key, c); }
+  return c;
+}
+
+function wireTurnButtons(root) {
+  root.querySelectorAll('.js-stop-turn').forEach((btn) => { btn.onclick = () => stopSession(); });
+  root.querySelectorAll('.hazard-box button').forEach((btn) => { btn.onclick = () => sendKeys([btn.dataset.key]); });
+  root.querySelectorAll('.code-copy').forEach((btn) => {
+    btn.onclick = () => {
+      const pre = btn.closest('.code-frame')?.querySelector('pre');
+      if (pre) navigator.clipboard?.writeText(pre.textContent || '');
+      btn.textContent = 'COPIED';
+      setTimeout(() => { btn.textContent = 'COPY'; }, 1200);
+    };
+  });
+}
+
+function buildTurnHtml(s, t, i, isLast, isTurnActive, pend, stopNote) {
+  const chunks = [];
+  if (t.prompt) chunks.push(`<div class="msg-user-label">OPERATOR // T-${pad2(i + 1)} · RECEIVED ✓</div><div class="msg-user">${esc(t.prompt)}</div>`);
+  const traceParts = [];
+  if (t.thoughts?.length) {
+    const combined = t.thoughts.join('\n\n---\n\n');
+    const openAttr = (isLast && isTurnActive && !t.texts?.length) ? ' open' : '';
+    traceParts.push(`<details class="thought-box"${openAttr}><summary>▸ THOUGHT · ${t.thoughts.length} BLOCK${t.thoughts.length > 1 ? 'S' : ''}</summary><div class="thought-body">${esc(combined)}</div></details>`);
+  }
+  if (t.tools?.length) {
+    const rows = t.tools.slice(-8).map((tl) =>
+      `<div class="tool-row"><span class="tool-name">⚙ ${esc(tl.name)}</span><span class="tool-sum">${esc(tl.summary)}</span></div>`).join('');
+    traceParts.push(`<div class="tools-list">${rows}</div>`);
+  }
+  if (traceParts.length) chunks.push(`<div class="trace-wrap">${traceParts.join('')}</div>`);
+  if (t.texts?.length) {
+    const fullText = t.texts.join('\n\n');
+    const turnBadge = t.done ? 'DONE' : (isLast && isTurnActive ? 'STREAMING' : 'STOPPED');
+    chunks.push(`<div class="msg-bot-wrap" data-raw="${esc(fullText)}"><div class="msg-bot-head"><span>${esc((KIND_LABEL[s.kind] || s.kind).toUpperCase())} // ${esc(s.model || 'RESPONSE')}<span class="hl-status"></span></span><span>${turnBadge}</span></div><div class="msg-bot-body">${renderMarkdown(fullText)}</div></div>`);
+  }
+  if (isLast && isTurnActive && !pend && !stopNote) {
+    const lastTool = t.tools?.at(-1);
+    const actText = lastTool ? `RUNNING · ${lastTool.name}${lastTool.summary ? ` — ${lastTool.summary.slice(0, 60)}` : ''}` : 'AGENT THINKING / STREAMING…';
+    chunks.push(`<div class="live-pulse"><span class="dot"></span><span>${esc(actText)}</span><button type="button" class="btn xs danger js-stop-turn">■ 停止</button></div>`);
+  } else if (isLast && !t.done && !isTurnActive && !stopNote) {
+    chunks.push(`<div class="stop-ack" style="border-color:var(--line-strong);background:var(--bg-rail);color:var(--muted)">⏹ TURN INTERRUPTED // 当前回合已停止</div>`);
+  }
+  return chunks.join('');
+}
+
+function paintChat(s, turns, dialog, { forceScroll = false } = {}) {
+  const panel = $('panel');
+  $('hlBar').style.display = 'flex';
+  state.lastTurnCount.set(s.key, turns.length);
+  const last = turns.at(-1);
+  const stoppedTurnLen = state.stoppedKeys.get(s.key);
+  if (stoppedTurnLen !== undefined && turns.length > stoppedTurnLen) state.stoppedKeys.delete(s.key);
+  if (state.pendingSend && state.pendingSend.key === s.key) {
+    const matched = turns.slice(-2).some((t) => t.prompt && t.prompt.includes(state.pendingSend.text.slice(0, 24)));
+    if (matched || Date.now() - state.pendingSend.at > 45000) state.pendingSend = null;
+  }
+  const pend = state.pendingSend && state.pendingSend.key === s.key ? state.pendingSend : null;
+  if (state.stopNotice && Date.now() - state.stopNotice.at > 4000) state.stopNotice = null;
+  const stopNote = state.stopNotice && state.stopNotice.key === s.key ? state.stopNotice : null;
+  const stoppedHere = Boolean(s.stoppedAt) || state.stoppedKeys.has(s.key);
+  const isTurnActive = !stoppedHere && Boolean(s.status === 'working' || pend);
+  $('stopBtn').classList.toggle('active-run', isTurnActive);
+  $('stopBtn').textContent = isTurnActive ? '■ 停止' : '■ STOP';
+
+  const viewId = `chat:${s.key}`;
+  const switched = panel.dataset.view !== viewId;
+  const wasAtBottom = switched || (panel.scrollHeight - panel.scrollTop - panel.clientHeight) < 90;
+
+  if (switched) {
+    panel.dataset.view = viewId;
+    panel.innerHTML = '<div id="chatDialog"></div><div id="chatTurns" style="display:flex;flex-direction:column;gap:16px"></div><div id="chatTail" style="display:flex;flex-direction:column;gap:10px"></div>';
+  }
+  state.lastTab = 'chat';
+  state.lastChatKey = s.key;
+
+  // 1) Dialog alert bar
+  const dlgWrap = $('chatDialog');
+  const dlgSig = dialog ? JSON.stringify(dialog) : '';
+  if (dlgWrap.dataset.sig !== dlgSig) {
+    dlgWrap.dataset.sig = dlgSig;
+    if (dialog) {
+      const opts = dialog.options.map((o, i) =>
+        `<button class="btn amber" data-key="${esc(o.key || String(i + 1))}">${esc(o.key ? `${o.key}. ` : '')}${esc(o.label)}</button>`).join('');
+      dlgWrap.innerHTML = `<div class="hazard-box"><div class="hazard-title">PRTS ALERT // CONFIRMATION REQUIRED</div><div class="hazard-q">${esc(dialog.question || '')}</div><div class="keybar" style="padding:0;background:transparent;border:0">${opts}<button class="btn ghost" data-key="esc">ESC</button></div></div>`;
+      wireTurnButtons(dlgWrap);
+    } else {
+      dlgWrap.innerHTML = '';
+    }
+  }
+
+  // 2) Incremental per-turn DOM diffing (finished turns never re-mount or blink!)
+  const turnsWrap = $('chatTurns');
+  if (!turns.length && !pend) {
+    const emptySig = `empty:${s.kind}`;
+    if (turnsWrap.dataset.sig !== emptySig) {
+      turnsWrap.dataset.sig = emptySig;
+      turnsWrap.innerHTML = `<div class="empty"><strong>${s.kind === 'shell' ? 'SHELL UNIT' : 'NO RECORDS'}</strong>${s.kind === 'shell' ? 'SHELL 会话无对话记录，请切换至 TTY 终端查看实时输出' : 'SEND A DIRECTIVE BELOW TO BEGIN'}</div>`;
+    }
+  } else {
+    if (turnsWrap.dataset.sig?.startsWith('empty:')) {
+      turnsWrap.dataset.sig = '';
+      turnsWrap.innerHTML = '';
+    }
+    while (turnsWrap.children.length > turns.length) turnsWrap.lastElementChild.remove();
+    for (let i = 0; i < turns.length; i++) {
+      const t = turns[i];
+      const isLast = i === turns.length - 1;
+      const tSig = JSON.stringify([
+        t.prompt || '',
+        t.thoughts?.length || 0,
+        t.thoughts?.at(-1)?.length || 0,
+        t.tools?.length || 0,
+        t.tools?.at(-1)?.name || '',
+        t.tools?.at(-1)?.summary || '',
+        t.texts?.length || 0,
+        t.texts?.at(-1)?.length || 0,
+        t.texts?.at(-1)?.slice(-32) || '',
+        Boolean(t.done),
+        isLast ? (isTurnActive ? 2 : 1) : 0,
+        isLast && Boolean(pend),
+        isLast && Boolean(stopNote),
+        s.model || '',
+      ]);
+      let block = turnsWrap.children[i];
+      if (!block) {
+        block = document.createElement('div');
+        block.className = 'turn-block';
+        turnsWrap.appendChild(block);
+      }
+      if (block.dataset.sig !== tSig) {
+        block.dataset.sig = tSig;
+        block.innerHTML = buildTurnHtml(s, t, i, isLast, isTurnActive, pend, stopNote);
+        // Apply cached DeepSeek highlights & TL;DR synchronously BEFORE paint so zero layout jump!
+        block.querySelectorAll('.msg-bot-wrap[data-raw]').forEach((w) => {
+          const cached = (state.hl.on || state.hl.tldr) ? state.hl.cache.get(w.dataset.raw || '') : null;
+          if (cached) paintHighlightOnto(w, cached);
+        });
+        wireTurnButtons(block);
+      }
+    }
+  }
+
+  // 3) Tail notices (optimistic pending send / stop notice)
+  const tailWrap = $('chatTail');
+  const tailSig = JSON.stringify([pend?.text || '', pend?.at || 0, stopNote?.at || 0]);
+  if (tailWrap.dataset.sig !== tailSig) {
+    tailWrap.dataset.sig = tailSig;
+    const tailParts = [];
+    if (pend) {
+      tailParts.push(`<div class="turn-block"><div class="msg-user-label">OPERATOR // SENT TO TMUX</div><div class="msg-user">${esc(pend.text)}</div><div class="pending-ack"><span>⏳ 已注入 tmux（${esc(s.name)}），等待模型确认接收…</span><button type="button" class="btn xs danger js-stop-turn">■ 立即停止</button></div></div>`);
+    }
+    if (stopNote) {
+      tailParts.push(`<div class="stop-ack">■ 已向 ${esc(s.name)} 发送中断指令（${esc(stopNote.keyHint)}）</div>`);
+    }
+    tailWrap.innerHTML = tailParts.join('');
+    wireTurnButtons(tailWrap);
+  }
+
+  applyAllHighlights();
+  renderCornerBg(s);
+  if (forceScroll || switched || wasAtBottom) panel.scrollTop = panel.scrollHeight;
+}
+
+function paintTasks(s, data) {
+  const panel = $('panel');
+  $('hlBar').style.display = 'none';
+  $('cornerBg').style.display = 'none';
+  state.lastTab = 'tasks';
+  const runningTasks = (data.tasks || [])
+    .filter((t) => t.status === 'running')
+    .sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0));
+  if (!runningTasks.length) {
+    state.selectedTaskId = null;
+    const emptyView = `tasks-empty:${s.key}`;
+    if (panel.dataset.view !== emptyView) {
+      panel.dataset.view = emptyView;
+      panel.innerHTML = '<div class="empty"><strong>NO RUNNING ASYNC OPERATIONS</strong>当前无运行中的后台任务</div>';
+    }
+    return;
+  }
+  const activeId = runningTasks.some((t) => t.id === data.selectedTaskId) ? data.selectedTaskId : runningTasks[0].id;
+  state.selectedTaskId = activeId;
+  const viewId = `tasks:${s.key}:${runningTasks.map((t) => t.id).join(',')}`;
+  if (panel.dataset.view !== viewId) {
+    panel.dataset.view = viewId;
+    const tiles = runningTasks.map((t, idx) => `<div class="op-card clickable running" data-tid="${esc(t.id)}">
+        <div class="op-top"><span class="op-code">OP-${pad2(idx + 1)} // ${esc(t.shortId)}</span><span class="u-chip st-background">running</span></div>
+        <div class="op-desc">${esc(t.description)}</div>
+        <div class="op-foot"><span class="op-kind"></span><span class="op-dur"></span></div>
+      </div>`).join('');
+    const logBox = `<div class="console-frame"><div class="console-bar"><span id="taskLogTitle"></span><button id="refreshTasks" class="btn xs ghost">SYNC</button></div><pre class="terminal-box"></pre></div>`;
+    panel.innerHTML = `<div class="ops-grid">${tiles}</div>${logBox}`;
+    panel.querySelectorAll('.op-card').forEach((el) => { el.onclick = () => { state.selectedTaskId = el.dataset.tid; renderWorkspace(); }; });
+    const rt = $('refreshTasks');
+    if (rt) rt.onclick = () => renderWorkspace();
+  }
+  runningTasks.forEach((t) => {
+    const card = panel.querySelector(`.op-card[data-tid="${CSS.escape(t.id)}"]`);
+    if (!card) return;
+    card.classList.toggle('selected', t.id === activeId);
+    const kindTxt = `${t.kind.toUpperCase()}${t.summary ? ` · ${t.summary}` : ''}`;
+    const durTxt = `ELAPSED ${fmtSec((Date.now() - t.startedAt) / 1000)}`;
+    const kEl = card.querySelector('.op-kind');
+    const dEl = card.querySelector('.op-dur');
+    if (kEl && kEl.textContent !== kindTxt) kEl.textContent = kindTxt;
+    if (dEl && dEl.textContent !== durTxt) dEl.textContent = durTxt;
+  });
+  const titleEl = $('taskLogTitle');
+  const titleTxt = `LIVE STREAM // ${activeId}`;
+  if (titleEl && titleEl.textContent !== titleTxt) titleEl.textContent = titleTxt;
+  const term = panel.querySelector('.terminal-box');
+  const nextLog = data.log || '(awaiting log output...)';
+  if (term && term.textContent !== nextLog) {
+    const atBottom = !term.textContent || (term.scrollHeight - term.scrollTop - term.clientHeight) < 40;
+    term.textContent = nextLog;
+    if (atBottom) term.scrollTop = term.scrollHeight;
+  }
+}
+
+function paintTerm(s, data, { forceScroll = false } = {}) {
+  const panel = $('panel');
+  $('hlBar').style.display = 'none';
+  $('cornerBg').style.display = 'none';
+  state.lastTab = 'term';
+  const viewId = `term:${s.key}`;
+  let created = false;
+  if (panel.dataset.view !== viewId) {
+    panel.dataset.view = viewId;
+    created = true;
+    const keys = ['enter', 'esc', 'up', 'down', 'tab', 'c-c', '1', '2', '3', 'y', 'n'];
+    panel.innerHTML = `
+      <div class="console-frame">
+        <div class="console-bar"><span>TTY CAPTURE // ${esc(s.name)} (${esc(s.key)})</span><button id="refreshTerm" class="btn xs ghost">SYNC</button></div>
+        <pre class="terminal-box"></pre>
+        <div class="keybar">${keys.map((k) => `<button class="btn ghost" data-k="${k}">${k.toUpperCase()}</button>`).join('')}</div>
+      </div>`;
+    panel.querySelectorAll('[data-k]').forEach((b) => { b.onclick = () => sendKeys([b.dataset.k]); });
+    $('refreshTerm').onclick = () => renderWorkspace();
+  }
+  const term = panel.querySelector('.terminal-box');
+  const nextScreen = data.screen || '(empty screen)';
+  if (term && term.textContent !== nextScreen) {
+    const atBottom = created || forceScroll || (term.scrollHeight - term.scrollTop - term.clientHeight) < 40;
+    term.textContent = nextScreen;
+    if (atBottom) term.scrollTop = term.scrollHeight;
+  }
+}
 
 let wsRenderSeq = 0;
 
@@ -2103,211 +2384,73 @@ async function renderWorkspace({ forceScroll = false } = {}) {
   const s = selectedSession();
   $('wsBar').style.display = s ? '' : 'none';
   $('composer').style.display = s ? '' : 'none';
-  $('hlBar').style.display = s && state.tab === 'chat' ? 'flex' : 'none';
   if (!s) {
+    $('hlBar').style.display = 'none';
     $('wsWatermark').textContent = 'PRTS';
     $('cornerBg').style.display = 'none';
-    state.lastChatSig = '';
+    $('panel').dataset.view = 'empty';
     $('panel').innerHTML = '<div class="empty"><strong>PRTS TERMINAL READY</strong>SELECT AN AGENT UNIT FROM THE ROSTER</div>';
     return;
   }
   const fixedId = s.unitId ? `${pad2(s.unitId)} // ` : '';
   $('wsWatermark').textContent = (KIND_LABEL[s.kind] || s.kind).toUpperCase();
-  $('wsTitle').textContent = `${fixedId}${s.name}`;
-  $('wsKind').textContent = KIND_LABEL[s.kind] || s.kind;
-  $('wsStatus').textContent = STATUS_LABEL[s.status] || s.status;
-  $('wsStatus').className = `u-chip st-${s.status}`;
+  if ($('wsTitle').textContent !== `${fixedId}${s.name}`) $('wsTitle').textContent = `${fixedId}${s.name}`;
+  if ($('wsKind').textContent !== (KIND_LABEL[s.kind] || s.kind)) $('wsKind').textContent = KIND_LABEL[s.kind] || s.kind;
+  const stTxt = STATUS_LABEL[s.status] || s.status;
+  if ($('wsStatus').textContent !== stTxt) $('wsStatus').textContent = stTxt;
+  if ($('wsStatus').className !== `u-chip st-${s.status}`) $('wsStatus').className = `u-chip st-${s.status}`;
   $('wsModel').textContent = s.model || '';
   $('wsModel').style.display = s.model ? '' : 'none';
-  $('wsSub').textContent = [s.cwd, s.title].filter(Boolean).join('  //  ');
+  const subTxt = [s.cwd, s.title].filter(Boolean).join('  //  ');
+  if ($('wsSub').textContent !== subTxt) $('wsSub').textContent = subTxt;
   const count = s.runningTasks || 0;
   $('taskBadge').textContent = String(count);
   $('taskBadge').style.display = count ? '' : 'none';
   document.querySelectorAll('#wsSubtabs .subtab').forEach((b) => b.classList.toggle('active', b.dataset.tab === state.tab));
 
-  const panel = $('panel');
-  const keyEnc = encodeURIComponent(s.key);
+  // Instant 0ms paint from sessionCache on tab/session switch so UI never blinks waiting for network!
+  const cache = getSessionCache(s.key);
   const tabAtStart = state.tab;
   const keyAtStart = s.key;
+  const panelView = $('panel').dataset.view || '';
+  if (tabAtStart === 'chat' && cache.turns && !panelView.startsWith(`chat:${s.key}`)) {
+    paintChat(s, cache.turns, cache.dialog, { forceScroll });
+  } else if (tabAtStart === 'tasks' && cache.tasksData && !panelView.startsWith(`tasks:${s.key}`)) {
+    paintTasks(s, cache.tasksData);
+  } else if (tabAtStart === 'term' && cache.screenData && panelView !== `term:${s.key}`) {
+    paintTerm(s, cache.screenData, { forceScroll });
+  }
+
+  const keyEnc = encodeURIComponent(s.key);
   const seq = ++wsRenderSeq;
+  state.lastWsFetchAt = Date.now();
   try {
     if (tabAtStart === 'chat') {
       const [{ turns }, screenData] = await Promise.all([
         api(`/api/session/${keyEnc}/turns`),
         s.status === 'blocked' ? api(`/api/session/${keyEnc}/screen?lines=30`) : Promise.resolve(null),
       ]);
+      cache.turns = turns;
+      cache.dialog = screenData?.dialog || null;
       if (seq !== wsRenderSeq || state.tab !== 'chat' || state.selectedKey !== keyAtStart) return;
-      state.lastTurnCount.set(s.key, turns.length);
-      const last = turns.at(-1);
-      // Clear local stopped marker if a brand-new user turn arrived in the transcript.
-      const stoppedTurnLen = state.stoppedKeys.get(s.key);
-      if (stoppedTurnLen !== undefined && turns.length > stoppedTurnLen) {
-        state.stoppedKeys.delete(s.key);
-      }
-      // Clear optimistic pending banner once the agent's transcript records our prompt (or after 45s).
-      if (state.pendingSend && state.pendingSend.key === s.key) {
-        const matched = turns.slice(-2).some((t) => t.prompt && t.prompt.includes(state.pendingSend.text.slice(0, 24)));
-        if (matched || Date.now() - state.pendingSend.at > 45000) state.pendingSend = null;
-      }
-      const pend = state.pendingSend && state.pendingSend.key === s.key ? state.pendingSend : null;
-      if (state.stopNotice && Date.now() - state.stopNotice.at > 4000) state.stopNotice = null;
-      const stopNote = state.stopNotice && state.stopNotice.key === s.key ? state.stopNotice : null;
-      const stoppedHere = Boolean(s.stoppedAt) || state.stoppedKeys.has(s.key);
-      // Never resurrect AGENT THINKING solely from `!last.done` when the session is already idle/stopped!
-      const isTurnActive = !stoppedHere && Boolean(s.status === 'working' || pend);
-      $('stopBtn').classList.toggle('active-run', isTurnActive);
-      $('stopBtn').textContent = isTurnActive ? '■ 停止' : '■ STOP';
-      const sig = JSON.stringify([
-        s.key,
-        s.status,
-        s.stoppedAt || 0,
-        stoppedHere ? 1 : 0,
-        s.note || '',
-        turns.length,
-        last?.prompt?.length || 0,
-        last?.texts?.length || 0,
-        last?.texts?.at(-1)?.length || 0,
-        last?.texts?.at(-1)?.slice(-40) || '',
-        last?.thoughts?.length || 0,
-        last?.thoughts?.at(-1)?.length || 0,
-        last?.tools?.length || 0,
-        last?.tools?.at(-1)?.name || '',
-        last?.tools?.at(-1)?.summary || '',
-        Boolean(last?.done),
-        pend?.at || 0,
-        stopNote?.at || 0,
-        screenData?.dialog?.question || '',
-      ]);
-      if (sig === state.lastChatSig && state.lastChatKey === s.key && state.lastTab === 'chat') {
-        await renderCornerBg(s);
-        return;
-      }
-      const switched = state.lastChatKey !== s.key || state.lastTab !== 'chat';
-      const wasAtBottom = (panel.scrollHeight - panel.scrollTop - panel.clientHeight) < 90;
-      state.lastChatSig = sig;
-      state.lastChatKey = s.key;
-      state.lastTab = 'chat';
-      const parts = [];
-      if (screenData?.dialog) {
-        const opts = screenData.dialog.options.map((o, i) =>
-          `<button class="btn amber" data-key="${esc(o.key || String(i + 1))}">${esc(o.key ? `${o.key}. ` : '')}${esc(o.label)}</button>`).join('');
-        parts.push(`<div class="hazard-box"><div class="hazard-title">PRTS ALERT // CONFIRMATION REQUIRED</div><div class="hazard-q">${esc(screenData.dialog.question || '')}</div><div class="keybar" style="padding:0;background:transparent;border:0">${opts}<button class="btn ghost" data-key="esc">ESC</button></div></div>`);
-      }
-      if (!turns.length && !pend) {
-        parts.push(`<div class="empty"><strong>${s.kind === 'shell' ? 'SHELL UNIT' : 'NO RECORDS'}</strong>${s.kind === 'shell' ? 'SHELL 会话无对话记录，请切换至 TTY 终端查看实时输出' : 'SEND A DIRECTIVE BELOW TO BEGIN'}</div>`);
-      } else {
-        for (let i = 0; i < turns.length; i++) {
-          const t = turns[i];
-          const isLast = i === turns.length - 1;
-          const chunks = [];
-          if (t.prompt) chunks.push(`<div class="msg-user-label">OPERATOR // T-${pad2(i + 1)} · RECEIVED ✓</div><div class="msg-user">${esc(t.prompt)}</div>`);
-          const traceParts = [];
-          if (t.thoughts?.length) {
-            const combined = t.thoughts.join('\n\n---\n\n');
-            const openAttr = (isLast && isTurnActive && !t.texts?.length) ? ' open' : '';
-            traceParts.push(`<details class="thought-box"${openAttr}><summary>▸ THOUGHT · ${t.thoughts.length} BLOCK${t.thoughts.length > 1 ? 'S' : ''}</summary><div class="thought-body">${esc(combined)}</div></details>`);
-          }
-          if (t.tools?.length) {
-            const rows = t.tools.slice(-8).map((tl) =>
-              `<div class="tool-row"><span class="tool-name">⚙ ${esc(tl.name)}</span><span class="tool-sum">${esc(tl.summary)}</span></div>`).join('');
-            traceParts.push(`<div class="tools-list">${rows}</div>`);
-          }
-          if (traceParts.length) chunks.push(`<div class="trace-wrap">${traceParts.join('')}</div>`);
-          if (t.texts?.length) {
-            const fullText = t.texts.join('\n\n');
-            const turnBadge = t.done ? 'DONE' : (isLast && isTurnActive ? 'STREAMING' : 'STOPPED');
-            chunks.push(`<div class="msg-bot-wrap" data-raw="${esc(fullText)}"><div class="msg-bot-head"><span>${esc((KIND_LABEL[s.kind] || s.kind).toUpperCase())} // ${esc(s.model || 'RESPONSE')}<span class="hl-status"></span></span><span>${turnBadge}</span></div><div class="msg-bot-body">${renderMarkdown(fullText)}</div></div>`);
-          }
-          if (isLast && isTurnActive && !pend && !stopNote) {
-            const lastTool = t.tools?.at(-1);
-            const actText = lastTool ? `RUNNING · ${lastTool.name}${lastTool.summary ? ` — ${lastTool.summary.slice(0, 60)}` : ''}` : 'AGENT THINKING / STREAMING…';
-            chunks.push(`<div class="live-pulse"><span class="dot"></span><span>${esc(actText)}</span><button type="button" class="btn xs danger js-stop-turn">■ 停止</button></div>`);
-          } else if (isLast && !t.done && !isTurnActive && !stopNote) {
-            chunks.push(`<div class="stop-ack" style="border-color:var(--line-strong);background:var(--bg-rail);color:var(--muted)">⏹ TURN INTERRUPTED // 当前回合已停止</div>`);
-          }
-          parts.push(`<div class="turn-block">${chunks.join('')}</div>`);
-        }
-        if (pend) {
-          parts.push(`<div class="turn-block"><div class="msg-user-label">OPERATOR // SENT TO TMUX</div><div class="msg-user">${esc(pend.text)}</div><div class="pending-ack"><span>⏳ 已注入 tmux（${esc(s.name)}），等待模型确认接收…</span><button type="button" class="btn xs danger js-stop-turn">■ 立即停止</button></div></div>`);
-        }
-        if (stopNote) {
-          parts.push(`<div class="stop-ack">■ 已向 ${esc(s.name)} 发送中断指令（${esc(stopNote.keyHint)}）</div>`);
-        }
-      }
-      panel.innerHTML = parts.join('');
-      panel.querySelectorAll('.js-stop-turn').forEach((btn) => { btn.onclick = () => stopSession(); });
-      panel.querySelectorAll('.hazard-box button').forEach((btn) => { btn.onclick = () => sendKeys([btn.dataset.key]); });
-      panel.querySelectorAll('.code-copy').forEach((btn) => {
-        btn.onclick = () => {
-          const pre = btn.closest('.code-frame')?.querySelector('pre');
-          if (pre) navigator.clipboard?.writeText(pre.textContent || '');
-          btn.textContent = 'COPIED';
-          setTimeout(() => { btn.textContent = 'COPY'; }, 1200);
-        };
-      });
-      applyAllHighlights();
-      await renderCornerBg(s);
-      if (forceScroll || switched || wasAtBottom) panel.scrollTop = panel.scrollHeight;
+      paintChat(s, turns, cache.dialog, { forceScroll });
     } else if (tabAtStart === 'tasks') {
-      state.lastChatSig = '';
-      state.lastTab = 'tasks';
-      $('cornerBg').style.display = 'none';
       const validSel = state.selectedTaskId && (s.tasks || []).some((t) => t.id === state.selectedTaskId && t.status === 'running');
       const q = validSel ? `&taskId=${encodeURIComponent(state.selectedTaskId)}` : '';
       const data = await api(`/api/session/${keyEnc}/tasks?lines=120${q}`);
+      cache.tasksData = data;
       if (seq !== wsRenderSeq || state.tab !== 'tasks' || state.selectedKey !== keyAtStart) return;
-      const runningTasks = (data.tasks || [])
-        .filter((t) => t.status === 'running')
-        .sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0));
-      if (!runningTasks.length) {
-        state.selectedTaskId = null;
-        panel.innerHTML = '<div class="empty"><strong>NO RUNNING ASYNC OPERATIONS</strong>当前无运行中的后台任务</div>';
-        return;
-      }
-      const activeId = runningTasks.some((t) => t.id === data.selectedTaskId) ? data.selectedTaskId : runningTasks[0].id;
-      state.selectedTaskId = activeId;
-      const prevTerm = panel.querySelector('.terminal-box');
-      const termAtBottom = !prevTerm || (prevTerm.scrollHeight - prevTerm.scrollTop - prevTerm.clientHeight) < 40;
-      const prevTop = prevTerm ? prevTerm.scrollTop : 0;
-      const tiles = runningTasks.map((t, idx) => {
-        const sel = t.id === activeId ? ' selected' : '';
-        const dur = fmtSec((Date.now() - t.startedAt) / 1000);
-        return `<div class="op-card clickable running${sel}" data-tid="${esc(t.id)}">
-          <div class="op-top"><span class="op-code">OP-${pad2(idx + 1)} // ${esc(t.shortId)}</span><span class="u-chip st-background">running</span></div>
-          <div class="op-desc">${esc(t.description)}</div>
-          <div class="op-foot"><span>${esc(t.kind.toUpperCase())}${t.summary ? ` · ${esc(t.summary)}` : ''}</span><span>ELAPSED ${dur}</span></div>
-        </div>`;
-      }).join('');
-      const logBox = `<div class="console-frame"><div class="console-bar"><span>LIVE STREAM // ${esc(activeId)}</span><button id="refreshTasks" class="btn xs ghost">SYNC</button></div><pre class="terminal-box">${esc(data.log || '(awaiting log output...)')}</pre></div>`;
-      panel.innerHTML = `<div class="ops-grid">${tiles}</div>${logBox}`;
-      const nextTerm = panel.querySelector('.terminal-box');
-      if (nextTerm) nextTerm.scrollTop = termAtBottom ? nextTerm.scrollHeight : prevTop;
-      panel.querySelectorAll('.op-card').forEach((el) => { el.onclick = () => { state.selectedTaskId = el.dataset.tid; renderWorkspace(); }; });
-      const rt = $('refreshTasks');
-      if (rt) rt.onclick = () => renderWorkspace();
+      paintTasks(s, data);
     } else {
-      state.lastChatSig = '';
-      state.lastTab = 'term';
-      $('cornerBg').style.display = 'none';
       const data = await api(`/api/session/${keyEnc}/screen?lines=100`);
+      cache.screenData = data;
       if (seq !== wsRenderSeq || state.tab !== 'term' || state.selectedKey !== keyAtStart) return;
-      const prevTerm = panel.querySelector('.terminal-box');
-      const termAtBottom = !prevTerm || forceScroll || (prevTerm.scrollHeight - prevTerm.scrollTop - prevTerm.clientHeight) < 40;
-      const prevTop = prevTerm ? prevTerm.scrollTop : 0;
-      const keys = ['enter', 'esc', 'up', 'down', 'tab', 'c-c', '1', '2', '3', 'y', 'n'];
-      panel.innerHTML = `
-        <div class="console-frame">
-          <div class="console-bar"><span>TTY CAPTURE // ${esc(s.name)} (${esc(s.key)})</span><button id="refreshTerm" class="btn xs ghost">SYNC</button></div>
-          <pre class="terminal-box">${esc(data.screen || '(empty screen)')}</pre>
-          <div class="keybar">${keys.map((k) => `<button class="btn ghost" data-k="${k}">${k.toUpperCase()}</button>`).join('')}</div>
-        </div>`;
-      const nextTerm = panel.querySelector('.terminal-box');
-      if (nextTerm) nextTerm.scrollTop = termAtBottom ? nextTerm.scrollHeight : prevTop;
-      panel.querySelectorAll('[data-k]').forEach((b) => { b.onclick = () => sendKeys([b.dataset.k]); });
-      $('refreshTerm').onclick = () => renderWorkspace();
+      paintTerm(s, data, { forceScroll });
     }
   } catch (err) {
-    panel.innerHTML = `<div class="empty"><strong>TELEMETRY ERROR</strong>${esc(err.message)}</div>`;
+    if (seq !== wsRenderSeq) return;
+    $('panel').dataset.view = 'error';
+    $('panel').innerHTML = `<div class="empty"><strong>TELEMETRY ERROR</strong>${esc(err.message)}</div>`;
   }
 }
 
@@ -2574,6 +2717,7 @@ $('composer').onsubmit = async (e) => {
   const text = $('input').value.trim();
   if (!s || !text) return;
   $('input').value = '';
+  $('input').style.height = '';
   state.stoppedKeys.delete(s.key);
   state.stopNotice = null;
   s.stoppedAt = 0;
@@ -2593,8 +2737,12 @@ $('composer').onsubmit = async (e) => {
     alert(err.message);
   }
 };
+$('input').addEventListener('input', () => {
+  const el = $('input');
+  el.style.height = 'auto';
+  el.style.height = `${Math.min(130, el.scrollHeight)}px`;
+});
 $('input').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('composer').requestSubmit(); return; }
   if (e.key === 'Escape' && !$('input').value) { e.preventDefault(); stopSession(); }
 });
 
@@ -2740,12 +2888,13 @@ function connectSSE() {
 
 setInterval(() => {
   if (state.mode === 'sessions') {
+    if (Date.now() - state.lastWsFetchAt < 1800) return;
     const s = selectedSession();
     if (!s) return;
     if (state.tab === 'term' || (state.tab === 'tasks' && s.runningTasks > 0)) renderWorkspace();
     else if (state.tab === 'chat') renderWorkspace();
   }
-}, 2000);
+}, 2500);
 
 connectSSE();
 </script>
