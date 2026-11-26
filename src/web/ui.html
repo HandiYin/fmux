@@ -642,7 +642,7 @@
   <div class="rail-left">
     <span class="rail-pill"><span id="sseDot" class="pulse-dot"></span>NEURAL LINK: <span id="linkText" class="rail-accent">SYNCING</span></span>
     <span>PRTS // RHODES WORKSTATION</span>
-    <span id="attachedRail" class="rail-cyan">FEISHU ROUTE: CONCIERGE</span>
+    <span class="rail-cyan">TMUX DIRECT STREAM</span>
   </div>
   <div class="rail-right">
     <span id="clock" class="rail-accent">--:--:--</span>
@@ -673,7 +673,6 @@
   <div class="header-right">
     <button id="themeBtn" class="btn ghost" title="切换日间 / 夜间模式">☀ DAY</button>
     <span id="opBadge" class="op-badge" style="display:none"></span>
-    <button id="detachBtn" class="btn ghost" style="display:none">DETACH</button>
     <button id="newBtn" class="btn solid">+ DEPLOY</button>
     <button id="logoutBtn" class="btn ghost" style="display:none">LOGOUT</button>
   </div>
@@ -711,7 +710,6 @@
       </div>
 
       <div class="ws-actions">
-        <button id="attachBtn" class="btn cyan">LINK FEISHU</button>
         <button id="escBtn" class="btn amber">ESC</button>
         <button id="killBtn" class="btn danger">KILL</button>
       </div>
@@ -957,6 +955,7 @@ const state = {
   ops: { heartbeats: [], goals: [] },
   gpu: { hostName: 'local', localGpus: [], leases: [], summary: {} },
   selectedKey: null, mode: 'sessions', tab: 'chat', gpuClusterFilter: 'all', selectedTaskId: null,
+  lastChatSig: '', lastChatKey: '', boostPollUntil: 0,
   cornerCollapsed: false, cornerExpandedTaskId: null,
   theme: (() => { try { return localStorage.getItem('fmux_theme') || 'night'; } catch { return 'night'; } })(),
   hl: { on: LS.get('fmux_hl_on', true), fade: LS.get('fmux_hl_fade', false), tldr: LS.get('fmux_hl_tldr', false), cache: new Map() },
@@ -1199,9 +1198,6 @@ function setMode(mode) {
 document.querySelectorAll('.mode-btn').forEach((b) => { b.onclick = () => setMode(b.dataset.mode); });
 
 function renderHeader() {
-  const attached = state.status?.attached;
-  $('attachedRail').textContent = attached ? `FEISHU ROUTE: ${attached.toUpperCase()}` : 'FEISHU ROUTE: CONCIERGE';
-  $('detachBtn').style.display = attached ? '' : 'none';
   if (state.user) {
     $('opBadge').style.display = '';
     $('opBadge').innerHTML = `${state.user.avatarUrl ? `<img class="op-avatar" src="${esc(state.user.avatarUrl)}" alt="" />` : '<span class="op-dot"></span>'}<span>${esc(state.user.name || 'OPERATOR')}</span>`;
@@ -1233,7 +1229,6 @@ function renderSessions() {
   list.innerHTML = state.sessions.map((s, idx) => {
     const active = s.key === state.selectedKey ? ' active' : '';
     const bgTag = s.runningTasks > 0 ? `<span class="u-chip st-background">BG:${s.runningTasks}</span>` : '';
-    const attTag = s.attached ? '<span class="u-chip linked">LINKED</span>' : '';
     return `<div class="unit-card st-${esc(s.status)}${active}" data-key="${esc(s.key)}">
       <div class="u-top">
         <div class="u-name-wrap">
@@ -1243,7 +1238,7 @@ function renderSessions() {
         <span class="u-chip st-${esc(s.status)}">${esc(STATUS_LABEL[s.status] || s.status)}</span>
       </div>
       <div class="u-meta">
-        <span class="u-chip">${esc(KIND_LABEL[s.kind] || s.kind)}</span>${s.model ? `<span class="u-chip chip-model">${esc(s.model)}</span>` : ''}${bgTag}${attTag}
+        <span class="u-chip">${esc(KIND_LABEL[s.kind] || s.kind)}</span>${s.model ? `<span class="u-chip chip-model">${esc(s.model)}</span>` : ''}${bgTag}
       </div>
       <div class="u-preview">${esc(s.note || s.lastText || s.title || s.cwd)}</div>
     </div>`;
@@ -1253,8 +1248,9 @@ function renderSessions() {
       state.selectedKey = el.dataset.key;
       state.selectedTaskId = null;
       state.cornerExpandedTaskId = null;
+      state.lastChatSig = '';
       renderSessions();
-      renderWorkspace();
+      renderWorkspace({ forceScroll: true });
     };
   });
 }
@@ -1304,7 +1300,7 @@ async function renderCornerBg(s) {
 $('cornerToggle').onclick = () => { state.cornerCollapsed = !state.cornerCollapsed; renderCornerBg(selectedSession()); };
 $('cornerJump').onclick = () => { state.tab = 'tasks'; renderWorkspace(); };
 
-async function renderWorkspace() {
+async function renderWorkspace({ forceScroll = false } = {}) {
   if (state.mode !== 'sessions') return;
   const s = selectedSession();
   $('wsBar').style.display = s ? '' : 'none';
@@ -1313,6 +1309,7 @@ async function renderWorkspace() {
   if (!s) {
     $('wsWatermark').textContent = 'PRTS';
     $('cornerBg').style.display = 'none';
+    state.lastChatSig = '';
     $('panel').innerHTML = '<div class="empty"><strong>PRTS TERMINAL READY</strong>SELECT AN AGENT UNIT FROM THE ROSTER</div>';
     return;
   }
@@ -1324,7 +1321,6 @@ async function renderWorkspace() {
   $('wsModel').textContent = s.model || '';
   $('wsModel').style.display = s.model ? '' : 'none';
   $('wsSub').textContent = [s.cwd, s.title].filter(Boolean).join('  //  ');
-  $('attachBtn').textContent = s.attached ? 'FEISHU LINKED ✓' : 'LINK FEISHU';
   const count = s.runningTasks || 0;
   $('taskBadge').textContent = String(count);
   $('taskBadge').style.display = count ? '' : 'none';
@@ -1338,6 +1334,25 @@ async function renderWorkspace() {
         api(`/api/session/${keyEnc}/turns`),
         s.status === 'blocked' ? api(`/api/session/${keyEnc}/screen?lines=30`) : Promise.resolve(null),
       ]);
+      const last = turns.at(-1);
+      const sig = JSON.stringify([
+        s.key,
+        turns.length,
+        last?.prompt?.length || 0,
+        last?.texts?.length || 0,
+        last?.texts?.at(-1)?.length || 0,
+        last?.texts?.at(-1)?.slice(-40) || '',
+        Boolean(last?.done),
+        screenData?.dialog?.question || '',
+      ]);
+      if (sig === state.lastChatSig && state.lastChatKey === s.key) {
+        await renderCornerBg(s);
+        return;
+      }
+      const switched = state.lastChatKey !== s.key;
+      const wasAtBottom = (panel.scrollHeight - panel.scrollTop - panel.clientHeight) < 90;
+      state.lastChatSig = sig;
+      state.lastChatKey = s.key;
       const parts = [];
       if (screenData?.dialog) {
         const opts = screenData.dialog.options.map((o, i) =>
@@ -1370,8 +1385,9 @@ async function renderWorkspace() {
       });
       applyAllHighlights();
       await renderCornerBg(s);
-      panel.scrollTop = panel.scrollHeight;
+      if (forceScroll || switched || wasAtBottom) panel.scrollTop = panel.scrollHeight;
     } else if (state.tab === 'tasks') {
+      state.lastChatSig = '';
       $('cornerBg').style.display = 'none';
       const validSel = state.selectedTaskId && (s.tasks || []).some((t) => t.id === state.selectedTaskId && t.status === 'running');
       const q = validSel ? `&taskId=${encodeURIComponent(state.selectedTaskId)}` : '';
@@ -1399,6 +1415,7 @@ async function renderWorkspace() {
       const rt = $('refreshTasks');
       if (rt) rt.onclick = () => renderWorkspace();
     } else {
+      state.lastChatSig = '';
       $('cornerBg').style.display = 'none';
       const data = await api(`/api/session/${keyEnc}/screen?lines=100`);
       const keys = ['enter', 'esc', 'up', 'down', 'tab', 'c-c', '1', '2', '3', 'y', 'n'];
@@ -1638,9 +1655,7 @@ async function sendKeys(keys) {
   setTimeout(renderWorkspace, 350);
 }
 
-document.querySelectorAll('.subtab').forEach((b) => { b.onclick = () => { state.tab = b.dataset.tab; renderWorkspace(); }; });
-$('attachBtn').onclick = async () => { const s = selectedSession(); if (s) await api(`/api/session/${encodeURIComponent(s.key)}/attach`, { method: 'POST' }); };
-$('detachBtn').onclick = async () => { await api('/api/detach', { method: 'POST' }); };
+document.querySelectorAll('.subtab').forEach((b) => { b.onclick = () => { state.tab = b.dataset.tab; state.lastChatSig = ''; renderWorkspace({ forceScroll: true }); }; });
 $('escBtn').onclick = () => sendKeys(['esc']);
 $('killBtn').onclick = async () => { const s = selectedSession(); if (s && confirm(`确认终止 tmux 会话 ${s.name}？`)) await api(`/api/session/${encodeURIComponent(s.key)}/kill`, { method: 'POST' }); };
 $('logoutBtn').onclick = async () => { await fetch('/auth/logout', { method: 'POST' }); location.reload(); };
@@ -1654,7 +1669,8 @@ $('composer').onsubmit = async (e) => {
   try {
     const res = await api(`/api/session/${encodeURIComponent(s.key)}/send`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
     if (res.blocked) alert('目标会话正在等待确认，请先响应对话框或切换至 TTY 按键。');
-    setTimeout(renderWorkspace, 400);
+    state.boostPollUntil = Date.now() + 15000;
+    setTimeout(() => renderWorkspace({ forceScroll: true }), 350);
   } catch (err) { alert(err.message); }
 };
 $('input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('composer').requestSubmit(); } });
@@ -1674,12 +1690,13 @@ $('newForm').onsubmit = async (e) => {
   try {
     const created = await api('/api/sessions', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ resume: $('fResume').value, agent: $('fAgent').value, cwd: $('fCwd').value.trim() || '~', name: $('fName').value.trim(), prompt: $('fPrompt').value.trim(), yolo: true }),
+      body: JSON.stringify({ resume: $('fResume').value, agent: $('fAgent').value, cwd: $('fCwd').value.trim() || '~', name: $('fName').value.trim(), prompt: $('fPrompt').value.trim(), yolo: true, attach: false }),
     });
     state.selectedKey = created.key;
+    state.lastChatSig = '';
     setMode('sessions');
     $('newDialog').close();
-    renderWorkspace();
+    renderWorkspace({ forceScroll: true });
   } catch (err) { alert(err.message); }
 };
 
@@ -1799,10 +1816,11 @@ setInterval(() => {
   if (state.mode === 'sessions') {
     const s = selectedSession();
     if (!s) return;
+    const active = s.status === 'working' || s.status === 'background' || Date.now() < state.boostPollUntil;
     if (state.tab === 'term' || (state.tab === 'tasks' && s.runningTasks > 0)) renderWorkspace();
-    else if (state.tab === 'chat' && s.runningTasks > 0) renderCornerBg(s);
+    else if (state.tab === 'chat' && active) renderWorkspace();
   }
-}, 2500);
+}, 1500);
 
 connectSSE();
 </script>
