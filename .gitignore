@@ -1,2 +1,8 @@
 node_modules/
 *.log
+vendor/agentboard/data/
+vendor/agentboard/runs/
+vendor/agentboard/worktrees/
+vendor/agentboard/reports/
+vendor/agentboard/__pycache__/
+

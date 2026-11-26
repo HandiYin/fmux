@@ -42,7 +42,7 @@ test('Web server enforces token auth, serves UI, APIs, agy task logs, and SSE st
     // Cookie accesses HTML UI.
     const ui = await fetch(`${base}/`, { headers: { Cookie: cookie.split(';')[0] } });
     assert.equal(ui.status, 200);
-    assert.match(await ui.text(), /fmux/);
+    assert.match(await ui.text(), /fmux/i);
 
     // State API includes session model and runningTasks count.
     const state = await (await fetch(`${base}/api/state`, { headers: auth })).json();

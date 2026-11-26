@@ -22,9 +22,10 @@ export async function runDaemon({ fake = false, web = false } = {}) {
   }
   if (fake && !cfg.owner.openId) cfg.owner = { openId: 'ou_fake_owner', chatId: 'oc_fake_chat' };
 
+  const appSecret = fake ? '' : await resolveSecret(cfg.app.secret);
   const feishu = fake
     ? createFakeFeishu({ dir: path.join(cfg.stateDir, 'fake') })
-    : await createFeishu({ appId: cfg.app.id, appSecret: await resolveSecret(cfg.app.secret), ownerOpenId: cfg.owner.openId, tenant: cfg.app.tenant });
+    : await createFeishu({ appId: cfg.app.id, appSecret, ownerOpenId: cfg.owner.openId, tenant: cfg.app.tenant });
 
   const store = new Store(path.join(cfg.stateDir, fake ? 'state.fake.json' : 'state.json'));
   const registry = new Registry({ intervalMs: cfg.poll.intervalMs, hide: cfg.tmux.hide, store });
@@ -64,7 +65,7 @@ export async function runDaemon({ fake = false, web = false } = {}) {
   }
   registry.start();
   const control = startControl({ socket: cfg.socket, methods });
-  const webServer = cfg.web?.enabled ? await startWebServer({ router, cfg }) : null;
+  const webServer = cfg.web?.enabled ? await startWebServer({ router, cfg, getAppSecret: async () => appSecret || resolveSecret(cfg.app.secret) }) : null;
   await feishu.connect();
   router.resume();
   log('info', 'hub.ready', {

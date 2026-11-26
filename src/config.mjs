@@ -35,14 +35,29 @@ const DEFAULTS = {
     peekMinutes: 10,
   },
   web: {
-    // Built-in HTTP + SSE web UI (usable in a browser or as a Feishu built-in web app).
+    // Built-in HTTP + SSE web UI (Arknights PRTS console + embedded Agentboard).
     enabled: false,
     host: '127.0.0.1',
     port: 18790,
-    // Optional access token (?token=... or Authorization: Bearer ...). Empty disables auth (localhost only).
+    // Optional access token (?token=... or Authorization: Bearer ...).
     token: '',
-    // Optional public HTTPS URL (e.g. Tailscale Funnel / reverse proxy) shown on Feishu cards.
+    // Optional public HTTPS URL (e.g. Tailscale Funnel / reverse proxy) shown on Feishu cards & OIDC callback.
     publicUrl: '',
+    oidc: {
+      // Enable Feishu/Lark OIDC browser login reusing app.id + app.secret, restricted to owner.openId.
+      enabled: false,
+      redirectUri: '',
+      allowedOpenIds: [],
+      sessionHours: 24,
+    },
+    agentboard: {
+      // Embedded Primatix-Intelligence/agentboard kanban board mounted at /agentboard/ behind auth.
+      enabled: true,
+      port: 8789,
+      url: '',
+      python: 'python3',
+      autoStart: true,
+    },
   },
   // How a new session starts each agent. {name} is the tmux session name, {id} a conversation id.
   // `continue` resumes the latest conversation of the directory, `resume` a chosen one.
