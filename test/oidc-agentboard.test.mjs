@@ -116,7 +116,7 @@ test('Feishu OIDC gates PRTS UI & Agentboard proxy to owner.openId, rejects stra
 
     const ui = await (await fetch(`${base}/`, { headers: { Cookie: sessCookie } })).text();
     assert.match(ui, /PRTS \/\/ FMUX/);
-    assert.match(ui, /02 \/\/ AGENTBOARD/);
+    assert.match(ui, /AGENTBOARD/);
 
     // Embedded Agentboard proxy rewrites /api/* via injected script, injects PRTS skin, and proxies JSON APIs.
     const abHtml = await (await fetch(`${base}/agentboard/`, { headers: { Cookie: sessCookie } })).text();

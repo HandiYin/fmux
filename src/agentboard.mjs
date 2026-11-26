@@ -27,44 +27,46 @@ const AGENTBOARD_INJECT = `
 </script>
 <style id="prts-agentboard-skin">
   :root, body, [data-theme="dark"], [data-theme="light"] {
-    --bg: #0b0d10 !important;
-    --bg2: #11151b !important;
-    --panel: #131820 !important;
-    --card: #161c24 !important;
-    --card-bg: #161c24 !important;
-    --surface: #131820 !important;
-    --border: #263140 !important;
-    --line: #263140 !important;
-    --text: #eef3f8 !important;
-    --fg: #eef3f8 !important;
-    --muted: #8492a6 !important;
-    --accent: #00d4ff !important;
-    --blue: #00d4ff !important;
-    --amber: #facc15 !important;
-    --green: #10b981 !important;
-    --red: #ff3b5c !important;
+    --bg: #0d0f13 !important;
+    --bg2: #13161c !important;
+    --panel: #171b22 !important;
+    --card: #1a1f28 !important;
+    --card-bg: #1a1f28 !important;
+    --surface: #171b22 !important;
+    --border: rgba(255, 255, 255, 0.1) !important;
+    --line: rgba(255, 255, 255, 0.1) !important;
+    --text: #f3f5f8 !important;
+    --fg: #f3f5f8 !important;
+    --muted: #788394 !important;
+    --accent: #22bbff !important;
+    --blue: #22bbff !important;
+    --amber: #ffcf00 !important;
+    --green: #1fd18b !important;
+    --red: #ff4757 !important;
   }
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); }
   body {
-    background: #0b0d10 !important;
+    background: #0d0f13 !important;
     background-image:
-      linear-gradient(rgba(0, 212, 255, 0.03) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(0, 212, 255, 0.03) 1px, transparent 1px) !important;
-    background-size: 28px 28px !important;
-    color: #eef3f8 !important;
+      linear-gradient(rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.022) 1px, transparent 1px) !important;
+    background-size: 36px 36px !important;
+    color: #f3f5f8 !important;
   }
   .col, .column, .card, .modal, .sheet, .drawer, header, .topbar, .bar {
-    border-radius: 2px !important;
-    border-color: #263140 !important;
+    border-radius: 0 !important;
+    border-color: rgba(255, 255, 255, 0.1) !important;
   }
   .card {
-    background: #141a22 !important;
-    box-shadow: inset 2px 0 0 rgba(0, 212, 255, 0.35) !important;
+    background: #171b22 !important;
+    box-shadow: inset 2px 0 0 rgba(34, 187, 255, 0.45) !important;
   }
   .card:hover {
-    border-color: #00d4ff !important;
+    border-color: #f4f6f8 !important;
   }
   button, .btn {
-    border-radius: 2px !important;
+    border-radius: 0 !important;
   }
 </style>`;
 
