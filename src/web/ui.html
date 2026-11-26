@@ -760,7 +760,8 @@
     }
     .unit-card:hover { transform: none; }
     .unit-card::after { width: 8px; height: 8px; }
-    .u-idx, .u-preview, .u-chip.chip-model { display: none; }
+    .u-preview, .u-chip.chip-model { display: none; }
+    .u-idx { font-size: 9.5px; }
     .u-name { font-size: 12px; }
     .u-meta { margin-top: 4px; gap: 4px; flex-wrap: nowrap; overflow: hidden; }
     .u-chip { font-size: 8.5px; padding: 1px 4px; white-space: nowrap; }
@@ -905,7 +906,7 @@
         <div id="wsSub" class="ws-sub"></div>
       </div>
 
-      <div class="subtabs">
+      <div id="wsSubtabs" class="subtabs">
         <button class="subtab active" data-tab="chat">COMM 对话</button>
         <button class="subtab" data-tab="tasks">ASYNC 后台任务 <span id="taskBadge" class="cnt" style="display:none">0</span></button>
         <button class="subtab" data-tab="term">TTY 终端</button>
@@ -1223,8 +1224,9 @@ const state = {
   sessions: [], status: null, agents: [], user: null, authMode: 'local',
   ops: { heartbeats: [], goals: [] },
   gpu: { hostName: 'local', localGpus: [], leases: [], summary: {} },
-  selectedKey: null, mode: 'sessions', tab: 'chat', gpuClusterFilter: 'all', selectedTaskId: null,
+  selectedKey: null, mode: 'sessions', tab: 'chat', lastTab: 'chat', gpuClusterFilter: 'all', selectedTaskId: null,
   lastChatSig: '', lastChatKey: '', boostPollUntil: 0, pendingSend: null, stopNotice: null,
+  stoppedKeys: new Map(), lastTurnCount: new Map(),
   cornerCollapsed: false, cornerExpandedTaskId: null,
   theme: (() => { try { return localStorage.getItem('fmux_theme') || 'night'; } catch { return 'night'; } })(),
   wp: {
@@ -1941,6 +1943,13 @@ async function api(path, opts) {
   return data;
 }
 
+function paneOrder(key) {
+  const m = String(key || '').match(/^%(\d+)$/);
+  return m ? Number(m[1]) : Number.MAX_SAFE_INTEGER;
+}
+function orderedSessions() {
+  return [...state.sessions].sort((a, b) => (a.unitId || 0) - (b.unitId || 0) || paneOrder(a.key) - paneOrder(b.key));
+}
 function selectedSession() { return state.sessions.find((s) => s.key === state.selectedKey) || null; }
 
 function setMode(mode) {
@@ -1950,11 +1959,22 @@ function setMode(mode) {
   $('viewHeartbeat').style.display = mode === 'heartbeat' ? 'flex' : 'none';
   $('viewGoals').style.display = mode === 'goals' ? 'flex' : 'none';
   $('viewGpu').style.display = mode === 'gpu' ? 'flex' : 'none';
+  if (mode === 'sessions') { renderSessions(); renderWorkspace(); }
   if (mode === 'heartbeat') renderHeartbeats();
   if (mode === 'goals') renderGoals();
   if (mode === 'gpu') renderGpu();
 }
 document.querySelectorAll('.mode-btn').forEach((b) => { b.onclick = () => setMode(b.dataset.mode); });
+
+function selectSessionKey(key) {
+  if (!key || state.selectedKey === key) return;
+  state.selectedKey = key;
+  state.selectedTaskId = null;
+  state.cornerExpandedTaskId = null;
+  state.lastChatSig = '';
+  renderSessions();
+  renderWorkspace({ forceScroll: true });
+}
 
 function renderHeader() {
   if (state.user) {
@@ -1972,9 +1992,10 @@ function renderHeader() {
 
 function renderSessions() {
   renderHeader();
-  const total = state.sessions.length;
-  const activeCount = state.sessions.filter((s) => s.status === 'working').length;
-  const bgCount = state.sessions.reduce((sum, s) => sum + (s.runningTasks || 0), 0);
+  const sessions = orderedSessions();
+  const total = sessions.length;
+  const activeCount = sessions.filter((s) => s.status === 'working').length;
+  const bgCount = sessions.reduce((sum, s) => sum + (s.runningTasks || 0), 0);
   $('statTotal').textContent = pad2(total);
   $('statActive').textContent = pad2(activeCount);
   $('statBg').textContent = pad2(bgCount);
@@ -1984,33 +2005,49 @@ function renderSessions() {
     list.innerHTML = '<div class="empty"><strong>NO UNITS</strong>START A TMUX SESSION OR CLICK + DEPLOY</div>';
     return;
   }
-  if (!state.selectedKey || !selectedSession()) state.selectedKey = state.sessions[0].key;
-  list.innerHTML = state.sessions.map((s, idx) => {
+  if (!state.selectedKey || !selectedSession()) state.selectedKey = sessions[0].key;
+
+  // Patch .unit-card DOM nodes in-place in fixed unitId order so cards never float, jump scroll, or drop clicks.
+  const emptyEl = list.querySelector(':scope > .empty');
+  if (emptyEl) emptyEl.remove();
+  const existing = new Map();
+  list.querySelectorAll(':scope > .unit-card').forEach((el) => existing.set(el.dataset.key, el));
+  const keepKeys = new Set(sessions.map((s) => s.key));
+  for (const [k, el] of existing) {
+    if (!keepKeys.has(k)) el.remove();
+  }
+
+  sessions.forEach((s, idx) => {
+    let card = existing.get(s.key);
+    if (!card) {
+      card = document.createElement('div');
+      card.dataset.key = s.key;
+      card.innerHTML = `<div class="u-top"><div class="u-name-wrap"><span class="u-idx"></span><span class="u-name"></span></div><span class="u-chip u-st"></span></div><div class="u-meta"></div><div class="u-preview"></div>`;
+      card.onclick = () => selectSessionKey(s.key);
+      list.appendChild(card);
+    } else if (list.children[idx] !== card) {
+      list.insertBefore(card, list.children[idx] || null);
+    }
     const active = s.key === state.selectedKey ? ' active' : '';
+    const nextCls = `unit-card st-${s.status}${active}`;
+    if (card.className !== nextCls) card.className = nextCls;
+    const fixedId = pad2(s.unitId || idx + 1);
+    const idxEl = card.querySelector('.u-idx');
+    if (idxEl.textContent !== fixedId) idxEl.textContent = fixedId;
+    const nameEl = card.querySelector('.u-name');
+    if (nameEl.textContent !== s.name) nameEl.textContent = s.name;
+    const stEl = card.querySelector('.u-st');
+    const stText = STATUS_LABEL[s.status] || s.status;
+    const stCls = `u-chip u-st st-${s.status}`;
+    if (stEl.className !== stCls) stEl.className = stCls;
+    if (stEl.textContent !== stText) stEl.textContent = stText;
     const bgTag = s.runningTasks > 0 ? `<span class="u-chip st-background">BG:${s.runningTasks}</span>` : '';
-    return `<div class="unit-card st-${esc(s.status)}${active}" data-key="${esc(s.key)}">
-      <div class="u-top">
-        <div class="u-name-wrap">
-          <span class="u-idx">${pad2(idx + 1)}</span>
-          <span class="u-name">${esc(s.name)}</span>
-        </div>
-        <span class="u-chip st-${esc(s.status)}">${esc(STATUS_LABEL[s.status] || s.status)}</span>
-      </div>
-      <div class="u-meta">
-        <span class="u-chip">${esc(KIND_LABEL[s.kind] || s.kind)}</span>${s.model ? `<span class="u-chip chip-model">${esc(s.model)}</span>` : ''}${bgTag}
-      </div>
-      <div class="u-preview">${esc(s.note || s.lastText || s.title || s.cwd)}</div>
-    </div>`;
-  }).join('');
-  list.querySelectorAll('.unit-card').forEach((el) => {
-    el.onclick = () => {
-      state.selectedKey = el.dataset.key;
-      state.selectedTaskId = null;
-      state.cornerExpandedTaskId = null;
-      state.lastChatSig = '';
-      renderSessions();
-      renderWorkspace({ forceScroll: true });
-    };
+    const metaHtml = `<span class="u-chip">${esc(KIND_LABEL[s.kind] || s.kind)}</span>${s.model ? `<span class="u-chip chip-model">${esc(s.model)}</span>` : ''}${bgTag}`;
+    const metaEl = card.querySelector('.u-meta');
+    if (metaEl.dataset.sig !== metaHtml) { metaEl.dataset.sig = metaHtml; metaEl.innerHTML = metaHtml; }
+    const prevText = s.note || s.lastText || s.title || s.cwd || '';
+    const prevEl = card.querySelector('.u-preview');
+    if (prevEl.textContent !== prevText) prevEl.textContent = prevText;
   });
 }
 
@@ -2057,7 +2094,9 @@ async function renderCornerBg(s) {
   });
 }
 $('cornerToggle').onclick = () => { state.cornerCollapsed = !state.cornerCollapsed; renderCornerBg(selectedSession()); };
-$('cornerJump').onclick = () => { state.tab = 'tasks'; renderWorkspace(); };
+$('cornerJump').onclick = () => { state.tab = 'tasks'; state.lastChatSig = ''; renderWorkspace({ forceScroll: true }); };
+
+let wsRenderSeq = 0;
 
 async function renderWorkspace({ forceScroll = false } = {}) {
   if (state.mode !== 'sessions') return;
@@ -2072,8 +2111,9 @@ async function renderWorkspace({ forceScroll = false } = {}) {
     $('panel').innerHTML = '<div class="empty"><strong>PRTS TERMINAL READY</strong>SELECT AN AGENT UNIT FROM THE ROSTER</div>';
     return;
   }
+  const fixedId = s.unitId ? `${pad2(s.unitId)} // ` : '';
   $('wsWatermark').textContent = (KIND_LABEL[s.kind] || s.kind).toUpperCase();
-  $('wsTitle').textContent = s.name;
+  $('wsTitle').textContent = `${fixedId}${s.name}`;
   $('wsKind').textContent = KIND_LABEL[s.kind] || s.kind;
   $('wsStatus').textContent = STATUS_LABEL[s.status] || s.status;
   $('wsStatus').className = `u-chip st-${s.status}`;
@@ -2083,17 +2123,27 @@ async function renderWorkspace({ forceScroll = false } = {}) {
   const count = s.runningTasks || 0;
   $('taskBadge').textContent = String(count);
   $('taskBadge').style.display = count ? '' : 'none';
-  document.querySelectorAll('.subtab').forEach((b) => b.classList.toggle('active', b.dataset.tab === state.tab));
+  document.querySelectorAll('#wsSubtabs .subtab').forEach((b) => b.classList.toggle('active', b.dataset.tab === state.tab));
 
   const panel = $('panel');
   const keyEnc = encodeURIComponent(s.key);
+  const tabAtStart = state.tab;
+  const keyAtStart = s.key;
+  const seq = ++wsRenderSeq;
   try {
-    if (state.tab === 'chat') {
+    if (tabAtStart === 'chat') {
       const [{ turns }, screenData] = await Promise.all([
         api(`/api/session/${keyEnc}/turns`),
         s.status === 'blocked' ? api(`/api/session/${keyEnc}/screen?lines=30`) : Promise.resolve(null),
       ]);
+      if (seq !== wsRenderSeq || state.tab !== 'chat' || state.selectedKey !== keyAtStart) return;
+      state.lastTurnCount.set(s.key, turns.length);
       const last = turns.at(-1);
+      // Clear local stopped marker if a brand-new user turn arrived in the transcript.
+      const stoppedTurnLen = state.stoppedKeys.get(s.key);
+      if (stoppedTurnLen !== undefined && turns.length > stoppedTurnLen) {
+        state.stoppedKeys.delete(s.key);
+      }
       // Clear optimistic pending banner once the agent's transcript records our prompt (or after 45s).
       if (state.pendingSend && state.pendingSend.key === s.key) {
         const matched = turns.slice(-2).some((t) => t.prompt && t.prompt.includes(state.pendingSend.text.slice(0, 24)));
@@ -2102,12 +2152,16 @@ async function renderWorkspace({ forceScroll = false } = {}) {
       const pend = state.pendingSend && state.pendingSend.key === s.key ? state.pendingSend : null;
       if (state.stopNotice && Date.now() - state.stopNotice.at > 4000) state.stopNotice = null;
       const stopNote = state.stopNotice && state.stopNotice.key === s.key ? state.stopNotice : null;
-      const isTurnActive = Boolean(s.status === 'working' || (last && !last.done) || pend);
+      const stoppedHere = Boolean(s.stoppedAt) || state.stoppedKeys.has(s.key);
+      // Never resurrect AGENT THINKING solely from `!last.done` when the session is already idle/stopped!
+      const isTurnActive = !stoppedHere && Boolean(s.status === 'working' || pend);
       $('stopBtn').classList.toggle('active-run', isTurnActive);
       $('stopBtn').textContent = isTurnActive ? '■ 停止' : '■ STOP';
       const sig = JSON.stringify([
         s.key,
         s.status,
+        s.stoppedAt || 0,
+        stoppedHere ? 1 : 0,
         s.note || '',
         turns.length,
         last?.prompt?.length || 0,
@@ -2124,14 +2178,15 @@ async function renderWorkspace({ forceScroll = false } = {}) {
         stopNote?.at || 0,
         screenData?.dialog?.question || '',
       ]);
-      if (sig === state.lastChatSig && state.lastChatKey === s.key) {
+      if (sig === state.lastChatSig && state.lastChatKey === s.key && state.lastTab === 'chat') {
         await renderCornerBg(s);
         return;
       }
-      const switched = state.lastChatKey !== s.key;
+      const switched = state.lastChatKey !== s.key || state.lastTab !== 'chat';
       const wasAtBottom = (panel.scrollHeight - panel.scrollTop - panel.clientHeight) < 90;
       state.lastChatSig = sig;
       state.lastChatKey = s.key;
+      state.lastTab = 'chat';
       const parts = [];
       if (screenData?.dialog) {
         const opts = screenData.dialog.options.map((o, i) =>
@@ -2149,7 +2204,7 @@ async function renderWorkspace({ forceScroll = false } = {}) {
           const traceParts = [];
           if (t.thoughts?.length) {
             const combined = t.thoughts.join('\n\n---\n\n');
-            const openAttr = (isLast && !t.done && !t.texts?.length) ? ' open' : '';
+            const openAttr = (isLast && isTurnActive && !t.texts?.length) ? ' open' : '';
             traceParts.push(`<details class="thought-box"${openAttr}><summary>▸ THOUGHT · ${t.thoughts.length} BLOCK${t.thoughts.length > 1 ? 'S' : ''}</summary><div class="thought-body">${esc(combined)}</div></details>`);
           }
           if (t.tools?.length) {
@@ -2160,12 +2215,15 @@ async function renderWorkspace({ forceScroll = false } = {}) {
           if (traceParts.length) chunks.push(`<div class="trace-wrap">${traceParts.join('')}</div>`);
           if (t.texts?.length) {
             const fullText = t.texts.join('\n\n');
-            chunks.push(`<div class="msg-bot-wrap" data-raw="${esc(fullText)}"><div class="msg-bot-head"><span>${esc((KIND_LABEL[s.kind] || s.kind).toUpperCase())} // ${esc(s.model || 'RESPONSE')}<span class="hl-status"></span></span><span>${t.done ? 'DONE' : 'STREAMING'}</span></div><div class="msg-bot-body">${renderMarkdown(fullText)}</div></div>`);
+            const turnBadge = t.done ? 'DONE' : (isLast && isTurnActive ? 'STREAMING' : 'STOPPED');
+            chunks.push(`<div class="msg-bot-wrap" data-raw="${esc(fullText)}"><div class="msg-bot-head"><span>${esc((KIND_LABEL[s.kind] || s.kind).toUpperCase())} // ${esc(s.model || 'RESPONSE')}<span class="hl-status"></span></span><span>${turnBadge}</span></div><div class="msg-bot-body">${renderMarkdown(fullText)}</div></div>`);
           }
-          if (isLast && (!t.done || s.status === 'working') && !stopNote) {
+          if (isLast && isTurnActive && !pend && !stopNote) {
             const lastTool = t.tools?.at(-1);
             const actText = lastTool ? `RUNNING · ${lastTool.name}${lastTool.summary ? ` — ${lastTool.summary.slice(0, 60)}` : ''}` : 'AGENT THINKING / STREAMING…';
             chunks.push(`<div class="live-pulse"><span class="dot"></span><span>${esc(actText)}</span><button type="button" class="btn xs danger js-stop-turn">■ 停止</button></div>`);
+          } else if (isLast && !t.done && !isTurnActive && !stopNote) {
+            chunks.push(`<div class="stop-ack" style="border-color:var(--line-strong);background:var(--bg-rail);color:var(--muted)">⏹ TURN INTERRUPTED // 当前回合已停止</div>`);
           }
           parts.push(`<div class="turn-block">${chunks.join('')}</div>`);
         }
@@ -2190,13 +2248,17 @@ async function renderWorkspace({ forceScroll = false } = {}) {
       applyAllHighlights();
       await renderCornerBg(s);
       if (forceScroll || switched || wasAtBottom) panel.scrollTop = panel.scrollHeight;
-    } else if (state.tab === 'tasks') {
+    } else if (tabAtStart === 'tasks') {
       state.lastChatSig = '';
+      state.lastTab = 'tasks';
       $('cornerBg').style.display = 'none';
       const validSel = state.selectedTaskId && (s.tasks || []).some((t) => t.id === state.selectedTaskId && t.status === 'running');
       const q = validSel ? `&taskId=${encodeURIComponent(state.selectedTaskId)}` : '';
       const data = await api(`/api/session/${keyEnc}/tasks?lines=120${q}`);
-      const runningTasks = (data.tasks || []).filter((t) => t.status === 'running');
+      if (seq !== wsRenderSeq || state.tab !== 'tasks' || state.selectedKey !== keyAtStart) return;
+      const runningTasks = (data.tasks || [])
+        .filter((t) => t.status === 'running')
+        .sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0));
       if (!runningTasks.length) {
         state.selectedTaskId = null;
         panel.innerHTML = '<div class="empty"><strong>NO RUNNING ASYNC OPERATIONS</strong>当前无运行中的后台任务</div>';
@@ -2204,6 +2266,9 @@ async function renderWorkspace({ forceScroll = false } = {}) {
       }
       const activeId = runningTasks.some((t) => t.id === data.selectedTaskId) ? data.selectedTaskId : runningTasks[0].id;
       state.selectedTaskId = activeId;
+      const prevTerm = panel.querySelector('.terminal-box');
+      const termAtBottom = !prevTerm || (prevTerm.scrollHeight - prevTerm.scrollTop - prevTerm.clientHeight) < 40;
+      const prevTop = prevTerm ? prevTerm.scrollTop : 0;
       const tiles = runningTasks.map((t, idx) => {
         const sel = t.id === activeId ? ' selected' : '';
         const dur = fmtSec((Date.now() - t.startedAt) / 1000);
@@ -2215,13 +2280,20 @@ async function renderWorkspace({ forceScroll = false } = {}) {
       }).join('');
       const logBox = `<div class="console-frame"><div class="console-bar"><span>LIVE STREAM // ${esc(activeId)}</span><button id="refreshTasks" class="btn xs ghost">SYNC</button></div><pre class="terminal-box">${esc(data.log || '(awaiting log output...)')}</pre></div>`;
       panel.innerHTML = `<div class="ops-grid">${tiles}</div>${logBox}`;
+      const nextTerm = panel.querySelector('.terminal-box');
+      if (nextTerm) nextTerm.scrollTop = termAtBottom ? nextTerm.scrollHeight : prevTop;
       panel.querySelectorAll('.op-card').forEach((el) => { el.onclick = () => { state.selectedTaskId = el.dataset.tid; renderWorkspace(); }; });
       const rt = $('refreshTasks');
       if (rt) rt.onclick = () => renderWorkspace();
     } else {
       state.lastChatSig = '';
+      state.lastTab = 'term';
       $('cornerBg').style.display = 'none';
       const data = await api(`/api/session/${keyEnc}/screen?lines=100`);
+      if (seq !== wsRenderSeq || state.tab !== 'term' || state.selectedKey !== keyAtStart) return;
+      const prevTerm = panel.querySelector('.terminal-box');
+      const termAtBottom = !prevTerm || forceScroll || (prevTerm.scrollHeight - prevTerm.scrollTop - prevTerm.clientHeight) < 40;
+      const prevTop = prevTerm ? prevTerm.scrollTop : 0;
       const keys = ['enter', 'esc', 'up', 'down', 'tab', 'c-c', '1', '2', '3', 'y', 'n'];
       panel.innerHTML = `
         <div class="console-frame">
@@ -2229,6 +2301,8 @@ async function renderWorkspace({ forceScroll = false } = {}) {
           <pre class="terminal-box">${esc(data.screen || '(empty screen)')}</pre>
           <div class="keybar">${keys.map((k) => `<button class="btn ghost" data-k="${k}">${k.toUpperCase()}</button>`).join('')}</div>
         </div>`;
+      const nextTerm = panel.querySelector('.terminal-box');
+      if (nextTerm) nextTerm.scrollTop = termAtBottom ? nextTerm.scrollHeight : prevTop;
       panel.querySelectorAll('[data-k]').forEach((b) => { b.onclick = () => sendKeys([b.dataset.k]); });
       $('refreshTerm').onclick = () => renderWorkspace();
     }
@@ -2463,9 +2537,13 @@ async function stopSession() {
   const s = selectedSession();
   if (!s) return;
   if (state.pendingSend?.key === s.key) state.pendingSend = null;
+  state.stoppedKeys.set(s.key, state.lastTurnCount.get(s.key) ?? 0);
+  s.stoppedAt = Date.now();
+  if (s.status === 'working') s.status = s.runningTasks > 0 ? 'background' : 'idle';
   state.stopNotice = { key: s.key, at: Date.now(), keyHint: s.kind === 'shell' ? 'Ctrl+C' : 'ESC' };
-  state.boostPollUntil = Date.now() + 12000;
+  state.boostPollUntil = Date.now() + 10000;
   state.lastChatSig = '';
+  renderSessions();
   renderWorkspace({ forceScroll: true });
   try {
     await api(`/api/session/${encodeURIComponent(s.key)}/stop`, { method: 'POST' });
@@ -2476,7 +2554,15 @@ async function stopSession() {
   }
 }
 
-document.querySelectorAll('.subtab').forEach((b) => { b.onclick = () => { state.tab = b.dataset.tab; state.lastChatSig = ''; renderWorkspace({ forceScroll: true }); }; });
+document.querySelectorAll('#wsSubtabs .subtab').forEach((b) => {
+  b.onclick = () => {
+    if (state.tab === b.dataset.tab) return;
+    state.tab = b.dataset.tab;
+    state.lastChatSig = '';
+    document.querySelectorAll('#wsSubtabs .subtab').forEach((x) => x.classList.toggle('active', x === b));
+    renderWorkspace({ forceScroll: true });
+  };
+});
 $('escBtn').onclick = () => stopSession();
 $('stopBtn').onclick = () => stopSession();
 $('killBtn').onclick = async () => { const s = selectedSession(); if (s && confirm(`确认终止 tmux 会话 ${s.name}？`)) await api(`/api/session/${encodeURIComponent(s.key)}/kill`, { method: 'POST' }); };
@@ -2488,6 +2574,9 @@ $('composer').onsubmit = async (e) => {
   const text = $('input').value.trim();
   if (!s || !text) return;
   $('input').value = '';
+  state.stoppedKeys.delete(s.key);
+  state.stopNotice = null;
+  s.stoppedAt = 0;
   state.pendingSend = { key: s.key, text, at: Date.now() };
   state.lastChatSig = '';
   renderWorkspace({ forceScroll: true });

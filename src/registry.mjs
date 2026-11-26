@@ -27,6 +27,11 @@ function newTurn(session) {
   return { startedAt: Date.now(), texts: [], tools: 0, lastTool: null, prompt: session.lastPrompt || null };
 }
 
+function paneNum(paneId) {
+  const m = String(paneId || '').match(/^%(\d+)$/);
+  return m ? Number(m[1]) : Number.MAX_SAFE_INTEGER;
+}
+
 // Watches every tmux pane and emits:
 //   added(session) / removed(session)
 //   status(session, previous)      status changed (debounced)
@@ -44,6 +49,10 @@ export class Registry extends EventEmitter {
     this.intervalMs = intervalMs;
     this.hide = new Set([...hide, HUB_SESSION]);
     this.codexBindings = new CodexBindingStore(store);
+    this.store = store;
+    const savedIds = store?.get?.('unitIds') || {};
+    this.unitIds = new Map(Object.entries(savedIds).map(([k, v]) => [k, Number(v)]).filter(([, v]) => Number.isFinite(v) && v > 0));
+    this.nextUnitId = Math.max(0, ...this.unitIds.values()) + 1;
     this.sessions = new Map();
     this.localActiveAt = 0;
     this.polls = 0;
@@ -71,6 +80,26 @@ export class Registry extends EventEmitter {
   list() {
     return [...this.sessions.values()].sort((a, b) =>
       a.tmuxSession.localeCompare(b.tmuxSession) || a.windowIndex - b.windowIndex || a.paneIndex - b.paneIndex);
+  }
+
+  // Fixed creation-order list for WebMUX: ordered by immutable unitId / tmux paneId so sessions
+  // never float up or change their left-hand ID when tasks start, finish, or close.
+  listStable() {
+    return [...this.sessions.values()].sort((a, b) =>
+      (a.unitId || 0) - (b.unitId || 0) || paneNum(a.key) - paneNum(b.key));
+  }
+
+  markStopped(s) {
+    if (!s) return;
+    s.stoppedAt = Date.now();
+    s.turn = null;
+    s.lastActivityAt = 0;
+    s.pending = null;
+    if (s.status === 'working') {
+      const next = runningTasks(s).length > 0 ? 'background' : 'idle';
+      this.commit(s, next);
+      this.emit('changed');
+    }
   }
 
   // A dashboard number, a pane id, or a loose name: part of the tmux name, of the agent's
@@ -101,19 +130,40 @@ export class Registry extends EventEmitter {
     this.localActiveAt = await this.tmux.lastClientActivity();
     const snap = await this.probe.snapshot();
     const seen = new Set();
-    for (const pane of panes) {
-      if (this.hide.has(pane.sessionName) || INTERNAL_SESSION.test(pane.sessionName)) continue;
+    const visible = panes
+      .filter((p) => !this.hide.has(p.sessionName) && !INTERNAL_SESSION.test(p.sessionName))
+      .sort((a, b) => paneNum(a.paneId) - paneNum(b.paneId));
+    // Rebase unitIds cleanly to 1..N only when none of the saved paneIds are alive anymore (e.g. fresh tmux server).
+    if (visible.length && !visible.some((p) => this.unitIds.has(p.paneId))) {
+      this.unitIds.clear();
+      this.nextUnitId = 1;
+    }
+    let idsChanged = false;
+    for (const pane of visible) {
+      if (!this.unitIds.has(pane.paneId)) {
+        this.unitIds.set(pane.paneId, this.nextUnitId++);
+        idsChanged = true;
+      }
+    }
+    if (idsChanged && this.store?.set) {
+      // Keep bounded map of recent paneIds so state.json stays tiny.
+      const entries = [...this.unitIds.entries()].slice(-128);
+      this.store.set('unitIds', Object.fromEntries(entries));
+    }
+    for (const pane of visible) {
       seen.add(pane.paneId);
       let session = this.sessions.get(pane.paneId);
       const isNew = !session;
       if (isNew) {
         session = {
-          key: pane.paneId, kind: null, agentPid: null, status: null, statusSince: Date.now(),
+          key: pane.paneId, unitId: this.unitIds.get(pane.paneId), kind: null, agentPid: null, status: null, statusSince: Date.now(),
           note: '', dialog: null, lastText: '', lastPrompt: '', turn: null, transcript: null,
           tail: null, pending: null, bindingLostAt: 0, agentSeenAt: 0, firstSeenAt: Date.now(),
-          model: '', tasks: new Map(),
+          stoppedAt: 0, model: '', tasks: new Map(),
         };
         this.sessions.set(pane.paneId, session);
+      } else {
+        session.unitId = this.unitIds.get(pane.paneId) || session.unitId;
       }
       try {
         await this.refresh(session, pane, snap, isNew);
@@ -173,8 +223,9 @@ export class Registry extends EventEmitter {
     let { status, note } = detected;
     const { dialog } = detected;
     // If a turn is actively emitting thoughts/tools in the transcript (e.g., agy running in another terminal
-    // or silently executing tools), reflect `working` even if the tmux screen lacks a spinner.
-    if (status === 'idle' && !sawTurnEnd && s.turn && s.lastActivityAt && Date.now() - s.lastActivityAt < 90000 && (s.turn.tools > 0 || s.turn.thinking)) {
+    // or silently executing tools), reflect `working` even if the tmux screen lacks a spinner — unless stopped.
+    const activeSinceStop = !s.stoppedAt || (s.lastActivityAt && s.lastActivityAt > s.stoppedAt + 3000);
+    if (status === 'idle' && !sawTurnEnd && s.turn && s.lastActivityAt && activeSinceStop && Date.now() - s.lastActivityAt < 25000 && (s.turn.tools > 0 || s.turn.thinking)) {
       status = 'working';
       if (!note && s.turn.lastTool) note = s.turn.lastTool;
     }
@@ -211,6 +262,7 @@ export class Registry extends EventEmitter {
     for (const ev of events) {
       if (ev.type === 'user') {
         s.lastPrompt = ev.text;
+        s.stoppedAt = 0;
         continue;
       }
       if (ev.type === 'model') {
@@ -318,7 +370,7 @@ export class Registry extends EventEmitter {
       // If the transcript was just updated with an unfinished turn (thinking/tools), mark it active immediately.
       try {
         const mtime = fs.statSync(file).mtimeMs;
-        if (Date.now() - mtime < 90000 && adapters[kind]) {
+        if (Date.now() - mtime < 15000 && adapters[kind]) {
           const latest = lastTurns(file, adapters[kind], 512 * 1024).at(-1);
           if (latest && !latest.done && (latest.tools?.length || latest.thoughts?.length)) {
             s.turn = {

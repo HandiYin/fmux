@@ -8,7 +8,7 @@ import { createFeishuOidc, parseCookies } from './feishu-oidc.mjs';
 import { GpuRegistry } from './gpu.mjs';
 import { createHighlighter } from './highlight.mjs';
 import { OpsEngine } from './ops.mjs';
-import { findDialog } from './screen.mjs';
+import { findDialog, looksWorking } from './screen.mjs';
 import { adapters, lastTurns } from './transcript.mjs';
 import { log } from './util.mjs';
 
@@ -232,7 +232,7 @@ export function startWebServer({
   }
 
   const snapshot = async () => ({
-    sessions: await router.api.ls(),
+    sessions: await router.api.ls({ stable: true }),
     status: await router.api.status(),
     agents: Object.keys(cfg.agents || {}),
     ops: opsEngine.snapshot(),
@@ -543,6 +543,7 @@ export function startWebServer({
         if (req.method === 'POST' && action === 'send') {
           const { text = '' } = await readJsonBody(req);
           if (!String(text).trim()) return sendJson(res, 400, { error: 'text is empty' });
+          session.stoppedAt = 0;
           const sent = await router.deliver(session, String(text).trim());
           setTimeout(() => router.registry.poll().catch(() => {}), 450);
           broadcast();
@@ -552,9 +553,22 @@ export function startWebServer({
         if (req.method === 'POST' && action === 'stop') {
           const keys = session.kind === 'shell' ? ['c-c'] : ['esc'];
           await router.tmux.sendKeys(session.key, keys);
+          router.registry.markStopped?.(session);
           router.touchAttached(session);
-          setTimeout(() => router.registry.poll().then(() => broadcast()).catch(() => {}), 250);
-          setTimeout(() => router.registry.poll().then(() => broadcast()).catch(() => {}), 900);
+          setTimeout(async () => {
+            try {
+              if (session.kind !== 'shell') {
+                const scr = await router.tmux.capture(session.key);
+                if (looksWorking(scr)) {
+                  await router.tmux.sendKeys(session.key, ['esc']);
+                  router.registry.markStopped?.(session);
+                }
+              }
+              await router.registry.poll();
+              broadcast();
+            } catch {}
+          }, 350);
+          setTimeout(() => router.registry.poll().then(() => broadcast()).catch(() => {}), 1100);
           broadcast();
           sendJson(res, 200, { ok: true, stopped: session.name, keys });
           return;
@@ -563,6 +577,7 @@ export function startWebServer({
           const { keys = [] } = await readJsonBody(req);
           if (!Array.isArray(keys) || !keys.length) return sendJson(res, 400, { error: 'keys must be a non-empty array' });
           await router.tmux.sendKeys(session.key, keys);
+          if (keys.some((k) => /^(esc|c-c)$/i.test(String(k)))) router.registry.markStopped?.(session);
           router.touchAttached(session);
           broadcast();
           sendJson(res, 200, { ok: true, keys });

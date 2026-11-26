@@ -4,7 +4,8 @@ import * as cards from '../cards.mjs';
 // Local control API exposed over the Unix socket / named pipe for fmuxctl and the concierge.
 export function createControlApi(router) {
   const summary = (s) => ({
-    name: s.name, key: s.key, kind: s.kind, status: s.status, since: new Date(s.statusSince).toISOString(), note: s.note,
+    name: s.name, key: s.key, unitId: s.unitId || 0, kind: s.kind, status: s.status,
+    since: new Date(s.statusSince).toISOString(), stoppedAt: s.stoppedAt || 0, note: s.note,
     cwd: s.cwd, title: s.title, model: s.model || '', attached: router.attachedKey() === s.key,
     runningTasks: runningTasks(s).length,
     tasks: listTasks(s).slice(0, 10).map((t) => ({
@@ -15,7 +16,8 @@ export function createControlApi(router) {
   });
 
   return {
-    ls: async () => router.registry.list().map(summary),
+    ls: async ({ stable = false } = {}) =>
+      (stable && router.registry.listStable ? router.registry.listStable() : router.registry.list()).map(summary),
     status: async () => ({
       pid: process.pid,
       uptimeSec: Math.round((Date.now() - router.startedAt) / 1000),

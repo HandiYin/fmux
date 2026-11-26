@@ -245,7 +245,55 @@ test('WebMUX UI supports full GFM Markdown tables, lists, links, and wallpaper c
   assert.match(out, /<li class="md-task"><span class="md-chk"><\/span>待验证壁纸裁剪<\/li>/);
   assert.match(out, /<ul><li>嵌套子项<\/li><\/ul>/);
   assert.match(out, /<ol><li>步骤一<\/li><li>步骤二 \[危险\]\(javascript:alert\(1\)\)<\/li><\/ol>/);
-  assert.doesNotMatch(out, /href="javascript:/);
-  assert.match(out, /<hr class="md-hr" \/>/);
-  assert.match(out, /<div class="code-frame">.*print\(&quot;streaming\.\.\.&quot;\)/);
+    assert.doesNotMatch(out, /href="javascript:/);
+    assert.match(out, /<hr class="md-hr" \/>/);
+    assert.match(out, /<div class="code-frame">.*print\(&quot;streaming\.\.\.&quot;\)/);
+});
+
+test('WebMUX preserves fixed unitIds in creation order and markStopped prevents thinking resurrection', async () => {
+  const { Registry } = await import('../src/registry.mjs');
+  const panes = [
+    { sessionName: 'handibot', windowIndex: 0, windowName: 'bash', paneIndex: 0, paneId: '%0', panePid: 100, command: 'bash', cwd: '/tmp', title: '', tty: '/dev/pts/0', clients: 0, activityAt: 1000, inMode: false, single: true },
+    { sessionName: 'work', windowIndex: 0, windowName: 'agy', paneIndex: 0, paneId: '%3', panePid: 101, command: 'agy', cwd: '/tmp', title: '', tty: '/dev/pts/1', clients: 0, activityAt: 2000, inMode: false, single: true },
+  ];
+  const tmux = {
+    listPanes: async () => panes,
+    lastClientActivity: async () => 0,
+    capture: async () => '> ',
+    sendKeys: async () => {},
+  };
+  const probe = {
+    snapshot: async () => ({ procs: new Map(), children: new Map() }),
+    findAgent: async (_snap, pid) => (pid === 101 || pid === 102 ? { kind: 'agy', pid } : null),
+    readClaudeMeta: () => null,
+    locateTranscript: async () => null,
+  };
+  const memStore = { data: {}, get(k) { return this.data[k]; }, set(k, v) { this.data[k] = v; } };
+  const reg = new Registry({ tmux, probe, store: memStore });
+  await reg.poll();
+
+  // Initial stable IDs follow tmux pane creation order (%0 -> 1, %3 -> 2).
+  assert.deepEqual(reg.listStable().map((s) => [s.name, s.unitId]), [['handibot', 1], ['work', 2]]);
+
+  // Spawn a new session named 'aaa-task' (%5) alphabetically before 'handibot' and mark it working:
+  // It MUST stay at the bottom as unitId 3 and NEVER float above handibot/work!
+  panes.push({ sessionName: 'aaa-task', windowIndex: 0, windowName: 'agy', paneIndex: 0, paneId: '%5', panePid: 102, command: 'agy', cwd: '/tmp', title: '', tty: '/dev/pts/2', clients: 0, activityAt: 9999, inMode: false, single: true });
+  await reg.poll();
+  const s3 = reg.sessions.get('%5');
+  s3.status = 'working';
+  s3.turn = { startedAt: Date.now(), texts: [], tools: 1, thinking: true, lastTool: 'run_command' };
+  s3.lastActivityAt = Date.now();
+  assert.deepEqual(reg.listStable().map((s) => [s.name, s.unitId]), [['handibot', 1], ['work', 2], ['aaa-task', 3]]);
+
+  // Even if session #2 ('work') closes, 'aaa-task' keeps its fixed unitId 3 (never shifts to 2).
+  panes.splice(1, 1);
+  await reg.poll();
+  assert.deepEqual(reg.listStable().map((s) => [s.name, s.unitId]), [['handibot', 1], ['aaa-task', 3]]);
+
+  // Stopping 'aaa-task' immediately clears working/turn state and subsequent polls stay idle.
+  reg.markStopped(s3);
+  assert.equal(s3.status, 'idle');
+  assert.ok(s3.stoppedAt > 0);
+  await reg.poll();
+  assert.equal(s3.status, 'idle');
 });
