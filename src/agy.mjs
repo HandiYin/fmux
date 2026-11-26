@@ -178,6 +178,9 @@ export function agyAdapter(d) {
   if (d.type === 'PLANNER_RESPONSE') {
     const out = [];
     if (d.model) out.push({ type: 'model', model: d.model });
+    if (typeof d.thinking === 'string' && d.thinking.trim()) {
+      out.push({ type: 'thinking', text: d.thinking.trim() });
+    }
     const tools = Array.isArray(d.tool_calls) ? d.tool_calls : [];
     for (const tc of tools) {
       out.push({ type: 'tool', name: tc.name, summary: agyToolSummary(tc.name, tc.args || tc.arguments) });

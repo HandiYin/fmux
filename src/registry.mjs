@@ -9,7 +9,7 @@ import { findAgent, snapshot } from './procs.mjs';
 import { findDialog, looksWorking } from './screen.mjs';
 import { HUB_SESSION } from './service.mjs';
 import * as realTmux from './tmux.mjs';
-import { Tail, adapters, lastExchange, locateTranscript, readClaudeMeta } from './transcript.mjs';
+import { Tail, adapters, lastExchange, lastTurns, locateTranscript, readClaudeMeta } from './transcript.mjs';
 import { log } from './util.mjs';
 
 const SHELLS = new Set(['bash', 'zsh', 'fish', 'sh', 'dash', 'pwsh', 'powershell', 'cmd', 'nu']);
@@ -172,6 +172,12 @@ export class Registry extends EventEmitter {
     const detected = await this.detectStatus(pane, snap, kind, meta);
     let { status, note } = detected;
     const { dialog } = detected;
+    // If a turn is actively emitting thoughts/tools in the transcript (e.g., agy running in another terminal
+    // or silently executing tools), reflect `working` even if the tmux screen lacks a spinner.
+    if (status === 'idle' && !sawTurnEnd && s.turn && s.lastActivityAt && Date.now() - s.lastActivityAt < 90000 && (s.turn.tools > 0 || s.turn.thinking)) {
+      status = 'working';
+      if (!note && s.turn.lastTool) note = s.turn.lastTool;
+    }
     const bgRunning = runningTasks(s);
     if (status === 'idle' && bgRunning.length > 0) {
       status = 'background';
@@ -217,13 +223,17 @@ export class Registry extends EventEmitter {
       }
       if (ev.type === 'turn_end') {
         sawTurnEnd = true;
+        s.lastActivityAt = 0;
         continue;
       }
       s.turn ??= newTurn(s);
+      s.lastActivityAt = Date.now();
       if (ev.type === 'text') {
         s.lastText = ev.text;
         s.turn.texts.push(ev.text);
         if (s.turn.texts.length > MAX_TURN_TEXTS) s.turn.texts.shift();
+      } else if (ev.type === 'thinking') {
+        s.turn.thinking = true;
       } else if (ev.type === 'tool') {
         s.turn.tools++;
         s.turn.lastTool = ev.summary ? `${ev.name} · ${ev.summary}` : ev.name;
@@ -305,6 +315,24 @@ export class Registry extends EventEmitter {
       s.lastText = last.text || s.lastText;
       s.lastPrompt = last.prompt || s.lastPrompt;
       if (last.model) s.model = last.model;
+      // If the transcript was just updated with an unfinished turn (thinking/tools), mark it active immediately.
+      try {
+        const mtime = fs.statSync(file).mtimeMs;
+        if (Date.now() - mtime < 90000 && adapters[kind]) {
+          const latest = lastTurns(file, adapters[kind], 512 * 1024).at(-1);
+          if (latest && !latest.done && (latest.tools?.length || latest.thoughts?.length)) {
+            s.turn = {
+              ...newTurn(s),
+              tools: latest.tools.length,
+              thinking: Boolean(latest.thoughts.length),
+              lastTool: latest.tools.at(-1) ? `${latest.tools.at(-1).name}${latest.tools.at(-1).summary ? ` · ${latest.tools.at(-1).summary}` : ''}` : null,
+            };
+            s.lastActivityAt = mtime;
+          }
+        }
+      } catch {
+        // ignore stat errors
+      }
       if (kind === 'agy') {
         const seeded = seedTasksFromTranscript(file, adapters.agy);
         s.tasks = seeded.tasks;

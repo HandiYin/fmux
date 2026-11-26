@@ -44,7 +44,8 @@ export const adapters = {
     if (d.type === 'assistant') {
       const out = [];
       for (const b of d.message?.content || []) {
-        if (b.type === 'text' && b.text?.trim()) out.push({ type: 'text', text: b.text.trim() });
+        if (b.type === 'thinking' && b.thinking?.trim()) out.push({ type: 'thinking', text: b.thinking.trim() });
+        else if (b.type === 'text' && b.text?.trim()) out.push({ type: 'text', text: b.text.trim() });
         else if (b.type === 'tool_use') out.push({ type: 'tool', name: b.name, summary: toolSummary(b.input) });
       }
       return out;
@@ -206,24 +207,35 @@ export function lastExchange(file, adapter, maxBytes = 768 * 1024) {
   return result;
 }
 
-// The turns near the end of a transcript, oldest first: { prompt, texts, done }.
+// The turns near the end of a transcript, oldest first: { prompt, texts, thoughts, tools, done }.
 // A turn starts at a prompt typed by the user. `done` is false for a turn the agent is still working on.
 export function lastTurns(file, adapter, maxBytes = 2 * 1024 * 1024) {
   const text = readTranscriptText(file, maxBytes);
   if (text === null) return [];
   const turns = [];
   let current = null;
+  const ensure = () => {
+    if (!current || current.done) {
+      current = { prompt: '', texts: [], thoughts: [], tools: [], done: false };
+      turns.push(current);
+    }
+    return current;
+  };
   for (const ev of adaptLines(text, adapter)) {
     if (ev.type === 'user') {
       if (current) current.done = true;
-      current = { prompt: ev.text, texts: [], done: false };
+      current = { prompt: ev.text, texts: [], thoughts: [], tools: [], done: false };
       turns.push(current);
+    } else if (ev.type === 'thinking') {
+      const t = ensure();
+      t.thoughts.push(ev.text.slice(0, 2000));
+      if (t.thoughts.length > 8) t.thoughts.shift();
+    } else if (ev.type === 'tool') {
+      const t = ensure();
+      t.tools.push({ name: ev.name || 'tool', summary: ev.summary || '' });
+      if (t.tools.length > 20) t.tools.shift();
     } else if (ev.type === 'text') {
-      if (!current || current.done) {
-        current = { prompt: '', texts: [], done: false };
-        turns.push(current);
-      }
-      current.texts.push(ev.text);
+      ensure().texts.push(ev.text);
     } else if (ev.type === 'turn_end' && current) {
       current.done = true;
     }

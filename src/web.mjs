@@ -544,6 +544,7 @@ export function startWebServer({
           const { text = '' } = await readJsonBody(req);
           if (!String(text).trim()) return sendJson(res, 400, { error: 'text is empty' });
           const sent = await router.deliver(session, String(text).trim());
+          setTimeout(() => router.registry.poll().catch(() => {}), 450);
           broadcast();
           sendJson(res, sent ? 200 : 409, { ok: sent, blocked: !sent });
           return;

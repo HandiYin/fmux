@@ -24,6 +24,7 @@ test('claude adapter', () => {
   const events = claudeLines.flatMap((l) => adapters.claude(l));
   assert.deepEqual(events, [
     { type: 'user', text: '跑一下测试' },
+    { type: 'thinking', text: '...' },
     { type: 'text', text: '先看一下目录。' },
     { type: 'tool', name: 'Bash', summary: 'Run the tests' },
     { type: 'tool', name: 'Read', summary: 'main.py' },
@@ -107,9 +108,9 @@ test('lastTurns splits a transcript at the prompts and knows which turn is finis
   const lines = [user('first'), say('thinking aloud'), say('answer one'), end, user('second'), say('answer two'), end, user('third'), say('working on it')];
   fs.writeFileSync(file, lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
   assert.deepEqual(lastTurns(file, adapters.claude), [
-    { prompt: 'first', texts: ['thinking aloud', 'answer one'], done: true },
-    { prompt: 'second', texts: ['answer two'], done: true },
-    { prompt: 'third', texts: ['working on it'], done: false },
+    { prompt: 'first', texts: ['thinking aloud', 'answer one'], thoughts: [], tools: [], done: true },
+    { prompt: 'second', texts: ['answer two'], thoughts: [], tools: [], done: true },
+    { prompt: 'third', texts: ['working on it'], thoughts: [], tools: [], done: false },
   ]);
   assert.deepEqual(lastTurns('/no/such/file', adapters.claude), []);
 });

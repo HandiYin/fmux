@@ -27,7 +27,7 @@ test('dsh process classification and default full-permission (yolo) agent templa
   assert.deepEqual(dshAdapter({ type: 'request/context', data: { model: 'deepseek-flash' } }), [{ type: 'model', model: 'deepseek-flash' }]);
   assert.deepEqual(dshAdapter({ type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: '测试' }] } }), [{ type: 'user', text: '测试' }]);
   assert.deepEqual(dshAdapter({ type: 'user/message', data: { source: { kind: 'user-approval' }, content: [{ type: 'text', text: 'approval changed' }] } }), []);
-  assert.deepEqual(dshAdapter({ type: 'assistant/message', data: { message: { content: [{ type: 'reasoning', text: 'hmm' }, { type: 'text', text: '收到 ✅' }] } } }), [{ type: 'text', text: '收到 ✅' }]);
+  assert.deepEqual(dshAdapter({ type: 'assistant/message', data: { message: { content: [{ type: 'reasoning', text: 'hmm' }, { type: 'text', text: '收到 ✅' }] } } }), [{ type: 'thinking', text: 'hmm' }, { type: 'text', text: '收到 ✅' }]);
   assert.deepEqual(dshAdapter({ type: 'tool/call', data: { name: 'bash', arguments: '{"command":"ls"}' } }), [{ type: 'tool', name: 'bash', summary: 'ls' }]);
   assert.deepEqual(dshAdapter({ type: 'turn/end', data: {} }), [{ type: 'turn_end' }]);
 });

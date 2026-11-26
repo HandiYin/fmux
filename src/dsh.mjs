@@ -62,7 +62,8 @@ export function dshAdapter(d) {
   if (d.type === 'assistant/message') {
     const out = [];
     for (const b of data.message?.content || []) {
-      if (b?.type === 'text' && b.text?.trim()) out.push({ type: 'text', text: b.text.trim() });
+      if (b?.type === 'reasoning' && b.text?.trim()) out.push({ type: 'thinking', text: b.text.trim() });
+      else if (b?.type === 'text' && b.text?.trim()) out.push({ type: 'text', text: b.text.trim() });
     }
     return out;
   }
