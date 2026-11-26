@@ -4,8 +4,6 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>PRTS // FMUX TERMINAL</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css" crossorigin="anonymous" />
-<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.js" crossorigin="anonymous" onload="window.__onKatexReady&&window.__onKatexReady()"></script>
 <style>
   :root {
     --bg: #0d0f13;
@@ -783,13 +781,19 @@
   }
   .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--cyan); }
 
-  /* ---- PRTS Opening / Boot Shutter Sequence ---- */
+  /* ---- PRTS Opening / Boot Shutter Sequence (Pure CSS Compositor + Fail-Safe Auto-Open) ---- */
   #prtsBoot {
     position: fixed; inset: 0; z-index: 9999;
     display: flex; align-items: center; justify-content: center;
     pointer-events: auto; cursor: pointer; user-select: none; overflow: hidden;
+    animation: bootOverlayLifecycle 1.05s linear forwards;
   }
-  #prtsBoot.boot-hidden { display: none !important; pointer-events: none; }
+  #prtsBoot.boot-hidden { display: none !important; visibility: hidden !important; pointer-events: none !important; }
+  @keyframes bootOverlayLifecycle {
+    0%, 54% { visibility: visible; pointer-events: auto; }
+    55%, 99% { visibility: visible; pointer-events: none; }
+    100% { visibility: hidden; pointer-events: none; }
+  }
   .boot-half {
     position: absolute; left: 0; right: 0; height: 50.5%;
     background-color: var(--bg);
@@ -797,17 +801,28 @@
       linear-gradient(var(--grid-line) 1px, transparent 1px),
       linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
     background-size: 32px 32px;
-    transition: transform 0.44s cubic-bezier(0.22, 1, 0.36, 1);
     will-change: transform;
   }
-  .boot-half.top { top: 0; border-bottom: 1px solid rgba(34, 187, 255, 0.38); }
-  .boot-half.bot { bottom: 0; border-top: 1px solid rgba(34, 187, 255, 0.38); }
+  .boot-half.top {
+    top: 0; border-bottom: 1px solid rgba(34, 187, 255, 0.42);
+    animation: bootShutterTop 0.44s 0.56s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+  .boot-half.bot {
+    bottom: 0; border-top: 1px solid rgba(34, 187, 255, 0.42);
+    animation: bootShutterBot 0.44s 0.56s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+  @keyframes bootShutterTop { from { transform: translateY(0); } to { transform: translateY(-104%); } }
+  @keyframes bootShutterBot { from { transform: translateY(0); } to { transform: translateY(104%); } }
   .boot-seam {
     position: absolute; left: 0; right: 0; top: 50%; height: 2px; margin-top: -1px; z-index: 2;
     background: linear-gradient(90deg, transparent 4%, var(--cyan) 30%, #fff 50%, var(--cyan) 70%, transparent 96%);
     box-shadow: 0 0 18px var(--cyan);
-    transform: scaleX(0.18); opacity: 0.75;
-    transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.28s ease;
+    animation: bootSeamFlash 0.78s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+  @keyframes bootSeamFlash {
+    0% { transform: scaleX(0.16); opacity: 0.7; }
+    68% { transform: scaleX(1); opacity: 1; }
+    100% { transform: scaleX(1); opacity: 0; }
   }
   .boot-hud {
     position: relative; z-index: 3; width: min(390px, 86vw); padding: 24px 26px 20px;
@@ -815,21 +830,22 @@
     clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px));
     box-shadow: 0 20px 56px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(34, 187, 255, 0.14);
     display: flex; flex-direction: column; align-items: center; text-align: center;
-    animation: bootHudIn 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
-    transition: opacity 0.2s ease, transform 0.24s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: bootHudLifecycle 0.76s cubic-bezier(0.22, 1, 0.36, 1) forwards;
   }
   .boot-hud::before {
     content: ""; position: absolute; left: 0; top: 0; right: 0; height: 3px;
     background: linear-gradient(90deg, var(--cyan), var(--amber));
   }
-  @keyframes bootHudIn {
-    from { opacity: 0; transform: scale(0.94) translateY(8px); }
-    to { opacity: 1; transform: scale(1) translateY(0); }
+  @keyframes bootHudLifecycle {
+    0% { opacity: 0; transform: scale(0.94) translateY(8px); }
+    28% { opacity: 1; transform: scale(1) translateY(0); }
+    70% { opacity: 1; transform: scale(1) translateY(0); }
+    100% { opacity: 0; transform: scale(1.05) translateY(-4px); }
   }
   .boot-emblem { width: 52px; height: 52px; margin-bottom: 12px; }
-  .boot-emblem .outer { stroke: var(--ink); transform-origin: 16px 16px; animation: bootSpinOuter 0.65s cubic-bezier(0.22, 1, 0.36, 1) both; }
-  .boot-emblem .inner { stroke: var(--cyan); transform-origin: 16px 16px; animation: bootSpinInner 0.65s cubic-bezier(0.22, 1, 0.36, 1) both; }
-  .boot-emblem .core { fill: var(--cyan); transform-origin: 16px 16px; animation: bootPulseCore 0.9s ease-in-out infinite alternate; }
+  .boot-emblem .outer { stroke: var(--ink); transform-origin: 16px 16px; animation: bootSpinOuter 0.52s cubic-bezier(0.22, 1, 0.36, 1) both; }
+  .boot-emblem .inner { stroke: var(--cyan); transform-origin: 16px 16px; animation: bootSpinInner 0.52s cubic-bezier(0.22, 1, 0.36, 1) both; }
+  .boot-emblem .core { fill: var(--cyan); transform-origin: 16px 16px; animation: bootPulseCore 0.45s ease-in-out infinite alternate; }
   @keyframes bootSpinOuter { from { transform: rotate(-45deg) scale(0.72); opacity: 0; } to { transform: rotate(0deg) scale(1); opacity: 1; } }
   @keyframes bootSpinInner { from { transform: rotate(45deg) scale(0.5); opacity: 0; } to { transform: rotate(0deg) scale(1); opacity: 1; } }
   @keyframes bootPulseCore { from { transform: scale(0.85); opacity: 0.7; } to { transform: scale(1.12); opacity: 1; } }
@@ -840,30 +856,27 @@
     border: 1px solid var(--line-strong); overflow: hidden; position: relative;
   }
   .boot-fill {
-    height: 100%; width: 0%; background: linear-gradient(90deg, var(--cyan), #7ce2ff);
+    height: 100%; width: 100%; background: linear-gradient(90deg, var(--cyan), #7ce2ff);
     box-shadow: 0 0 10px var(--cyan);
-    transition: width 0.36s cubic-bezier(0.22, 1, 0.36, 1);
+    transform-origin: left center;
+    animation: bootFillSweep 0.54s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
+  @keyframes bootFillSweep { from { transform: scaleX(0.06); } to { transform: scaleX(1); } }
   .boot-meta {
     width: 100%; display: flex; justify-content: space-between; gap: 8px;
     font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; color: var(--muted);
   }
   .boot-skip { margin-top: 10px; font-family: var(--mono); font-size: 9px; letter-spacing: 0.16em; color: var(--muted); opacity: 0.65; }
-  #prtsBoot.boot-open { pointer-events: none; }
-  #prtsBoot.boot-open .boot-hud { opacity: 0; transform: scale(1.05); }
-  #prtsBoot.boot-open .boot-seam { transform: scaleX(1); opacity: 0; }
-  #prtsBoot.boot-open .boot-half.top { transform: translateY(-103%); }
-  #prtsBoot.boot-open .boot-half.bot { transform: translateY(103%); }
 
-  /* Console Staggered Entrance right as Boot Shutter parts */
-  body.boot-reveal .prts-rail { animation: bootDropIn 0.32s cubic-bezier(0.22, 1, 0.36, 1) both; }
-  body.boot-reveal header { animation: bootDropIn 0.36s 0.04s cubic-bezier(0.22, 1, 0.36, 1) both; }
-  body.boot-reveal aside { animation: bootSlideAside 0.4s 0.07s cubic-bezier(0.22, 1, 0.36, 1) both; }
+  /* Console Staggered Entrance synchronized with Boot Shutter parting at 0.52s */
+  body.boot-reveal .prts-rail { animation: bootDropIn 0.34s 0.48s cubic-bezier(0.22, 1, 0.36, 1) both; }
+  body.boot-reveal header { animation: bootDropIn 0.38s 0.52s cubic-bezier(0.22, 1, 0.36, 1) both; }
+  body.boot-reveal aside { animation: bootSlideAside 0.42s 0.55s cubic-bezier(0.22, 1, 0.36, 1) both; }
   body.boot-reveal .session-list > .unit-card {
     animation: bootUnitStagger 0.36s cubic-bezier(0.22, 1, 0.36, 1) both;
-    animation-delay: calc(0.1s + var(--u-idx, 0) * 0.04s);
+    animation-delay: calc(0.58s + var(--u-idx, 0) * 0.04s);
   }
-  body.boot-reveal section.workspace { animation: bootWorkspaceIn 0.42s 0.1s cubic-bezier(0.22, 1, 0.36, 1) both; }
+  body.boot-reveal section.workspace { animation: bootWorkspaceIn 0.44s 0.58s cubic-bezier(0.22, 1, 0.36, 1) both; }
   @keyframes bootDropIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes bootSlideAside { from { opacity: 0; transform: translateX(-18px); } to { opacity: 1; transform: translateX(0); } }
   @keyframes bootUnitStagger { from { opacity: 0; transform: translateX(-14px); } to { opacity: 1; transform: translateX(0); } }
@@ -1239,8 +1252,8 @@
   }
 </style>
 </head>
-<body>
-<div id="prtsBoot" role="status" aria-label="PRTS Terminal Initializing">
+<body class="boot-reveal">
+<div id="prtsBoot" role="status" aria-label="PRTS Terminal Initializing" onclick="this.classList.add('boot-hidden');document.body.classList.remove('boot-reveal')">
   <div class="boot-half top"></div>
   <div class="boot-half bot"></div>
   <div class="boot-seam"></div>
@@ -1254,10 +1267,10 @@
     <div class="boot-sub">RHODES TACTICAL CONSOLE</div>
     <div class="boot-track"><div id="bootFill" class="boot-fill"></div></div>
     <div class="boot-meta">
-      <span id="bootStage">INITIALIZING NEURAL LINK…</span>
-      <span id="bootPct">0%</span>
+      <span id="bootStage">NEURAL LINK SYNCING…</span>
+      <span id="bootPct">READY</span>
     </div>
-    <div class="boot-skip">CLICK OR PRESS ANY KEY TO ENTER</div>
+    <div class="boot-skip">CLICK ANYWHERE TO SKIP</div>
   </div>
 </div>
 <div id="wpLayer" aria-hidden="true"></div>
@@ -1825,65 +1838,49 @@ $('themeBtn').onclick = () => applyTheme(state.theme === 'day' ? 'night' : 'day'
 
 // ---- PRTS Boot Sequence + Tactical Motion Helpers ----
 const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
-const bootStartedAt = Date.now();
-let bootProgressTimers = [];
 
-function finishBoot(immediate = false) {
+function finishBoot() {
   if (state.bootDone) return;
   state.bootDone = true;
-  bootProgressTimers.forEach((t) => clearTimeout(t));
-  bootProgressTimers = [];
   const bootEl = $('prtsBoot');
-  if (!bootEl) return;
-  if (immediate || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
-    bootEl.classList.add('boot-hidden');
-    return;
-  }
-  const fill = $('bootFill');
-  const pct = $('bootPct');
-  const stage = $('bootStage');
-  if (fill) fill.style.width = '100%';
-  if (pct) pct.textContent = '100%';
-  if (stage) stage.textContent = 'NEURAL LINK ESTABLISHED // READY';
-  setTimeout(() => {
-    bootEl.classList.add('boot-open');
-    document.body.classList.add('boot-reveal');
-    setTimeout(() => {
-      bootEl.classList.add('boot-hidden');
-    }, 460);
-    setTimeout(() => {
-      document.body.classList.remove('boot-reveal');
-    }, 680);
-  }, 90);
+  if (bootEl) bootEl.classList.add('boot-hidden');
+  document.body.classList.remove('boot-reveal');
 }
 
 function noteBootSseReady() {
-  if (state.bootDone) return;
-  const elapsed = Date.now() - bootStartedAt;
-  const remain = Math.max(0, 360 - elapsed);
-  setTimeout(() => finishBoot(false), remain);
+  if ($('bootStage')) $('bootStage').textContent = 'NEURAL LINK ESTABLISHED';
+  if ($('bootPct')) $('bootPct').textContent = '100%';
 }
 
 (function initBootSequence() {
   const bootEl = $('prtsBoot');
   if (!bootEl) return;
   if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
-    finishBoot(true);
+    finishBoot();
     return;
   }
-  const setProg = (val, label) => {
-    if (state.bootDone) return;
-    if ($('bootFill')) $('bootFill').style.width = `${val}%`;
-    if ($('bootPct')) $('bootPct').textContent = `${val}%`;
-    if (label && $('bootStage')) $('bootStage').textContent = label;
-  };
-  requestAnimationFrame(() => setProg(38, 'INITIALIZING NEURAL LINK…'));
-  bootProgressTimers.push(setTimeout(() => setProg(76, 'MOUNTING TMUX AGENT MATRIX…'), 180));
-  bootProgressTimers.push(setTimeout(() => setProg(92, 'CALIBRATING TACTICAL HUD…'), 350));
-  bootProgressTimers.push(setTimeout(() => finishBoot(false), 680));
-  bootEl.addEventListener('click', () => finishBoot(true), { once: true });
-  window.addEventListener('keydown', () => { if (!state.bootDone) finishBoot(true); }, { once: true });
+  setTimeout(() => { if ($('bootStage')) $('bootStage').textContent = 'MOUNTING TMUX MATRIX…'; }, 220);
+  setTimeout(() => { if ($('bootPct')) $('bootPct').textContent = '100%'; }, 480);
+  setTimeout(() => finishBoot(), 1060);
+  window.addEventListener('keydown', () => { if (!state.bootDone) finishBoot(); }, { once: true });
 })();
+
+// Load KaTeX purely asynchronously post-boot so unreachable/slow CDNs NEVER block UI startup!
+setTimeout(() => {
+  try {
+    const css = document.createElement('link');
+    css.rel = 'stylesheet';
+    css.href = 'https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css';
+    css.crossOrigin = 'anonymous';
+    document.head.appendChild(css);
+    const js = document.createElement('script');
+    js.src = 'https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.js';
+    js.async = true;
+    js.crossOrigin = 'anonymous';
+    js.onload = () => { if (window.__onKatexReady) window.__onKatexReady(); };
+    document.head.appendChild(js);
+  } catch {}
+}, 900);
 
 const ANIM_CLASSES = ['anim-view-right', 'anim-view-left', 'anim-tab-right', 'anim-tab-left', 'anim-unit-down', 'anim-unit-up', 'anim-id', 'anim-wm', 'unit-lock-pulse'];
 const animTimers = new WeakMap();
@@ -1937,19 +1934,21 @@ function syncSubtabGlider(container, immediate = false) {
 }
 
 function initSubtabGliders() {
-  ['wsSubtabs', 'gpuClusterTabs'].forEach((id) => {
-    const el = $(id);
-    if (!el) return;
-    syncSubtabGlider(el, true);
-    if (window.ResizeObserver) {
-      const ro = new ResizeObserver(() => syncSubtabGlider(el, true));
-      ro.observe(el);
-    }
-  });
-  window.addEventListener('resize', () => {
-    syncSubtabGlider($('wsSubtabs'), true);
-    syncSubtabGlider($('gpuClusterTabs'), true);
-  });
+  try {
+    ['wsSubtabs', 'gpuClusterTabs'].forEach((id) => {
+      const el = $(id);
+      if (!el) return;
+      syncSubtabGlider(el, true);
+      if (typeof window.ResizeObserver === 'function') {
+        const ro = new window.ResizeObserver(() => syncSubtabGlider(el, true));
+        ro.observe(el);
+      }
+    });
+    window.addEventListener('resize', () => {
+      syncSubtabGlider($('wsSubtabs'), true);
+      syncSubtabGlider($('gpuClusterTabs'), true);
+    });
+  } catch {}
 }
 requestAnimationFrame(initSubtabGliders);
 
