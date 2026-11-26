@@ -461,3 +461,105 @@ test('agy session stays RUNNING without READY flip-flop across long thinking/too
   await reg.poll();
   assert.equal(s.status, 'idle');
 });
+
+test('WebMUX candidate message queue lines up sent prompts, supports reorder/edit/flush/pause, and dequeues upon entering transcript', async () => {
+  const vm = await import('node:vm');
+  const html = fs.readFileSync(path.resolve('src/web/ui.html'), 'utf8');
+
+  // Verify boot, tab glider, kill choreography, and candidate queue DOM + valid inline JS syntax.
+  for (const id of ['prtsBoot', 'killDialog', 'killFxOverlay', 'queueTray', 'queueList', 'queueFlushBtn', 'queueResumeBtn']) {
+    assert.ok(html.includes(`id="${id}"`), `missing #${id} in ui.html`);
+  }
+  const scriptMatch = html.match(/<script>([\s\S]*?)<\/script>\s*<\/body>/);
+  assert.ok(scriptMatch, 'inline script block must exist');
+  assert.doesNotThrow(() => new vm.Script(scriptMatch[1]), 'ui.html inline script must be syntactically valid');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fmux-queue-'));
+  const transcript = path.join(dir, 'transcript_full.jsonl');
+  fs.writeFileSync(transcript, [
+    JSON.stringify({ type: 'USER_INPUT', content: '<USER_REQUEST>\n初始任务\n</USER_REQUEST>' }),
+  ].join('\n') + '\n');
+
+  const s = session({ kind: 'agy', status: 'working', model: 'Gemini 4 Carbon · high', transcript });
+  const h = harness({ sessions: [s] });
+  h.cfg.web = { enabled: true, host: '127.0.0.1', port: 0, token: 'tok' };
+  h.cfg.highlight = { enabled: false };
+
+  const web = await startWebServer({ router: h.router, cfg: h.cfg });
+  const base = `http://127.0.0.1:${web.port}`;
+  const headers = { Authorization: 'Bearer tok', 'Content-Type': 'application/json' };
+
+  try {
+    // 1. Sending 3 candidate messages while working queues them in FIFO order without touching tmux yet.
+    const r1 = await (await fetch(`${base}/api/session/%251/send`, { method: 'POST', headers, body: JSON.stringify({ text: '候选一' }) })).json();
+    const r2 = await (await fetch(`${base}/api/session/%251/send`, { method: 'POST', headers, body: JSON.stringify({ text: '候选二（写错了）' }) })).json();
+    const r3 = await (await fetch(`${base}/api/session/%251/send`, { method: 'POST', headers, body: JSON.stringify({ text: '候选三' }) })).json();
+    assert.equal(r1.queued, true);
+    assert.equal(r3.pendingQueue.length, 3);
+    assert.deepEqual(r3.pendingQueue.map((x) => [x.rank, x.text, x.state]), [
+      [1, '候选一', 'queued'],
+      [2, '候选二（写错了）', 'queued'],
+      [3, '候选三', 'queued'],
+    ]);
+    assert.equal(h.tmux.sent.length, 0);
+
+    // 2. Move '候选三' up and remove '候选二（写错了）' (retract/edit).
+    const mv = await (await fetch(`${base}/api/session/%251/queue`, {
+      method: 'POST', headers, body: JSON.stringify({ action: 'move', id: r3.item.id, dir: 'up' }),
+    })).json();
+    assert.deepEqual(mv.pendingQueue.map((x) => x.text), ['候选一', '候选三', '候选二（写错了）']);
+
+    const rm = await (await fetch(`${base}/api/session/%251/queue`, {
+      method: 'POST', headers, body: JSON.stringify({ action: 'remove', id: r2.item.id }),
+    })).json();
+    assert.equal(rm.removed.text, '候选二（写错了）');
+    assert.deepEqual(rm.pendingQueue.map((x) => x.text), ['候选一', '候选三']);
+
+    // 3. Emergency STOP pauses queued auto-dispatch so follow-ups don't fire accidentally; RESUME dispatches #1 when idle.
+    await fetch(`${base}/api/session/%251/stop`, { method: 'POST', headers });
+    s.status = 'idle';
+    h.router.registry.emit('status', s, 'working');
+    assert.equal(h.tmux.sent.length, 0); // paused by STOP!
+
+    const resResume = await (await fetch(`${base}/api/session/%251/queue`, {
+      method: 'POST', headers, body: JSON.stringify({ action: 'resume' }),
+    })).json();
+    assert.deepEqual(h.tmux.sent.at(-1), ['%1', '候选一']);
+    assert.deepEqual(resResume.pendingQueue.map((x) => [x.text, x.state]), [
+      ['候选一', 'injected'],
+      ['候选三', 'queued'],
+    ]);
+
+    // 4. Until '候选一' enters transcript, it remains visible as 'injected'; once written to transcript, /turns dequeues it!
+    const beforeEnter = await (await fetch(`${base}/api/session/%251/turns`, { headers })).json();
+    assert.equal(beforeEnter.pendingQueue.length, 2);
+
+    fs.appendFileSync(transcript, `${JSON.stringify({ type: 'USER_INPUT', content: '<USER_REQUEST>\n候选一\n</USER_REQUEST>' })}\n`);
+    const afterEnter = await (await fetch(`${base}/api/session/%251/turns`, { headers })).json();
+    assert.deepEqual(afterEnter.pendingQueue.map((x) => [x.text, x.state]), [['候选三', 'queued']]);
+    assert.equal(afterEnter.turns.at(-1).prompt, '候选一');
+
+    // 5. Explicit flush ('INJECT ↗') injects '候选三' immediately even while working, and duplicate '继续' dequeues 1-by-1.
+    await fetch(`${base}/api/session/%251/queue`, {
+      method: 'POST', headers, body: JSON.stringify({ action: 'flush', id: r3.item.id }),
+    });
+    assert.deepEqual(h.tmux.sent.at(-1), ['%1', '候选三']);
+
+    const dup1 = await (await fetch(`${base}/api/session/%251/send`, { method: 'POST', headers, body: JSON.stringify({ text: '继续', immediate: true }) })).json();
+    const dup2 = await (await fetch(`${base}/api/session/%251/send`, { method: 'POST', headers, body: JSON.stringify({ text: '继续', immediate: true }) })).json();
+    assert.ok(dup1.injected && dup2.injected);
+
+    fs.appendFileSync(transcript, [
+      JSON.stringify({ type: 'USER_INPUT', content: '<USER_REQUEST>\n候选三\n</USER_REQUEST>\n<USER_REQUEST>\n继续\n</USER_REQUEST>' }),
+    ].join('\n') + '\n');
+    const midDup = await (await fetch(`${base}/api/session/%251/turns`, { headers })).json();
+    // '候选三' and the FIRST '继续' entered transcript; the SECOND '继续' must remain in queue!
+    assert.deepEqual(midDup.pendingQueue.map((x) => x.text), ['继续']);
+
+    fs.appendFileSync(transcript, `${JSON.stringify({ type: 'USER_INPUT', content: '<USER_REQUEST>\n继续\n</USER_REQUEST>' })}\n`);
+    const endDup = await (await fetch(`${base}/api/session/%251/turns`, { headers })).json();
+    assert.deepEqual(endDup.pendingQueue, []);
+  } finally {
+    await web.close();
+  }
+});

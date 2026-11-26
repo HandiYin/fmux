@@ -278,15 +278,23 @@
   .mode-nav { display: flex; align-items: center; gap: 5px; }
   .mode-btn {
     position: relative; border: 1px solid var(--line-strong); background: transparent;
-    color: var(--ink-2); padding: 7px 14px; cursor: pointer;
-    transform: skewX(-14deg); transition: all 0.16s ease;
+    color: var(--ink-2); padding: 7px 14px; cursor: pointer; overflow: hidden;
+    transform: skewX(-14deg);
+    transition: background 0.22s cubic-bezier(0.22, 1, 0.36, 1), color 0.2s ease, border-color 0.2s ease, transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.22s ease;
     font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
   }
+  .mode-btn::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+    background: var(--cyan); transform: scaleX(0); transform-origin: left center;
+    transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+  }
   .mode-btn > span { display: inline-flex; align-items: center; gap: 6px; transform: skewX(14deg); }
-  .mode-btn .num { color: var(--muted); font-size: 10px; }
-  .mode-btn .m-cnt { background: var(--cyan-dim); color: var(--cyan); padding: 0 4px; font-size: 9.5px; }
-  .mode-btn:hover { border-color: var(--ink); color: var(--ink); background: var(--panel-2); }
-  .mode-btn.active { background: var(--inv-bg); border-color: var(--inv-bg); color: var(--inv-fg); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22); }
+  .mode-btn .num { color: var(--muted); font-size: 10px; transition: color 0.2s ease; }
+  .mode-btn .m-cnt { background: var(--cyan-dim); color: var(--cyan); padding: 0 4px; font-size: 9.5px; transition: all 0.2s ease; }
+  .mode-btn:hover { border-color: var(--ink); color: var(--ink); background: var(--panel-2); transform: skewX(-14deg) translateY(-1px); }
+  .mode-btn:active { transform: skewX(-14deg) scale(0.97); }
+  .mode-btn.active { background: var(--inv-bg); border-color: var(--inv-bg); color: var(--inv-fg); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28); transform: skewX(-14deg) translateY(-1px); }
+  .mode-btn.active::after { transform: scaleX(1); }
   .mode-btn.active .num { color: var(--cyan); }
   .mode-btn.active .m-cnt { background: var(--cyan); color: #fff; }
 
@@ -397,14 +405,24 @@
   .ws-title { font-family: var(--mono); font-size: 16px; font-weight: 800; letter-spacing: 0.06em; color: var(--ink); }
   .ws-sub { font-family: var(--mono); font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-  .subtabs { display: flex; align-items: center; gap: 4px; background: var(--bg-rail); padding: 3px; border: 1px solid var(--line); }
+  .subtabs { position: relative; isolation: isolate; display: flex; align-items: center; gap: 4px; background: var(--bg-rail); padding: 3px; border: 1px solid var(--line); }
+  .subtab-glider {
+    position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none;
+    background: var(--inv-bg); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
+    border-bottom: 2px solid var(--cyan);
+    opacity: 0;
+    transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1), width 0.26s cubic-bezier(0.22, 1, 0.36, 1), height 0.26s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.16s ease;
+  }
+  .subtabs.glider-instant .subtab-glider { transition: none !important; }
   .subtab {
+    position: relative; z-index: 1;
     font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
     border: 0; background: transparent; color: var(--muted); padding: 6px 12px; cursor: pointer;
-    display: inline-flex; align-items: center; gap: 7px; transition: all 0.14s;
+    display: inline-flex; align-items: center; gap: 7px; transition: color 0.18s ease, background 0.18s ease;
   }
   .subtab:hover { color: var(--ink); }
   .subtab.active { background: var(--inv-bg); color: var(--inv-fg); }
+  .subtabs.has-glider .subtab.active { background: transparent; }
   .subtab .cnt { background: var(--cyan); color: #fff; padding: 1px 5px; font-size: 10px; font-weight: 800; }
 
   .ws-actions { display: flex; align-items: center; gap: 6px; }
@@ -747,8 +765,15 @@
     width: min(500px, 92vw); padding: 0; overflow: hidden;
     clip-path: polygon(0 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 18px 100%, 0 calc(100% - 18px));
   }
-  dialog::backdrop { background: rgba(4, 6, 10, 0.72); backdrop-filter: blur(4px); }
+  dialog[open] { animation: prtsDialogIn 0.22s cubic-bezier(0.22, 1, 0.36, 1) both; }
+  dialog::backdrop { background: rgba(4, 6, 10, 0.72); backdrop-filter: blur(4px); animation: prtsBackdropIn 0.2s ease both; }
+  @keyframes prtsDialogIn {
+    from { opacity: 0; transform: translateY(12px) scale(0.972); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @keyframes prtsBackdropIn { from { opacity: 0; } to { opacity: 1; } }
   .modal-stripe { height: 4px; background: repeating-linear-gradient(-45deg, var(--amber) 0 10px, var(--bg-elev) 10px 20px); }
+  .modal-stripe.danger { background: repeating-linear-gradient(-45deg, var(--red) 0 10px, var(--bg-elev) 10px 20px); }
   .modal-body { padding: 20px 22px; }
   .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 11px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; color: var(--muted); }
   .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -757,6 +782,309 @@
     font: 13.5px var(--sans); outline: none;
   }
   .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--cyan); }
+
+  /* ---- PRTS Opening / Boot Shutter Sequence ---- */
+  #prtsBoot {
+    position: fixed; inset: 0; z-index: 9999;
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: auto; cursor: pointer; user-select: none; overflow: hidden;
+  }
+  #prtsBoot.boot-hidden { display: none !important; pointer-events: none; }
+  .boot-half {
+    position: absolute; left: 0; right: 0; height: 50.5%;
+    background-color: var(--bg);
+    background-image:
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 32px 32px;
+    transition: transform 0.44s cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: transform;
+  }
+  .boot-half.top { top: 0; border-bottom: 1px solid rgba(34, 187, 255, 0.38); }
+  .boot-half.bot { bottom: 0; border-top: 1px solid rgba(34, 187, 255, 0.38); }
+  .boot-seam {
+    position: absolute; left: 0; right: 0; top: 50%; height: 2px; margin-top: -1px; z-index: 2;
+    background: linear-gradient(90deg, transparent 4%, var(--cyan) 30%, #fff 50%, var(--cyan) 70%, transparent 96%);
+    box-shadow: 0 0 18px var(--cyan);
+    transform: scaleX(0.18); opacity: 0.75;
+    transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.28s ease;
+  }
+  .boot-hud {
+    position: relative; z-index: 3; width: min(390px, 86vw); padding: 24px 26px 20px;
+    background: var(--bg-elev); border: 1px solid var(--line-strong);
+    clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px));
+    box-shadow: 0 20px 56px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(34, 187, 255, 0.14);
+    display: flex; flex-direction: column; align-items: center; text-align: center;
+    animation: bootHudIn 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+    transition: opacity 0.2s ease, transform 0.24s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .boot-hud::before {
+    content: ""; position: absolute; left: 0; top: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, var(--cyan), var(--amber));
+  }
+  @keyframes bootHudIn {
+    from { opacity: 0; transform: scale(0.94) translateY(8px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+  }
+  .boot-emblem { width: 52px; height: 52px; margin-bottom: 12px; }
+  .boot-emblem .outer { stroke: var(--ink); transform-origin: 16px 16px; animation: bootSpinOuter 0.65s cubic-bezier(0.22, 1, 0.36, 1) both; }
+  .boot-emblem .inner { stroke: var(--cyan); transform-origin: 16px 16px; animation: bootSpinInner 0.65s cubic-bezier(0.22, 1, 0.36, 1) both; }
+  .boot-emblem .core { fill: var(--cyan); transform-origin: 16px 16px; animation: bootPulseCore 0.9s ease-in-out infinite alternate; }
+  @keyframes bootSpinOuter { from { transform: rotate(-45deg) scale(0.72); opacity: 0; } to { transform: rotate(0deg) scale(1); opacity: 1; } }
+  @keyframes bootSpinInner { from { transform: rotate(45deg) scale(0.5); opacity: 0; } to { transform: rotate(0deg) scale(1); opacity: 1; } }
+  @keyframes bootPulseCore { from { transform: scale(0.85); opacity: 0.7; } to { transform: scale(1.12); opacity: 1; } }
+  .boot-title { font-family: var(--mono); font-size: 14px; font-weight: 800; letter-spacing: 0.22em; color: var(--ink); }
+  .boot-sub { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.2em; color: var(--cyan); margin-top: 4px; }
+  .boot-track {
+    width: 100%; height: 4px; margin: 16px 0 9px; background: var(--bg-rail);
+    border: 1px solid var(--line-strong); overflow: hidden; position: relative;
+  }
+  .boot-fill {
+    height: 100%; width: 0%; background: linear-gradient(90deg, var(--cyan), #7ce2ff);
+    box-shadow: 0 0 10px var(--cyan);
+    transition: width 0.36s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .boot-meta {
+    width: 100%; display: flex; justify-content: space-between; gap: 8px;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; color: var(--muted);
+  }
+  .boot-skip { margin-top: 10px; font-family: var(--mono); font-size: 9px; letter-spacing: 0.16em; color: var(--muted); opacity: 0.65; }
+  #prtsBoot.boot-open { pointer-events: none; }
+  #prtsBoot.boot-open .boot-hud { opacity: 0; transform: scale(1.05); }
+  #prtsBoot.boot-open .boot-seam { transform: scaleX(1); opacity: 0; }
+  #prtsBoot.boot-open .boot-half.top { transform: translateY(-103%); }
+  #prtsBoot.boot-open .boot-half.bot { transform: translateY(103%); }
+
+  /* Console Staggered Entrance right as Boot Shutter parts */
+  body.boot-reveal .prts-rail { animation: bootDropIn 0.32s cubic-bezier(0.22, 1, 0.36, 1) both; }
+  body.boot-reveal header { animation: bootDropIn 0.36s 0.04s cubic-bezier(0.22, 1, 0.36, 1) both; }
+  body.boot-reveal aside { animation: bootSlideAside 0.4s 0.07s cubic-bezier(0.22, 1, 0.36, 1) both; }
+  body.boot-reveal .session-list > .unit-card {
+    animation: bootUnitStagger 0.36s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation-delay: calc(0.1s + var(--u-idx, 0) * 0.04s);
+  }
+  body.boot-reveal section.workspace { animation: bootWorkspaceIn 0.42s 0.1s cubic-bezier(0.22, 1, 0.36, 1) both; }
+  @keyframes bootDropIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes bootSlideAside { from { opacity: 0; transform: translateX(-18px); } to { opacity: 1; transform: translateX(0); } }
+  @keyframes bootUnitStagger { from { opacity: 0; transform: translateX(-14px); } to { opacity: 1; transform: translateX(0); } }
+  @keyframes bootWorkspaceIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ---- Multi-Level Tab, Subtab & Unit Switch Transitions ---- */
+  .anim-view-right { animation: prtsViewRight 0.28s cubic-bezier(0.22, 1, 0.36, 1); }
+  .anim-view-left { animation: prtsViewLeft 0.28s cubic-bezier(0.22, 1, 0.36, 1); }
+  @keyframes prtsViewRight {
+    from { opacity: 0; transform: translate3d(22px, 0, 0); }
+    to { opacity: 1; transform: translate3d(0, 0, 0); }
+  }
+  @keyframes prtsViewLeft {
+    from { opacity: 0; transform: translate3d(-22px, 0, 0); }
+    to { opacity: 1; transform: translate3d(0, 0, 0); }
+  }
+
+  .anim-tab-right { animation: prtsTabRight 0.23s cubic-bezier(0.22, 1, 0.36, 1); }
+  .anim-tab-left { animation: prtsTabLeft 0.23s cubic-bezier(0.22, 1, 0.36, 1); }
+  .anim-unit-down { animation: prtsUnitDown 0.24s cubic-bezier(0.22, 1, 0.36, 1); }
+  .anim-unit-up { animation: prtsUnitUp 0.24s cubic-bezier(0.22, 1, 0.36, 1); }
+  @keyframes prtsTabRight {
+    from { opacity: 0.16; transform: translate3d(18px, 0, 0); }
+    to { opacity: 1; transform: translate3d(0, 0, 0); }
+  }
+  @keyframes prtsTabLeft {
+    from { opacity: 0.16; transform: translate3d(-18px, 0, 0); }
+    to { opacity: 1; transform: translate3d(0, 0, 0); }
+  }
+  @keyframes prtsUnitDown {
+    from { opacity: 0.18; transform: translate3d(0, 15px, 0); }
+    to { opacity: 1; transform: translate3d(0, 0, 0); }
+  }
+  @keyframes prtsUnitUp {
+    from { opacity: 0.18; transform: translate3d(0, -15px, 0); }
+    to { opacity: 1; transform: translate3d(0, 0, 0); }
+  }
+
+  .panel-wrap.scan-flash::after {
+    content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; z-index: 8; pointer-events: none;
+    background: linear-gradient(90deg, transparent, var(--cyan), #fff, var(--cyan), transparent);
+    box-shadow: 0 0 12px var(--cyan);
+    animation: prtsScanSweep 0.32s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+  @keyframes prtsScanSweep {
+    0% { transform: scaleX(0.1); opacity: 0.95; }
+    65% { transform: scaleX(1); opacity: 0.85; }
+    100% { transform: scaleX(1); opacity: 0; }
+  }
+  .ws-identity.anim-id { animation: prtsIdSlide 0.24s cubic-bezier(0.22, 1, 0.36, 1); }
+  .ws-watermark.anim-wm { animation: prtsWmSlide 0.34s cubic-bezier(0.22, 1, 0.36, 1); }
+  @keyframes prtsIdSlide { from { opacity: 0.25; transform: translateX(10px); } to { opacity: 1; transform: translateX(0); } }
+  @keyframes prtsWmSlide { from { opacity: 0; transform: translateX(26px); } to { opacity: 1; transform: translateX(0); } }
+
+  .ops-stagger-item {
+    animation: prtsCardCascade 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation-delay: calc(var(--card-i, 0) * 0.032s);
+  }
+  @keyframes prtsCardCascade {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ---- Unit Roster Lock-On, Deploy Entrance & Tactical Kill Choreography ---- */
+  .unit-card {
+    transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease, transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.2s ease;
+  }
+  .unit-card.unit-lock-pulse { animation: unitLockPulse 0.32s cubic-bezier(0.22, 1, 0.36, 1); }
+  @keyframes unitLockPulse {
+    0% { transform: translateX(5px); box-shadow: 0 0 0 1px var(--cyan), 0 0 18px rgba(34, 187, 255, 0.35); }
+    100% { transform: translateX(0); }
+  }
+  .unit-card.deploy-enter { animation: unitDeployIn 0.36s cubic-bezier(0.22, 1, 0.36, 1) both; }
+  @keyframes unitDeployIn {
+    0% { opacity: 0; transform: translateX(-20px) scale(0.96); border-color: var(--cyan); box-shadow: 0 0 18px rgba(34, 187, 255, 0.35); }
+    100% { opacity: 1; transform: translateX(0) scale(1); }
+  }
+  .unit-card.killing {
+    pointer-events: none !important; overflow: hidden !important;
+    background: var(--red-dim) !important; color: var(--red) !important; border-color: var(--red) !important;
+    animation: unitKillCollapse 0.42s cubic-bezier(0.32, 0, 0.18, 1) forwards !important;
+  }
+  .unit-card.killing::before { background: var(--red) !important; width: 5px; }
+  .unit-card.killing .u-name { text-decoration: line-through; color: var(--red) !important; }
+  .unit-card.killing .u-st { background: var(--red) !important; border-color: var(--red) !important; color: #fff !important; }
+  @keyframes unitKillCollapse {
+    0% { opacity: 1; transform: translateX(0) skewX(0deg); box-shadow: 0 0 22px rgba(255, 71, 87, 0.48); }
+    38% { opacity: 0.92; transform: translateX(14px) skewX(-5deg); }
+    100% {
+      opacity: 0; transform: translateX(44px) skewX(-8deg) scale(0.95);
+      max-height: 0 !important; padding-top: 0 !important; padding-bottom: 0 !important;
+      margin-bottom: -9px !important; border-top-width: 0 !important; border-bottom-width: 0 !important;
+    }
+  }
+
+  /* Workspace CRT Signal-Sever Overlay on KILL */
+  .kill-fx-overlay {
+    position: absolute; inset: 0; z-index: 25; pointer-events: none;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(9, 11, 15, 0.78); backdrop-filter: blur(3px);
+    overflow: hidden;
+  }
+  .kill-fx-overlay.active { display: flex; animation: killOverlayFade 0.44s ease forwards; }
+  .kill-fx-line {
+    position: absolute; left: 0; right: 0; top: 50%; height: 2px; margin-top: -1px;
+    background: linear-gradient(90deg, transparent, var(--red), #fff, var(--red), transparent);
+    box-shadow: 0 0 22px var(--red);
+    animation: killLaserSnap 0.42s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+  .kill-fx-stamp {
+    position: relative; z-index: 2; padding: 12px 24px;
+    border: 1.5px solid var(--red); background: rgba(24, 10, 14, 0.92);
+    clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+    font-family: var(--mono); text-align: center;
+    box-shadow: 0 0 28px rgba(255, 71, 87, 0.38);
+    animation: killStampIn 0.42s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+  .kill-fx-stamp strong { display: block; font-size: 13px; letter-spacing: 0.2em; color: var(--red); }
+  .kill-fx-stamp span { display: block; margin-top: 4px; font-size: 10px; letter-spacing: 0.14em; color: #ffb8c0; }
+  section.workspace.ws-killing #panel,
+  section.workspace.ws-killing #wsBar,
+  section.workspace.ws-killing #hlBar,
+  section.workspace.ws-killing #queueTray,
+  section.workspace.ws-killing #modelBar,
+  section.workspace.ws-killing #composer {
+    animation: wsPowerDown 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    transform-origin: center center;
+  }
+  @keyframes wsPowerDown {
+    0% { opacity: 1; transform: scaleY(1) scaleX(1); filter: none; }
+    55% { opacity: 0.55; transform: scaleY(0.03) scaleX(1.01); filter: brightness(1.6) saturate(1.4); }
+    100% { opacity: 0; transform: scaleY(0.005) scaleX(0.25); }
+  }
+  @keyframes killOverlayFade { 0% { opacity: 0; } 20% { opacity: 1; } 82% { opacity: 1; } 100% { opacity: 0; } }
+  @keyframes killLaserSnap {
+    0% { transform: scaleX(0.15) scaleY(1); opacity: 0.8; }
+    45% { transform: scaleX(1) scaleY(1.8); opacity: 1; }
+    100% { transform: scaleX(0) scaleY(0.4); opacity: 0; }
+  }
+  @keyframes killStampIn {
+    0% { opacity: 0; transform: scale(1.08); }
+    22% { opacity: 1; transform: scale(1); }
+    80% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(0.94); }
+  }
+
+  .kill-target-box {
+    padding: 11px 14px; margin: 10px 0 12px;
+    background: var(--bg-rail); border: 1px solid var(--line-strong); border-left: 3px solid var(--red);
+    font-family: var(--mono);
+  }
+  .kill-target-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .kill-target-name { font-size: 14px; font-weight: 800; color: var(--ink); letter-spacing: 0.05em; }
+  .kill-target-sub { margin-top: 5px; font-size: 11px; color: var(--muted); word-break: break-all; }
+  .kill-warn-banner {
+    padding: 9px 12px; margin-bottom: 12px;
+    background: var(--red-dim); border: 1px solid var(--red);
+    font-family: var(--mono); font-size: 11px; line-height: 1.5; color: var(--red);
+  }
+
+  /* ---- PRTS Candidate Message Display Queue (#queueTray) ---- */
+  .queue-tray {
+    border-top: 1px solid var(--cyan); background: var(--bg-elev);
+    display: flex; flex-direction: column; position: relative; z-index: 3;
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.22);
+    animation: queueTrayIn 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  html.has-wallpaper .queue-tray { background: rgba(15, 19, 27, 0.84); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+  html[data-theme="day"].has-wallpaper .queue-tray { background: rgba(246, 249, 253, 0.88); }
+  @keyframes queueTrayIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .queue-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+    padding: 6px 20px; background: var(--cyan-dim); border-bottom: 1px solid var(--line);
+    font-family: var(--mono); font-size: 10.5px; font-weight: 800; letter-spacing: 0.1em; color: var(--cyan);
+  }
+  .queue-tray.paused { border-top-color: var(--amber); }
+  .queue-tray.paused .queue-head { background: var(--amber-dim); color: var(--amber); }
+  .queue-head-left { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+  .queue-head-right { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+  .queue-pulse {
+    width: 7px; height: 7px; background: var(--cyan); box-shadow: 0 0 8px var(--cyan);
+    animation: blink 1.2s ease-in-out infinite; flex-shrink: 0;
+  }
+  .queue-tray.paused .queue-pulse { background: var(--amber); box-shadow: none; animation: none; }
+  .queue-hint { font-weight: 600; font-size: 10px; letter-spacing: 0.05em; color: var(--ink-2); }
+  .queue-list {
+    display: flex; flex-direction: column; gap: 6px; padding: 8px 20px;
+    max-height: 172px; overflow-y: auto;
+  }
+  .queue-tray.collapsed .queue-list { display: none; }
+  .queue-item {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 7px 10px 7px 12px; background: var(--panel); border: 1px solid var(--line-strong);
+    border-left: 3px solid var(--amber);
+    clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%);
+    animation: queueItemIn 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .queue-item.entering { border-left-color: var(--cyan); background: linear-gradient(90deg, var(--cyan-dim), var(--panel) 48%); }
+  @keyframes queueItemIn {
+    from { opacity: 0; transform: translateX(-12px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  .q-left { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+  .q-rank {
+    font-family: var(--mono); font-size: 10.5px; font-weight: 800; color: var(--inv-fg);
+    background: var(--inv-bg); padding: 2px 6px; flex-shrink: 0; letter-spacing: 0.06em;
+  }
+  .q-chip {
+    font-family: var(--mono); font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em;
+    padding: 2px 6px; border: 1px solid var(--amber); color: var(--amber); background: var(--amber-dim);
+    white-space: nowrap; flex-shrink: 0;
+  }
+  .q-chip.entering { border-color: var(--cyan); color: var(--cyan); background: var(--cyan-dim); }
+  .q-chip.paused { border-color: var(--muted); color: var(--muted); background: var(--bg-rail); }
+  .q-text {
+    font-size: 12.5px; color: var(--ink); line-height: 1.4;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1;
+  }
+  .q-age { font-family: var(--mono); font-size: 10px; color: var(--muted); flex-shrink: 0; }
+  .q-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+  .q-actions .btn.xs { padding: 2px 6px; font-size: 9.5px; }
 
   @media (max-width: 920px) {
     .prts-rail { display: none; }
@@ -883,10 +1211,55 @@
     .field input, .field select, .field textarea { font-size: 16px; padding: 9px 10px; }
 
     .ws-watermark { display: none; }
+    .mode-btn:hover, .mode-btn.active { transform: none; }
+    .queue-head { padding: 5px 10px; font-size: 9.5px; gap: 6px; }
+    .queue-hint { display: none; }
+    .queue-list { padding: 6px 10px; max-height: 136px; gap: 5px; }
+    .queue-item { padding: 6px 8px; gap: 6px; flex-wrap: wrap; }
+    .q-left { width: 100%; gap: 6px; }
+    .q-actions { margin-left: auto; }
+    .unit-card.killing { animation-name: unitKillCollapseMobile !important; }
+    @keyframes unitKillCollapseMobile {
+      0% { opacity: 1; transform: translateY(0) scale(1); }
+      40% { opacity: 0.85; transform: translateY(-6px) scale(0.95); }
+      100% {
+        opacity: 0; transform: translateY(-14px) scale(0.86);
+        max-width: 0 !important; padding-left: 0 !important; padding-right: 0 !important;
+        margin-right: -7px !important; border-width: 0 !important;
+      }
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 </style>
 </head>
 <body>
+<div id="prtsBoot" role="status" aria-label="PRTS Terminal Initializing">
+  <div class="boot-half top"></div>
+  <div class="boot-half bot"></div>
+  <div class="boot-seam"></div>
+  <div class="boot-hud">
+    <svg class="boot-emblem" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+      <polygon class="outer" points="16,2 30,16 16,30 2,16" stroke-width="1.5"/>
+      <polygon class="inner" points="16,7 25,16 16,25 7,16" stroke-width="1.2"/>
+      <rect class="core" x="14" y="14" width="4" height="4"/>
+    </svg>
+    <div class="boot-title">PRTS // FMUX</div>
+    <div class="boot-sub">RHODES TACTICAL CONSOLE</div>
+    <div class="boot-track"><div id="bootFill" class="boot-fill"></div></div>
+    <div class="boot-meta">
+      <span id="bootStage">INITIALIZING NEURAL LINK…</span>
+      <span id="bootPct">0%</span>
+    </div>
+    <div class="boot-skip">CLICK OR PRESS ANY KEY TO ENTER</div>
+  </div>
+</div>
 <div id="wpLayer" aria-hidden="true"></div>
 <div id="wpFrost" aria-hidden="true"></div>
 
@@ -943,7 +1316,14 @@
     <div id="sessionList" class="session-list"></div>
   </aside>
 
-  <section class="workspace">
+  <section id="workspaceEl" class="workspace">
+    <div id="killFxOverlay" class="kill-fx-overlay" aria-hidden="true">
+      <div class="kill-fx-line"></div>
+      <div class="kill-fx-stamp">
+        <strong>SIGNAL SEVERED // UNIT TERMINATED</strong>
+        <span id="killFxSub">TMUX LINK DECOMMISSIONED</span>
+      </div>
+    </div>
     <div id="wsWatermark" class="ws-watermark">PRTS</div>
     <div id="wsBar" class="ws-header" style="display:none">
       <div class="ws-identity">
@@ -999,6 +1379,23 @@
       <div id="panel" class="panel">
         <div class="empty"><strong>PRTS TERMINAL READY</strong>SELECT AN AGENT UNIT FROM THE ROSTER</div>
       </div>
+    </div>
+
+    <div id="queueTray" class="queue-tray" style="display:none">
+      <div class="queue-head">
+        <div class="queue-head-left">
+          <span class="queue-pulse"></span>
+          <span id="queueTitle">CANDIDATE QUEUE // 0</span>
+          <span id="queueHint" class="queue-hint">尚未进入会话的候选消息按序排列 · 当前回合结束后自动送入</span>
+        </div>
+        <div class="queue-head-right">
+          <button id="queueResumeBtn" type="button" class="btn xs green" style="display:none">▶ RESUME</button>
+          <button id="queueFlushBtn" type="button" class="btn xs cyan" style="display:none" title="立即将队首候选送入 tmux 终端">INJECT NEXT ↗</button>
+          <button id="queueClearBtn" type="button" class="btn xs ghost" style="display:none" title="清空所有排队中的候选消息">CLEAR</button>
+          <button id="queueToggleBtn" type="button" class="btn xs ghost" title="折叠 / 展开候选队列">−</button>
+        </div>
+      </div>
+      <div id="queueList" class="queue-list"></div>
     </div>
 
     <div id="modelBar" class="model-bar" style="display:none">
@@ -1342,6 +1739,35 @@
   </form>
 </dialog>
 
+<!-- Modal: Tactical Kill / Decommission Confirmation -->
+<dialog id="killDialog">
+  <div class="modal-stripe danger"></div>
+  <form id="killForm" class="modal-body">
+    <div style="font-family:var(--mono);font-size:10px;letter-spacing:0.2em;color:var(--red);margin-bottom:4px">PRTS WARNING // DECOMMISSION TMUX UNIT</div>
+    <h3 style="margin:0 0 8px;font-size:17px">确认终止并销毁该会话？</h3>
+    <div class="kill-target-box">
+      <div class="kill-target-top">
+        <span id="killTargetName" class="kill-target-name"></span>
+        <div style="display:flex;gap:5px">
+          <span id="killTargetKind" class="u-chip"></span>
+          <span id="killTargetStatus" class="u-chip"></span>
+        </div>
+      </div>
+      <div id="killTargetSub" class="kill-target-sub"></div>
+    </div>
+    <div id="killBusyWarn" class="kill-warn-banner" style="display:none">
+      ⚠ 该会话当前正在运行推理或后台任务，执行 KILL 将立即切断 tmux 进程且不可恢复。
+    </div>
+    <div style="font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.5">
+      提示：若只想中断当前生成而保留会话，请取消并点击右下角 <strong style="color:var(--ink)">■ STOP</strong>。
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+      <button type="button" class="btn ghost" onclick="document.getElementById('killDialog').close()">ABORT</button>
+      <button id="confirmKillBtn" type="submit" class="btn danger" style="font-weight:800">■ TERMINATE UNIT</button>
+    </div>
+  </form>
+</dialog>
+
 <script>
 const STATUS_LABEL = { working: 'RUNNING', background: 'ASYNC', blocked: 'CONFIRM', idle: 'READY', shell: 'SHELL' };
 const KIND_LABEL = { agy: 'AGY', dsh: 'DSH', claude: 'CLAUDE', codex: 'CODEX', pi: 'PI', shell: 'SHELL' };
@@ -1357,6 +1783,9 @@ const state = {
   selectedKey: null, mode: 'sessions', tab: 'chat', lastTab: 'chat', gpuClusterFilter: 'all', selectedTaskId: null,
   lastChatSig: '', lastChatKey: '', boostPollUntil: 0, pendingSend: null, stopNotice: null,
   stoppedKeys: new Map(), lastTurnCount: new Map(), sessionCache: new Map(), lastWsFetchAt: 0,
+  killingKeys: new Set(), killTargetKey: null, knownUnitKeys: new Set(), rosterSeeded: false,
+  bootDone: false, viewEntryAnim: false,
+  optimisticQueue: new Map(), queueCollapsed: false,
   modelCatalog: null, switchingModel: false, modelFlash: '', modelFlashAt: 0,
   cornerCollapsed: false, cornerExpandedTaskId: null,
   theme: (() => { try { return localStorage.getItem('fmux_theme') || 'night'; } catch { return 'night'; } })(),
@@ -1393,6 +1822,136 @@ function applyTheme(mode) {
 }
 applyTheme(state.theme);
 $('themeBtn').onclick = () => applyTheme(state.theme === 'day' ? 'night' : 'day');
+
+// ---- PRTS Boot Sequence + Tactical Motion Helpers ----
+const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+const bootStartedAt = Date.now();
+let bootProgressTimers = [];
+
+function finishBoot(immediate = false) {
+  if (state.bootDone) return;
+  state.bootDone = true;
+  bootProgressTimers.forEach((t) => clearTimeout(t));
+  bootProgressTimers = [];
+  const bootEl = $('prtsBoot');
+  if (!bootEl) return;
+  if (immediate || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+    bootEl.classList.add('boot-hidden');
+    return;
+  }
+  const fill = $('bootFill');
+  const pct = $('bootPct');
+  const stage = $('bootStage');
+  if (fill) fill.style.width = '100%';
+  if (pct) pct.textContent = '100%';
+  if (stage) stage.textContent = 'NEURAL LINK ESTABLISHED // READY';
+  setTimeout(() => {
+    bootEl.classList.add('boot-open');
+    document.body.classList.add('boot-reveal');
+    setTimeout(() => {
+      bootEl.classList.add('boot-hidden');
+    }, 460);
+    setTimeout(() => {
+      document.body.classList.remove('boot-reveal');
+    }, 680);
+  }, 90);
+}
+
+function noteBootSseReady() {
+  if (state.bootDone) return;
+  const elapsed = Date.now() - bootStartedAt;
+  const remain = Math.max(0, 360 - elapsed);
+  setTimeout(() => finishBoot(false), remain);
+}
+
+(function initBootSequence() {
+  const bootEl = $('prtsBoot');
+  if (!bootEl) return;
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+    finishBoot(true);
+    return;
+  }
+  const setProg = (val, label) => {
+    if (state.bootDone) return;
+    if ($('bootFill')) $('bootFill').style.width = `${val}%`;
+    if ($('bootPct')) $('bootPct').textContent = `${val}%`;
+    if (label && $('bootStage')) $('bootStage').textContent = label;
+  };
+  requestAnimationFrame(() => setProg(38, 'INITIALIZING NEURAL LINK…'));
+  bootProgressTimers.push(setTimeout(() => setProg(76, 'MOUNTING TMUX AGENT MATRIX…'), 180));
+  bootProgressTimers.push(setTimeout(() => setProg(92, 'CALIBRATING TACTICAL HUD…'), 350));
+  bootProgressTimers.push(setTimeout(() => finishBoot(false), 680));
+  bootEl.addEventListener('click', () => finishBoot(true), { once: true });
+  window.addEventListener('keydown', () => { if (!state.bootDone) finishBoot(true); }, { once: true });
+})();
+
+const ANIM_CLASSES = ['anim-view-right', 'anim-view-left', 'anim-tab-right', 'anim-tab-left', 'anim-unit-down', 'anim-unit-up', 'anim-id', 'anim-wm', 'unit-lock-pulse'];
+const animTimers = new WeakMap();
+function triggerAnim(el, cls, ms = 280) {
+  if (!el) return;
+  const prev = animTimers.get(el);
+  if (prev) clearTimeout(prev);
+  el.classList.remove(...ANIM_CLASSES);
+  void el.offsetWidth;
+  el.classList.add(cls);
+  animTimers.set(el, setTimeout(() => { el.classList.remove(cls); }, ms));
+}
+
+let scanFlashTimer = null;
+function flashPanelScan() {
+  const wrap = document.querySelector('.panel-wrap');
+  if (!wrap) return;
+  if (scanFlashTimer) clearTimeout(scanFlashTimer);
+  wrap.classList.remove('scan-flash');
+  void wrap.offsetWidth;
+  wrap.classList.add('scan-flash');
+  scanFlashTimer = setTimeout(() => wrap.classList.remove('scan-flash'), 340);
+}
+
+function syncSubtabGlider(container, immediate = false) {
+  if (!container) return;
+  let glider = container.querySelector(':scope > .subtab-glider');
+  if (!glider) {
+    glider = document.createElement('span');
+    glider.className = 'subtab-glider';
+    glider.setAttribute('aria-hidden', 'true');
+    container.prepend(glider);
+  }
+  const active = container.querySelector(':scope > .subtab.active');
+  if (!active || !active.offsetWidth || !active.offsetHeight) {
+    container.classList.remove('has-glider');
+    glider.style.opacity = '0';
+    return;
+  }
+  if (immediate || !container.classList.contains('has-glider')) {
+    container.classList.add('glider-instant');
+  }
+  container.classList.add('has-glider');
+  glider.style.width = `${active.offsetWidth}px`;
+  glider.style.height = `${active.offsetHeight}px`;
+  glider.style.transform = `translate3d(${active.offsetLeft}px, ${active.offsetTop}px, 0)`;
+  glider.style.opacity = '1';
+  if (container.classList.contains('glider-instant')) {
+    requestAnimationFrame(() => container.classList.remove('glider-instant'));
+  }
+}
+
+function initSubtabGliders() {
+  ['wsSubtabs', 'gpuClusterTabs'].forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    syncSubtabGlider(el, true);
+    if (window.ResizeObserver) {
+      const ro = new ResizeObserver(() => syncSubtabGlider(el, true));
+      ro.observe(el);
+    }
+  });
+  window.addEventListener('resize', () => {
+    syncSubtabGlider($('wsSubtabs'), true);
+    syncSubtabGlider($('gpuClusterTabs'), true);
+  });
+}
+requestAnimationFrame(initSubtabGliders);
 
 // ---- Optional Wallpaper Behind Frosted Grid (+ Interactive Cropper) ----
 const wpCrop = {
@@ -2085,28 +2644,88 @@ function orderedSessions() {
 }
 function selectedSession() { return state.sessions.find((s) => s.key === state.selectedKey) || null; }
 
+const MODE_ORDER = { sessions: 0, heartbeat: 1, goals: 2, gpu: 3 };
+const SUBTAB_ORDER = { chat: 0, tasks: 1, term: 2 };
+const CLUSTER_ORDER = { all: 0, local: 1, gongji: 2, volc: 3 };
+
 function setMode(mode) {
+  const prev = state.mode;
+  const changed = prev !== mode;
   state.mode = mode;
   document.querySelectorAll('.mode-btn').forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
   $('viewSessions').style.display = mode === 'sessions' ? 'grid' : 'none';
   $('viewHeartbeat').style.display = mode === 'heartbeat' ? 'flex' : 'none';
   $('viewGoals').style.display = mode === 'goals' ? 'flex' : 'none';
   $('viewGpu').style.display = mode === 'gpu' ? 'flex' : 'none';
-  if (mode === 'sessions') { renderSessions(); renderWorkspace(); }
+
+  const targetEl = mode === 'sessions' ? $('viewSessions')
+    : mode === 'heartbeat' ? $('viewHeartbeat')
+    : mode === 'goals' ? $('viewGoals') : $('viewGpu');
+
+  if (changed) state.viewEntryAnim = true;
+  if (mode === 'sessions') {
+    renderSessions();
+    renderWorkspace();
+    requestAnimationFrame(() => syncSubtabGlider($('wsSubtabs'), !changed));
+  }
   if (mode === 'heartbeat') renderHeartbeats();
   if (mode === 'goals') renderGoals();
-  if (mode === 'gpu') renderGpu();
-}
-document.querySelectorAll('.mode-btn').forEach((b) => { b.onclick = () => setMode(b.dataset.mode); });
+  if (mode === 'gpu') {
+    renderGpu();
+    requestAnimationFrame(() => syncSubtabGlider($('gpuClusterTabs'), true));
+  }
+  state.viewEntryAnim = false;
 
-function selectSessionKey(key) {
-  if (!key || state.selectedKey === key) return;
+  if (changed && targetEl) {
+    const dir = (MODE_ORDER[mode] ?? 0) >= (MODE_ORDER[prev] ?? 0) ? 'anim-view-right' : 'anim-view-left';
+    triggerAnim(targetEl, dir, 290);
+    if (mode === 'sessions') flashPanelScan();
+  }
+}
+document.querySelectorAll('.mode-btn').forEach((b) => { b.onclick = () => { if (state.mode !== b.dataset.mode) setMode(b.dataset.mode); }; });
+
+function getEffectiveQueue(s) {
+  if (!s) return [];
+  const serverList = Array.isArray(s.pendingQueue) ? s.pendingQueue : [];
+  const optList = state.optimisticQueue.get(s.key) || [];
+  if (!optList.length) return serverList;
+  const now = Date.now();
+  const stillPending = optList.filter((o) => now - o.createdAt < 6000 && !serverList.some((sv) => sv.text === o.text && Math.abs(sv.createdAt - o.createdAt) < 5000));
+  if (stillPending.length !== optList.length) {
+    if (stillPending.length) state.optimisticQueue.set(s.key, stillPending);
+    else state.optimisticQueue.delete(s.key);
+  }
+  return [...serverList, ...stillPending].map((x, i) => ({ ...x, rank: i + 1 }));
+}
+
+function selectSessionKey(key, { animDir = '' } = {}) {
+  if (!key || state.selectedKey === key || state.killingKeys.has(key)) return;
+  const ordered = orderedSessions();
+  const prevIdx = ordered.findIndex((x) => x.key === state.selectedKey);
+  const nextIdx = ordered.findIndex((x) => x.key === key);
   state.selectedKey = key;
   state.selectedTaskId = null;
   state.cornerExpandedTaskId = null;
   state.lastChatSig = '';
   renderSessions();
   renderWorkspace({ forceScroll: true });
+
+  const card = $('sessionList')?.querySelector(`.unit-card[data-key="${CSS.escape(key)}"]`);
+  if (card) {
+    triggerAnim(card, 'unit-lock-pulse', 320);
+    if (window.innerWidth <= 920) {
+      card.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    }
+  }
+  const down = animDir ? animDir === 'down' : (nextIdx >= prevIdx);
+  const isMobile = window.innerWidth <= 920;
+  const panelCls = isMobile
+    ? (down ? 'anim-tab-right' : 'anim-tab-left')
+    : (down ? 'anim-unit-down' : 'anim-unit-up');
+  triggerAnim($('panel'), panelCls, 250);
+  triggerAnim(document.querySelector('.ws-identity'), 'anim-id', 250);
+  triggerAnim($('wsWatermark'), 'anim-wm', 340);
+  flashPanelScan();
 }
 
 function renderHeader() {
@@ -2125,7 +2744,7 @@ function renderHeader() {
 
 function renderSessions() {
   renderHeader();
-  const sessions = orderedSessions();
+  const sessions = orderedSessions().filter((s) => !state.killingKeys.has(s.key));
   const total = sessions.length;
   const activeCount = sessions.filter((s) => s.status === 'working').length;
   const bgCount = sessions.reduce((sum, s) => sum + (s.runningTasks || 0), 0);
@@ -2134,35 +2753,46 @@ function renderSessions() {
   $('statBg').textContent = pad2(bgCount);
 
   const list = $('sessionList');
-  if (!total) {
+  if (!total && !state.killingKeys.size) {
     list.innerHTML = '<div class="empty"><strong>NO UNITS</strong>START A TMUX SESSION OR CLICK + DEPLOY</div>';
     return;
   }
-  if (!state.selectedKey || !selectedSession()) state.selectedKey = sessions[0].key;
+  if (total && (!state.selectedKey || !sessions.some((s) => s.key === state.selectedKey))) {
+    state.selectedKey = sessions[0].key;
+  }
 
   // Patch .unit-card DOM nodes in-place in fixed unitId order so cards never float, jump scroll, or drop clicks.
   const emptyEl = list.querySelector(':scope > .empty');
-  if (emptyEl) emptyEl.remove();
+  if (emptyEl && (total || state.killingKeys.size)) emptyEl.remove();
   const existing = new Map();
   list.querySelectorAll(':scope > .unit-card').forEach((el) => existing.set(el.dataset.key, el));
   const keepKeys = new Set(sessions.map((s) => s.key));
   for (const [k, el] of existing) {
-    if (!keepKeys.has(k)) el.remove();
+    if (!keepKeys.has(k) && !state.killingKeys.has(k)) el.remove();
   }
 
+  const shouldAnimateDeploy = state.rosterSeeded;
   sessions.forEach((s, idx) => {
     let card = existing.get(s.key);
+    const isBrandNew = !state.knownUnitKeys.has(s.key);
+    state.knownUnitKeys.add(s.key);
     if (!card) {
       card = document.createElement('div');
       card.dataset.key = s.key;
       card.innerHTML = `<div class="u-top"><div class="u-name-wrap"><span class="u-idx"></span><span class="u-name"></span></div><span class="u-chip u-st"></span></div><div class="u-meta"></div><div class="u-preview"></div>`;
       card.onclick = () => selectSessionKey(s.key);
+      if (isBrandNew && shouldAnimateDeploy) {
+        card.classList.add('deploy-enter');
+        setTimeout(() => card.classList.remove('deploy-enter'), 400);
+      }
       list.appendChild(card);
-    } else if (list.children[idx] !== card) {
+    } else if (!state.killingKeys.size && list.children[idx] !== card) {
       list.insertBefore(card, list.children[idx] || null);
     }
+    card.style.setProperty('--u-idx', String(idx));
     const active = s.key === state.selectedKey ? ' active' : '';
-    const nextCls = `unit-card st-${s.status}${active}`;
+    const keepExtra = ['unit-lock-pulse', 'deploy-enter'].filter((c) => card.classList.contains(c)).map((c) => ` ${c}`).join('');
+    const nextCls = `unit-card st-${s.status}${active}${keepExtra}`;
     if (card.className !== nextCls) card.className = nextCls;
     const fixedId = pad2(s.unitId || idx + 1);
     const idxEl = card.querySelector('.u-idx');
@@ -2175,13 +2805,16 @@ function renderSessions() {
     if (stEl.className !== stCls) stEl.className = stCls;
     if (stEl.textContent !== stText) stEl.textContent = stText;
     const bgTag = s.runningTasks > 0 ? `<span class="u-chip st-background">BG:${s.runningTasks}</span>` : '';
-    const metaHtml = `<span class="u-chip">${esc(KIND_LABEL[s.kind] || s.kind)}</span>${s.model ? `<span class="u-chip chip-model">${esc(s.model)}</span>` : ''}${bgTag}`;
+    const qLen = getEffectiveQueue(s).length;
+    const qTag = qLen > 0 ? `<span class="u-chip st-blocked">QUEUE:${qLen}</span>` : '';
+    const metaHtml = `<span class="u-chip">${esc(KIND_LABEL[s.kind] || s.kind)}</span>${s.model ? `<span class="u-chip chip-model">${esc(s.model)}</span>` : ''}${bgTag}${qTag}`;
     const metaEl = card.querySelector('.u-meta');
     if (metaEl.dataset.sig !== metaHtml) { metaEl.dataset.sig = metaHtml; metaEl.innerHTML = metaHtml; }
     const prevText = s.note || s.lastText || s.title || s.cwd || '';
     const prevEl = card.querySelector('.u-preview');
     if (prevEl.textContent !== prevText) prevEl.textContent = prevText;
   });
+  if (total) state.rosterSeeded = true;
 }
 
 // ---- Top-Right Async Mini-HUD directly below Highlight bar (running tasks only, patched in-place) ----
@@ -2251,9 +2884,14 @@ async function renderCornerBg(s) {
 }
 $('cornerToggle').onclick = () => { state.cornerCollapsed = !state.cornerCollapsed; renderCornerBg(selectedSession()); };
 $('cornerJump').onclick = () => {
+  const prevTab = state.tab;
   state.tab = 'tasks';
   document.querySelectorAll('#wsSubtabs .subtab').forEach((b) => b.classList.toggle('active', b.dataset.tab === 'tasks'));
+  syncSubtabGlider($('wsSubtabs'));
   renderWorkspace({ forceScroll: true });
+  const dir = (SUBTAB_ORDER.tasks ?? 1) >= (SUBTAB_ORDER[prevTab] ?? 0) ? 'anim-tab-right' : 'anim-tab-left';
+  triggerAnim($('panel'), dir, 240);
+  flashPanelScan();
 };
 
 function getSessionCache(key) {
@@ -2306,15 +2944,173 @@ function buildTurnHtml(s, t, i, isLast, isTurnActive, pend, stopNote) {
 }
 
 function syncStopButton(s) {
-  const pend = s && state.pendingSend && state.pendingSend.key === s.key ? state.pendingSend : null;
+  const q = getEffectiveQueue(s);
+  const hasInjected = Boolean(s && s.kind !== 'shell' && q.some((x) => x.state === 'injected'));
   const stoppedHere = s ? (Boolean(s.stoppedAt) || state.stoppedKeys.has(s.key)) : false;
-  const active = Boolean(s && !stoppedHere && (s.status === 'working' || pend));
+  const active = Boolean(s && !stoppedHere && (s.status === 'working' || hasInjected));
   const btn = $('stopBtn');
   btn.disabled = !active;
   btn.classList.toggle('active-run', active);
   btn.textContent = '■ STOP';
+
+  // Sync composer send button & placeholder with queue state
+  const sendBtn = $('sendBtn');
+  const inp = $('input');
+  if (s && sendBtn && inp) {
+    const willQueue = s.status === 'working' || s.status === 'blocked' || q.some((x) => x.state === 'queued');
+    const nextLbl = willQueue ? 'QUEUE +' : 'TRANSMIT';
+    if (sendBtn.textContent !== nextLbl) sendBtn.textContent = nextLbl;
+    sendBtn.classList.toggle('cyan', willQueue);
+    sendBtn.classList.toggle('solid', !willQueue);
+    const nextPh = willQueue
+      ? '当前运行中，点击 QUEUE + 自动排入上方候选队列（支持插队 / 调序 / 撤回重编）'
+      : '输入指令后点击右侧 TRANSMIT 发送（Enter 换行，空输入按 Esc 停止）';
+    if (inp.placeholder !== nextPh) inp.placeholder = nextPh;
+  }
   return active;
 }
+
+async function queueAction(sessionKey, payload, { restoreToInput = false } = {}) {
+  if (!sessionKey) return;
+  try {
+    const res = await api(`/api/session/${encodeURIComponent(sessionKey)}/queue`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const target = state.sessions.find((x) => x.key === sessionKey);
+    if (target && Array.isArray(res.pendingQueue)) {
+      target.pendingQueue = res.pendingQueue;
+      target.queuePaused = Boolean(res.queuePaused);
+    }
+    if (restoreToInput && res.removed?.text) {
+      const inp = $('input');
+      inp.value = inp.value.trim() ? `${inp.value.trim()}\n${res.removed.text}` : res.removed.text;
+      inp.style.height = 'auto';
+      inp.style.height = `${Math.min(130, inp.scrollHeight)}px`;
+      inp.focus();
+    }
+    renderSessions();
+    renderQueueTray(selectedSession());
+    syncStopButton(selectedSession());
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+function renderQueueTray(s) {
+  const tray = $('queueTray');
+  if (!tray) return;
+  const items = getEffectiveQueue(s);
+  if (!s || !items.length) {
+    tray.style.display = 'none';
+    return;
+  }
+  tray.style.display = 'flex';
+  const paused = Boolean(s.queuePaused && items.some((x) => x.state === 'queued'));
+  tray.classList.toggle('paused', paused);
+  tray.classList.toggle('collapsed', state.queueCollapsed);
+  const togTxt = state.queueCollapsed ? '+' : '−';
+  if ($('queueToggleBtn').textContent !== togTxt) $('queueToggleBtn').textContent = togTxt;
+
+  const queuedItems = items.filter((x) => x.state === 'queued');
+  const enteringCount = items.length - queuedItems.length;
+  const titleTxt = paused
+    ? `CANDIDATE QUEUE // ${items.length} (PAUSED)`
+    : `CANDIDATE QUEUE // ${items.length} PENDING`;
+  if ($('queueTitle').textContent !== titleTxt) $('queueTitle').textContent = titleTxt;
+
+  const hintTxt = paused
+    ? '因手动 STOP 已暂停自动派发 · 点击 RESUME 恢复或逐条撤回/编辑'
+    : (enteringCount && !queuedItems.length
+      ? '已发往 tmux 终端 · 写入会话记录后自动移出队列'
+      : '尚未进入会话的候选消息按序排列 · 当前回合结束后自动依序送入');
+  if ($('queueHint').textContent !== hintTxt) $('queueHint').textContent = hintTxt;
+
+  $('queueResumeBtn').style.display = paused ? '' : 'none';
+  $('queueFlushBtn').style.display = (!paused && queuedItems.length && s.status !== 'blocked') ? '' : 'none';
+  $('queueClearBtn').style.display = queuedItems.length > 1 ? '' : 'none';
+
+  const listEl = $('queueList');
+  const existing = new Map();
+  listEl.querySelectorAll(':scope > .queue-item').forEach((el) => existing.set(el.dataset.qid, el));
+  const keepIds = new Set(items.map((x) => x.id));
+  for (const [id, el] of existing) if (!keepIds.has(id)) el.remove();
+
+  const firstQueuedId = queuedItems[0]?.id || '';
+  const lastQueuedId = queuedItems.at(-1)?.id || '';
+
+  items.forEach((item, idx) => {
+    let row = existing.get(item.id);
+    if (!row) {
+      row = document.createElement('div');
+      row.dataset.qid = item.id;
+      row.innerHTML = '<div class="q-left"><span class="q-rank"></span><span class="q-chip"></span><span class="q-text"></span><span class="q-age"></span></div><div class="q-actions"></div>';
+      listEl.appendChild(row);
+    } else if (listEl.children[idx] !== row) {
+      listEl.insertBefore(row, listEl.children[idx] || null);
+    }
+    const isEntering = item.state === 'injected';
+    const rowCls = `queue-item${isEntering ? ' entering' : ''}`;
+    if (row.className !== rowCls) row.className = rowCls;
+
+    const rankEl = row.querySelector('.q-rank');
+    const rankTxt = `#${pad2(idx + 1)}`;
+    if (rankEl.textContent !== rankTxt) rankEl.textContent = rankTxt;
+
+    const chipEl = row.querySelector('.q-chip');
+    const chipCls = `q-chip ${isEntering ? 'entering' : (paused ? 'paused' : '')}`.trim();
+    const chipTxt = isEntering ? 'ENTERING · 进会话中' : (paused ? 'PAUSED · 已暂停' : 'QUEUED · 排队待发');
+    if (chipEl.className !== chipCls) chipEl.className = chipCls;
+    if (chipEl.textContent !== chipTxt) chipEl.textContent = chipTxt;
+
+    const textEl = row.querySelector('.q-text');
+    const oneLineTxt = item.text.replace(/\s+/g, ' ');
+    if (textEl.textContent !== oneLineTxt) {
+      textEl.textContent = oneLineTxt;
+      textEl.title = item.text;
+    }
+
+    const ageEl = row.querySelector('.q-age');
+    const refTs = isEntering ? (item.injectedAt || item.createdAt) : item.createdAt;
+    const ageTxt = fmtSec((Date.now() - (refTs || Date.now())) / 1000);
+    if (ageEl.textContent !== ageTxt) ageEl.textContent = ageTxt;
+
+    const actEl = row.querySelector('.q-actions');
+    const isOptimistic = String(item.id).startsWith('opt-');
+    const canMoveUp = !isEntering && !isOptimistic && item.id !== firstQueuedId && queuedItems.length > 1;
+    const canMoveDown = !isEntering && !isOptimistic && item.id !== lastQueuedId && queuedItems.length > 1;
+    const actSig = `${item.state}|${isOptimistic}|${canMoveUp}|${canMoveDown}|${s.status === 'blocked'}`;
+    if (actEl.dataset.sig !== actSig) {
+      actEl.dataset.sig = actSig;
+      if (isOptimistic) {
+        actEl.innerHTML = '<span class="q-age">SYNC…</span>';
+      } else if (isEntering) {
+        actEl.innerHTML = '<button type="button" class="btn xs ghost" data-qact="remove" title="从显示队列隐藏">✕</button>';
+      } else {
+        const injectBtn = s.status !== 'blocked'
+          ? '<button type="button" class="btn xs cyan" data-qact="flush" title="立即注入终端会话（不等当前回合结束）">INJECT ↗</button>'
+          : '';
+        const upBtn = canMoveUp ? '<button type="button" class="btn xs ghost" data-qact="up" title="上移顺位">↑</button>' : '';
+        const dnBtn = canMoveDown ? '<button type="button" class="btn xs ghost" data-qact="down" title="下移顺位">↓</button>' : '';
+        actEl.innerHTML = `${injectBtn}${upBtn}${dnBtn}<button type="button" class="btn xs ghost" data-qact="edit" title="撤回至输入框重新编辑">✎</button><button type="button" class="btn xs danger" data-qact="remove" title="取消并移除该候选消息">✕</button>`;
+      }
+      actEl.querySelectorAll('[data-qact]').forEach((b) => {
+        b.onclick = () => {
+          const act = b.dataset.qact;
+          if (act === 'flush') queueAction(s.key, { action: 'flush', id: item.id });
+          else if (act === 'up' || act === 'down') queueAction(s.key, { action: 'move', id: item.id, dir: act });
+          else if (act === 'edit') queueAction(s.key, { action: 'remove', id: item.id }, { restoreToInput: true });
+          else if (act === 'remove') queueAction(s.key, { action: 'remove', id: item.id });
+        };
+      });
+    }
+  });
+}
+$('queueToggleBtn').onclick = () => { state.queueCollapsed = !state.queueCollapsed; renderQueueTray(selectedSession()); };
+$('queueResumeBtn').onclick = () => { const s = selectedSession(); if (s) queueAction(s.key, { action: 'resume' }); };
+$('queueFlushBtn').onclick = () => { const s = selectedSession(); if (s) queueAction(s.key, { action: 'flush' }); };
+$('queueClearBtn').onclick = () => { const s = selectedSession(); if (s) queueAction(s.key, { action: 'clear' }); };
 
 function paintChat(s, turns, dialog, { forceScroll = false } = {}) {
   const panel = $('panel');
@@ -2322,14 +3118,11 @@ function paintChat(s, turns, dialog, { forceScroll = false } = {}) {
   state.lastTurnCount.set(s.key, turns.length);
   const stoppedTurnLen = state.stoppedKeys.get(s.key);
   if (stoppedTurnLen !== undefined && turns.length > stoppedTurnLen) state.stoppedKeys.delete(s.key);
-  if (state.pendingSend && state.pendingSend.key === s.key) {
-    const matched = turns.slice(-2).some((t) => t.prompt && t.prompt.includes(state.pendingSend.text.slice(0, 24)));
-    if (matched || Date.now() - state.pendingSend.at > 45000) state.pendingSend = null;
-  }
-  const pend = state.pendingSend && state.pendingSend.key === s.key ? state.pendingSend : null;
+  const pend = null;
   if (state.stopNotice && Date.now() - state.stopNotice.at > 4000) state.stopNotice = null;
   const stopNote = state.stopNotice && state.stopNotice.key === s.key ? state.stopNotice : null;
   const isTurnActive = syncStopButton(s);
+  renderQueueTray(s);
 
   const viewId = `chat:${s.key}`;
   const switched = panel.dataset.view !== viewId;
@@ -2671,6 +3464,7 @@ async function renderWorkspace({ forceScroll = false } = {}) {
   $('wsBar').style.display = s ? '' : 'none';
   $('composer').style.display = s ? '' : 'none';
   if (!s) {
+    $('queueTray').style.display = 'none';
     $('modelBar').style.display = 'none';
     $('hlBar').style.display = 'none';
     $('wsWatermark').textContent = 'PRTS';
@@ -2694,9 +3488,11 @@ async function renderWorkspace({ forceScroll = false } = {}) {
   $('taskBadge').textContent = String(count);
   $('taskBadge').style.display = count ? '' : 'none';
   syncStopButton(s);
+  renderQueueTray(s);
   renderModelBar(s);
   if (s.kind === 'agy' && !state.modelCatalog) ensureModelCatalog().then(() => renderModelBar(selectedSession()));
   document.querySelectorAll('#wsSubtabs .subtab').forEach((b) => b.classList.toggle('active', b.dataset.tab === state.tab));
+  syncSubtabGlider($('wsSubtabs'));
 
   // Instant 0ms paint from sessionCache on tab/session switch so UI never blinks waiting for network!
   const cache = getSessionCache(s.key);
@@ -2716,13 +3512,19 @@ async function renderWorkspace({ forceScroll = false } = {}) {
   state.lastWsFetchAt = Date.now();
   try {
     if (tabAtStart === 'chat') {
-      const [{ turns }, screenData] = await Promise.all([
+      const [turnsRes, screenData] = await Promise.all([
         api(`/api/session/${keyEnc}/turns`),
         s.status === 'blocked' ? api(`/api/session/${keyEnc}/screen?lines=30`) : Promise.resolve(null),
       ]);
+      const turns = turnsRes.turns || [];
+      if (Array.isArray(turnsRes.pendingQueue)) {
+        s.pendingQueue = turnsRes.pendingQueue;
+        s.queuePaused = Boolean(turnsRes.queuePaused);
+      }
       cache.turns = turns;
       cache.dialog = screenData?.dialog || null;
       if (seq !== wsRenderSeq || state.tab !== 'chat' || state.selectedKey !== keyAtStart) return;
+      renderSessions();
       paintChat(s, turns, cache.dialog, { forceScroll });
     } else if (tabAtStart === 'tasks') {
       const validSel = state.selectedTaskId && (s.tasks || []).some((t) => t.id === state.selectedTaskId && t.status === 'running');
@@ -2752,11 +3554,13 @@ function renderHeartbeats() {
     wrap.innerHTML = '<div class="empty"><strong>NO HEARTBEAT SCHEDULES</strong>点击右上角 + NEW HEARTBEAT 设定定时任务</div>';
     return;
   }
-  wrap.innerHTML = list.map((hb) => {
+  wrap.innerHTML = list.map((hb, idx) => {
     const sched = hb.scheduleKind === 'cron' ? `CRON: ${hb.cron}` : `EVERY ${hb.everyMinutes}m`;
     const target = hb.targetMode === 'spawn' ? `SPAWN ${hb.agent.toUpperCase()} (${hb.cwd})` : `SESSION: ${hb.targetRef || 'AUTO'}`;
     const stClass = !hb.enabled ? '' : hb.lastStatus === 'error' ? 'st-error' : 'st-working';
-    return `<div class="op-card ${hb.enabled ? 'running' : ''}">
+    const staggerCls = state.viewEntryAnim ? ' ops-stagger-item' : '';
+    const staggerSty = state.viewEntryAnim ? ` style="--card-i:${Math.min(idx, 10)}"` : '';
+    return `<div class="op-card ${hb.enabled ? 'running' : ''}${staggerCls}"${staggerSty}>
       <div class="op-top">
         <span class="op-code">${esc(hb.name)}</span>
         <span class="u-chip ${stClass}">${hb.enabled ? 'ACTIVE' : 'PAUSED'}</span>
@@ -2795,10 +3599,12 @@ function renderGoals() {
     wrap.innerHTML = '<div class="empty"><strong>NO LONG-HORIZON GOALS</strong>点击右上角 + NEW GOAL 设定长期目标与监督会话</div>';
     return;
   }
-  wrap.innerHTML = list.map((g) => {
+  wrap.innerHTML = list.map((g, idx) => {
     const stClass = g.status === 'achieved' ? 'st-working' : g.status === 'blocked' ? 'st-blocked' : g.status === 'active' ? 'st-background' : '';
     const notesHtml = (g.notes || []).slice(0, 3).map((n) => `<div style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:4px">[${fmtTime(n.at)} · ${esc(n.by)}] ${esc(n.text)}</div>`).join('');
-    return `<div class="op-card ${g.status === 'active' ? 'running' : ''}">
+    const staggerCls = state.viewEntryAnim ? ' ops-stagger-item' : '';
+    const staggerSty = state.viewEntryAnim ? ` style="--card-i:${Math.min(idx, 10)}"` : '';
+    return `<div class="op-card ${g.status === 'active' ? 'running' : ''}${staggerCls}"${staggerSty}>
       <div class="op-top">
         <span class="op-code">${esc(g.title)}</span>
         <span class="u-chip ${stClass}">${esc(g.status)}</span>
@@ -2878,17 +3684,19 @@ function renderGpu() {
   const volcLeases = cl.volc?.leases || (g.leases || []).filter((l) => l.cluster === 'volc');
   const gongjiLive = g.gongjiJobs || cl.gongji?.liveJobs || [];
 
+  const kpiCls = state.viewEntryAnim ? 'kpi-box ops-stagger-item' : 'kpi-box';
   $('gpuKpis').innerHTML = `
-    <div class="kpi-box"><div class="kpi-val" style="color:var(--green)">${pad2(sum.localBusy || 0)}/${pad2(sum.localCount || 0)}</div><div class="kpi-lbl">01 本机器 BUSY/TOTAL</div></div>
-    <div class="kpi-box"><div class="kpi-val" style="color:var(--cyan)">${pad2(sum.gongjiOwn || 0)} (${pad2(sum.gongjiTotal || 0)})</div><div class="kpi-lbl">02 共绩集群 OUR (TEAM)</div></div>
-    <div class="kpi-box"><div class="kpi-val" style="color:var(--amber)">${pad2(sum.volcGpus || 0)} GPU</div><div class="kpi-lbl">03 火山集群 (${sum.volcLeases || 0} JOBS)</div></div>
-    <div class="kpi-box"><div class="kpi-val">${pad2(sum.activeLeases || 0)}</div><div class="kpi-lbl">ALL REGISTERED LEASES</div></div>`;
+    <div class="${kpiCls}" style="--card-i:0"><div class="kpi-val" style="color:var(--green)">${pad2(sum.localBusy || 0)}/${pad2(sum.localCount || 0)}</div><div class="kpi-lbl">01 本机器 BUSY/TOTAL</div></div>
+    <div class="${kpiCls}" style="--card-i:1"><div class="kpi-val" style="color:var(--cyan)">${pad2(sum.gongjiOwn || 0)} (${pad2(sum.gongjiTotal || 0)})</div><div class="kpi-lbl">02 共绩集群 OUR (TEAM)</div></div>
+    <div class="${kpiCls}" style="--card-i:2"><div class="kpi-val" style="color:var(--amber)">${pad2(sum.volcGpus || 0)} GPU</div><div class="kpi-lbl">03 火山集群 (${sum.volcLeases || 0} JOBS)</div></div>
+    <div class="${kpiCls}" style="--card-i:3"><div class="kpi-val">${pad2(sum.activeLeases || 0)}</div><div class="kpi-lbl">ALL REGISTERED LEASES</div></div>`;
 
   const f = state.gpuClusterFilter || 'all';
   $('gpuClusterLocal').style.display = (f === 'all' || f === 'local') ? 'flex' : 'none';
   $('gpuClusterGongji').style.display = (f === 'all' || f === 'gongji') ? 'flex' : 'none';
   $('gpuClusterVolc').style.display = (f === 'all' || f === 'volc') ? 'flex' : 'none';
   $('gpuClusterTabs').querySelectorAll('[data-cluster]').forEach((b) => b.classList.toggle('active', b.dataset.cluster === f));
+  syncSubtabGlider($('gpuClusterTabs'));
 
   // 01 // 本机器
   $('gpuLocalMeta').textContent = `${g.hostName || 'LOCAL'} · ${g.localGpus?.length || 0} CARDS · ${localLeases.length} LEASES`;
@@ -2989,11 +3797,17 @@ async function stopSession() {
 
 document.querySelectorAll('#wsSubtabs .subtab').forEach((b) => {
   b.onclick = () => {
-    if (state.tab === b.dataset.tab) return;
-    state.tab = b.dataset.tab;
+    const nextTab = b.dataset.tab;
+    if (state.tab === nextTab) return;
+    const prevTab = state.tab;
+    state.tab = nextTab;
     state.lastChatSig = '';
     document.querySelectorAll('#wsSubtabs .subtab').forEach((x) => x.classList.toggle('active', x === b));
+    syncSubtabGlider($('wsSubtabs'));
     renderWorkspace({ forceScroll: true });
+    const dir = (SUBTAB_ORDER[nextTab] ?? 0) >= (SUBTAB_ORDER[prevTab] ?? 0) ? 'anim-tab-right' : 'anim-tab-left';
+    triggerAnim($('panel'), dir, 240);
+    flashPanelScan();
   };
 });
 $('escBtn').onclick = () => sendKeys(['esc']);
@@ -3078,7 +3892,101 @@ $('customModelForm').onsubmit = async (e) => {
   $('modelDialog').close();
   await applyModelSwitch({ model, effort, label: [model, effort].filter(Boolean).join(' · ') });
 };
-$('killBtn').onclick = async () => { const s = selectedSession(); if (s && confirm(`确认终止 tmux 会话 ${s.name}？`)) await api(`/api/session/${encodeURIComponent(s.key)}/kill`, { method: 'POST' }); };
+function openKillDialog() {
+  const s = selectedSession();
+  if (!s || state.killingKeys.has(s.key)) return;
+  state.killTargetKey = s.key;
+  const fixedId = s.unitId ? `${pad2(s.unitId)} // ` : '';
+  $('killTargetName').textContent = `${fixedId}${s.name}`;
+  $('killTargetKind').textContent = KIND_LABEL[s.kind] || s.kind;
+  $('killTargetKind').className = 'u-chip';
+  $('killTargetStatus').textContent = STATUS_LABEL[s.status] || s.status;
+  $('killTargetStatus').className = `u-chip st-${s.status}`;
+  $('killTargetSub').textContent = [s.cwd, s.title].filter(Boolean).join('  //  ') || `PANE ${s.key}`;
+  const isBusy = s.status === 'working' || (s.runningTasks || 0) > 0;
+  $('killBusyWarn').style.display = isBusy ? '' : 'none';
+  $('killDialog').showModal();
+  setTimeout(() => $('confirmKillBtn')?.focus(), 30);
+}
+
+async function executeKillSession(s) {
+  if (!s || state.killingKeys.has(s.key)) return;
+  const orderedBefore = orderedSessions().filter((x) => !state.killingKeys.has(x.key));
+  const killedIdx = orderedBefore.findIndex((x) => x.key === s.key);
+  const neighbor = orderedBefore[killedIdx + 1] || orderedBefore[killedIdx - 1] || null;
+  const wasSelected = state.selectedKey === s.key;
+
+  state.killingKeys.add(s.key);
+  const card = $('sessionList')?.querySelector(`.unit-card[data-key="${CSS.escape(s.key)}"]`);
+  if (card) {
+    if (window.innerWidth <= 920) card.style.maxWidth = `${card.offsetWidth}px`;
+    else card.style.maxHeight = `${card.offsetHeight}px`;
+    const stEl = card.querySelector('.u-st');
+    if (stEl) stEl.textContent = 'OFFLINE';
+    void card.offsetWidth;
+    card.classList.add('killing');
+  }
+
+  const wsEl = $('workspaceEl');
+  const fxEl = $('killFxOverlay');
+  if (wasSelected && state.mode === 'sessions') {
+    const fixedId = s.unitId ? `${pad2(s.unitId)} // ` : '';
+    $('killFxSub').textContent = `${fixedId}${s.name} · TMUX SESSION TERMINATED`;
+    wsEl?.classList.add('ws-killing');
+    fxEl?.classList.add('active');
+  }
+
+  try {
+    await Promise.all([
+      api(`/api/session/${encodeURIComponent(s.key)}/kill`, { method: 'POST' }),
+      sleepMs(430),
+    ]);
+    state.killingKeys.delete(s.key);
+    state.knownUnitKeys.delete(s.key);
+    state.sessionCache.delete(s.key);
+    state.optimisticQueue.delete(s.key);
+    state.sessions = state.sessions.filter((x) => x.key !== s.key);
+    if (card?.isConnected) card.remove();
+    wsEl?.classList.remove('ws-killing');
+    fxEl?.classList.remove('active');
+
+    if (wasSelected) {
+      const nextSel = neighbor && state.sessions.some((x) => x.key === neighbor.key)
+        ? neighbor.key
+        : (orderedSessions()[0]?.key || null);
+      state.selectedKey = nextSel;
+      state.lastChatSig = '';
+      renderSessions();
+      await renderWorkspace({ forceScroll: true });
+      if (nextSel) {
+        triggerAnim($('panel'), 'anim-unit-up', 250);
+        triggerAnim(document.querySelector('.ws-identity'), 'anim-id', 250);
+        flashPanelScan();
+      }
+    } else {
+      renderSessions();
+    }
+  } catch (err) {
+    state.killingKeys.delete(s.key);
+    if (card) {
+      card.classList.remove('killing');
+      card.style.maxHeight = '';
+      card.style.maxWidth = '';
+    }
+    wsEl?.classList.remove('ws-killing');
+    fxEl?.classList.remove('active');
+    renderSessions();
+    alert(err.message);
+  }
+}
+
+$('killBtn').onclick = () => openKillDialog();
+$('killForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const target = state.sessions.find((x) => x.key === state.killTargetKey) || selectedSession();
+  $('killDialog').close();
+  if (target) await executeKillSession(target);
+};
 $('logoutBtn').onclick = async () => { await fetch('/auth/logout', { method: 'POST' }); location.reload(); };
 
 $('composer').onsubmit = async (e) => {
@@ -3091,19 +3999,43 @@ $('composer').onsubmit = async (e) => {
   state.stoppedKeys.delete(s.key);
   state.stopNotice = null;
   s.stoppedAt = 0;
-  state.pendingSend = { key: s.key, text, at: Date.now() };
-  state.lastChatSig = '';
-  renderWorkspace({ forceScroll: true });
+
+  // Instant 0ms optimistic Candidate Queue entry until server /send responds
+  const optId = `opt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const willWait = s.status === 'working' || s.status === 'blocked' || getEffectiveQueue(s).some((x) => x.state === 'queued');
+  const optList = state.optimisticQueue.get(s.key) || [];
+  optList.push({ id: optId, text, state: willWait ? 'queued' : 'injected', createdAt: Date.now(), injectedAt: willWait ? 0 : Date.now() });
+  state.optimisticQueue.set(s.key, optList);
+
+  renderSessions();
+  renderQueueTray(s);
+  syncStopButton(s);
+
   try {
-    const res = await api(`/api/session/${encodeURIComponent(s.key)}/send`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
-    if (res.blocked) {
-      state.pendingSend = null;
-      alert('目标会话正在等待确认，请先响应对话框或切换至 TTY 按键。');
+    const res = await api(`/api/session/${encodeURIComponent(s.key)}/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    const rem = (state.optimisticQueue.get(s.key) || []).filter((x) => x.id !== optId);
+    if (rem.length) state.optimisticQueue.set(s.key, rem);
+    else state.optimisticQueue.delete(s.key);
+    if (Array.isArray(res.pendingQueue)) {
+      s.pendingQueue = res.pendingQueue;
+      s.queuePaused = Boolean(res.queuePaused);
     }
     state.boostPollUntil = Date.now() + 60000;
-    setTimeout(() => renderWorkspace({ forceScroll: true }), 600);
+    renderSessions();
+    renderQueueTray(selectedSession());
+    syncStopButton(selectedSession());
+    setTimeout(() => renderWorkspace({ forceScroll: true }), 650);
   } catch (err) {
-    state.pendingSend = null;
+    const rem = (state.optimisticQueue.get(s.key) || []).filter((x) => x.id !== optId);
+    if (rem.length) state.optimisticQueue.set(s.key, rem);
+    else state.optimisticQueue.delete(s.key);
+    renderSessions();
+    renderQueueTray(selectedSession());
+    syncStopButton(selectedSession());
     alert(err.message);
   }
 };
@@ -3197,7 +4129,18 @@ $('goalForm').onsubmit = async (e) => {
 
 $('pollGpuBtn').onclick = () => api('/api/gpu/poll', { method: 'POST' });
 $('gpuClusterTabs').querySelectorAll('[data-cluster]').forEach((b) => {
-  b.onclick = () => { state.gpuClusterFilter = b.dataset.cluster; renderGpu(); };
+  b.onclick = () => {
+    const next = b.dataset.cluster;
+    if (state.gpuClusterFilter === next) return;
+    const prev = state.gpuClusterFilter;
+    state.gpuClusterFilter = next;
+    renderGpu();
+    const dir = (CLUSTER_ORDER[next] ?? 0) >= (CLUSTER_ORDER[prev] ?? 0) ? 'anim-tab-right' : 'anim-tab-left';
+    ['gpuClusterLocal', 'gpuClusterGongji', 'gpuClusterVolc'].forEach((id) => {
+      const el = $(id);
+      if (el && el.style.display !== 'none') triggerAnim(el, dir, 230);
+    });
+  };
 });
 $('gpuCluster').onchange = () => {
   const c = $('gpuCluster').value;
@@ -3253,6 +4196,7 @@ function connectSSE() {
     else if (state.mode === 'heartbeat') renderHeartbeats();
     else if (state.mode === 'goals') renderGoals();
     else if (state.mode === 'gpu') renderGpu();
+    noteBootSseReady();
   });
 }
 

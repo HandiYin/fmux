@@ -234,16 +234,201 @@ export function startWebServer({
     }
   }
 
-  const snapshot = async () => ({
-    sessions: await router.api.ls({ stable: true }),
-    status: await router.api.status(),
-    agents: Object.keys(cfg.agents || {}),
-    ops: opsEngine.snapshot(),
-    gpu: gpuRegistry.snapshot(),
-    wallpaperVersion: readWallpaperMeta()?.updatedAt || 0,
-    oidcEnabled,
-    now: Date.now(),
-  });
+  // ---- Per-Session Candidate Message Queue (tracks sent messages until they enter session transcript) ----
+  const queues = new Map(); // session.key -> { items: [], paused: false, flushing: false, nextSeq: 1 }
+
+  function getQueue(key) {
+    let q = queues.get(key);
+    if (!q) {
+      q = { items: [], paused: false, flushing: false, nextSeq: 1 };
+      queues.set(key, q);
+    }
+    return q;
+  }
+
+  function safeFileSize(file) {
+    if (!file) return 0;
+    try { return fs.statSync(file).size; } catch { return 0; }
+  }
+
+  const normPrompt = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+
+  function readUserSegmentsSince(file, kind, minOffset) {
+    const adapter = adapters[kind];
+    if (!file || !adapter) return [];
+    if (file.endsWith('.zstd')) {
+      try {
+        const turns = lastTurns(file, adapter, 512 * 1024);
+        return turns.map((t, idx) => ({ endOffset: idx + 1, normText: normPrompt(t.prompt || '') })).filter((s) => s.normText);
+      } catch {
+        return [];
+      }
+    }
+    let fd = null;
+    try {
+      const size = fs.statSync(file).size;
+      if (size <= minOffset) return [];
+      const start = Math.max(0, minOffset);
+      const len = Math.min(size - start, 1024 * 1024);
+      const buf = Buffer.alloc(len);
+      fd = fs.openSync(file, 'r');
+      const bytesRead = fs.readSync(fd, buf, 0, len, start);
+      if (bytesRead <= 0) return [];
+      const slice = buf.subarray(0, bytesRead);
+      const segs = [];
+      let pos = 0;
+      while (pos < slice.length) {
+        const nl = slice.indexOf(10, pos);
+        if (nl < 0) break; // ignore incomplete trailing line
+        const lineStr = slice.subarray(pos, nl).toString('utf8');
+        const endOffset = start + nl + 1;
+        pos = nl + 1;
+        if (!lineStr.trim()) continue;
+        let parsed;
+        try { parsed = JSON.parse(lineStr); } catch { continue; }
+        const evs = adapter(parsed) || [];
+        for (const ev of evs) {
+          if (ev.type === 'user' && ev.text) {
+            segs.push({ endOffset, normText: normPrompt(ev.text) });
+          }
+        }
+      }
+      return segs;
+    } catch {
+      return [];
+    } finally {
+      if (fd !== null) try { fs.closeSync(fd); } catch {}
+    }
+  }
+
+  function currentTranscriptMarker(session) {
+    if (!session?.transcript) return 0;
+    if (session.transcript.endsWith('.zstd') && adapters[session.kind]) {
+      try { return lastTurns(session.transcript, adapters[session.kind], 512 * 1024).length; } catch { return 0; }
+    }
+    return safeFileSize(session.transcript);
+  }
+
+  function reconcileSessionQueue(session) {
+    if (!session) return false;
+    const q = queues.get(session.key);
+    if (!q || !q.items.length) return false;
+    const injected = q.items.filter((x) => x.state === 'injected');
+    if (!injected.length) return false;
+
+    const removeIds = new Set();
+    const now = Date.now();
+    if (session.kind === 'shell' || !session.transcript || !adapters[session.kind]) {
+      for (const item of injected) {
+        if (now - (item.injectedAt || item.createdAt) >= 1200) removeIds.add(item.id);
+      }
+    } else {
+      const curSize = currentTranscriptMarker(session);
+      for (const item of injected) {
+        if (curSize < (item.baseSize || 0)) item.baseSize = 0;
+      }
+      const minBase = Math.min(...injected.map((x) => x.baseSize || 0));
+      const segs = readUserSegmentsSince(session.transcript, session.kind, minBase);
+      if (segs.length) {
+        const segCursor = new Map();
+        for (const item of injected) {
+          const needle = normPrompt(item.text).slice(0, 80);
+          if (!needle) { removeIds.add(item.id); continue; }
+          for (let si = 0; si < segs.length; si++) {
+            const seg = segs[si];
+            if (seg.endOffset <= (item.baseSize || 0)) continue;
+            const fromIdx = segCursor.get(si) || 0;
+            const hit = seg.normText.indexOf(needle, fromIdx);
+            if (hit >= 0) {
+              segCursor.set(si, hit + needle.length);
+              removeIds.add(item.id);
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    if (!removeIds.size) return false;
+    q.items = q.items.filter((x) => !removeIds.has(x.id));
+    if (!q.items.some((x) => x.state === 'queued')) q.paused = false;
+    return true;
+  }
+
+  function serializeQueue(session) {
+    if (!session) return [];
+    reconcileSessionQueue(session);
+    const q = queues.get(session.key);
+    if (!q || !q.items.length) return [];
+    return q.items.map((x, idx) => ({
+      id: x.id,
+      rank: idx + 1,
+      text: x.text,
+      state: x.state,
+      createdAt: x.createdAt,
+      injectedAt: x.injectedAt || 0,
+    }));
+  }
+
+  async function injectQueueItem(session, item) {
+    const baseSize = currentTranscriptMarker(session);
+    session.stoppedAt = 0;
+    const sent = await router.deliver(session, item.text);
+    if (!sent) return false;
+    item.state = 'injected';
+    item.injectedAt = Date.now();
+    item.baseSize = baseSize;
+    if (session.kind !== 'shell') {
+      session.sentAt = Date.now();
+      router.registry.commit?.(session, 'working');
+    }
+    setTimeout(() => router.registry.poll().then(() => broadcast()).catch(() => {}), 800);
+    setTimeout(() => router.registry.poll().then(() => broadcast()).catch(() => {}), 2200);
+    return true;
+  }
+
+  async function maybeFlushQueue(session) {
+    if (!session) return;
+    reconcileSessionQueue(session);
+    const q = queues.get(session.key);
+    if (!q || !q.items.length || q.paused || q.flushing) return;
+    if (session.status === 'working' || session.status === 'blocked') return;
+    if (session.kind !== 'shell' && q.items.some((x) => x.state === 'injected' && Date.now() - x.injectedAt < 4000)) return;
+    const head = q.items.find((x) => x.state === 'queued');
+    if (!head) return;
+    q.flushing = true;
+    try {
+      const ok = await injectQueueItem(session, head);
+      if (ok) broadcast();
+    } catch (err) {
+      log('warn', 'web.queue_flush', { session: session.name, message: err.message });
+    } finally {
+      q.flushing = false;
+    }
+  }
+
+  const snapshot = async () => {
+    const rawSessions = await router.api.ls({ stable: true });
+    const sessions = rawSessions.map((s) => {
+      const live = router.registry.sessions.get(s.key) || s;
+      const pendingQueue = serializeQueue(live);
+      return {
+        ...s,
+        pendingQueue,
+        queuePaused: Boolean(queues.get(s.key)?.paused && pendingQueue.some((x) => x.state === 'queued')),
+      };
+    });
+    return {
+      sessions,
+      status: await router.api.status(),
+      agents: Object.keys(cfg.agents || {}),
+      ops: opsEngine.snapshot(),
+      gpu: gpuRegistry.snapshot(),
+      wallpaperVersion: readWallpaperMeta()?.updatedAt || 0,
+      oidcEnabled,
+      now: Date.now(),
+    };
+  };
 
   let pushTimer = null;
   const broadcast = () => {
@@ -260,8 +445,26 @@ export function startWebServer({
     pushTimer.unref?.();
   };
 
-  const regEvents = ['added', 'removed', 'status', 'output', 'task_update', 'turn_end', 'changed'];
+  const onRegSessionProgress = (session) => {
+    if (session) {
+      reconcileSessionQueue(session);
+      if (session.status !== 'working' && session.status !== 'blocked') {
+        maybeFlushQueue(session);
+      }
+    }
+    broadcast();
+  };
+  const onRegRemoved = (session) => {
+    if (session?.key) queues.delete(session.key);
+    broadcast();
+  };
+
+  const regEvents = ['added', 'task_update', 'changed'];
   for (const name of regEvents) router.registry.on(name, broadcast);
+  router.registry.on('status', onRegSessionProgress);
+  router.registry.on('output', onRegSessionProgress);
+  router.registry.on('turn_end', onRegSessionProgress);
+  router.registry.on('removed', onRegRemoved);
   opsEngine.on('changed', broadcast);
   gpuRegistry.on('changed', broadcast);
 
@@ -533,7 +736,9 @@ export function startWebServer({
           const turns = session.transcript && adapters[session.kind]
             ? lastTurns(session.transcript, adapters[session.kind], 6 * 1024 * 1024).slice(-60)
             : [];
-          sendJson(res, 200, { key: session.key, name: session.name, kind: session.kind, turns });
+          const pendingQueue = serializeQueue(session);
+          const queuePaused = Boolean(queues.get(session.key)?.paused && pendingQueue.some((x) => x.state === 'queued'));
+          sendJson(res, 200, { key: session.key, name: session.name, kind: session.kind, turns, pendingQueue, queuePaused });
           return;
         }
         if (req.method === 'GET' && action === 'screen') {
@@ -588,21 +793,123 @@ export function startWebServer({
           return;
         }
         if (req.method === 'POST' && action === 'send') {
-          const { text = '' } = await readJsonBody(req);
-          if (!String(text).trim()) return sendJson(res, 400, { error: 'text is empty' });
-          session.stoppedAt = 0;
-          const sent = await router.deliver(session, String(text).trim());
-          if (sent && session.kind !== 'shell') {
-            session.sentAt = Date.now();
-            router.registry.commit?.(session, 'working');
+          const body = await readJsonBody(req);
+          const trimmed = String(body.text || '').trim();
+          const immediate = Boolean(body.immediate);
+          if (!trimmed) return sendJson(res, 400, { error: 'text is empty' });
+          reconcileSessionQueue(session);
+          const q = getQueue(session.key);
+          q.paused = false;
+          const item = {
+            id: `q-${Date.now().toString(36)}-${q.nextSeq++}`,
+            text: trimmed,
+            state: 'queued',
+            createdAt: Date.now(),
+            injectedAt: 0,
+            baseSize: 0,
+          };
+          const hasQueuedAhead = q.items.some((x) => x.state === 'queued')
+            || (session.kind !== 'shell' && q.items.some((x) => x.state === 'injected' && Date.now() - x.injectedAt < 2500));
+          const busyOrBlocked = session.status === 'working' || session.status === 'blocked';
+
+          if (!immediate && (busyOrBlocked || hasQueuedAhead)) {
+            q.items.push(item);
+            broadcast();
+            const pendingQueue = serializeQueue(session);
+            sendJson(res, 200, { ok: true, queued: true, injected: false, item: pendingQueue.find((x) => x.id === item.id) || item, pendingQueue, queuePaused: false });
+            return;
           }
-          setTimeout(() => router.registry.poll().then(() => broadcast()).catch(() => {}), 800);
-          setTimeout(() => router.registry.poll().then(() => broadcast()).catch(() => {}), 2200);
+
+          q.items.push(item);
+          const sent = await injectQueueItem(session, item);
           broadcast();
-          sendJson(res, sent ? 200 : 409, { ok: sent, blocked: !sent });
+          const pendingQueue = serializeQueue(session);
+          sendJson(res, 200, {
+            ok: true,
+            queued: !sent,
+            injected: sent,
+            blocked: !sent && session.status === 'blocked',
+            item: pendingQueue.find((x) => x.id === item.id) || item,
+            pendingQueue,
+            queuePaused: false,
+          });
           return;
         }
+        if (action === 'queue') {
+          const q = getQueue(session.key);
+          if (req.method === 'GET') {
+            const pendingQueue = serializeQueue(session);
+            sendJson(res, 200, { ok: true, pendingQueue, queuePaused: Boolean(q.paused && pendingQueue.some((x) => x.state === 'queued')) });
+            return;
+          }
+          if (req.method === 'POST') {
+            const body = await readJsonBody(req);
+            const op = String(body.action || '').trim();
+            const id = String(body.id || '').trim();
+            reconcileSessionQueue(session);
+
+            if (op === 'remove') {
+              const idx = q.items.findIndex((x) => x.id === id);
+              const removed = idx >= 0 ? q.items.splice(idx, 1)[0] : null;
+              if (!q.items.some((x) => x.state === 'queued')) q.paused = false;
+              broadcast();
+              const pendingQueue = serializeQueue(session);
+              sendJson(res, 200, { ok: true, removed, pendingQueue, queuePaused: Boolean(q.paused) });
+              return;
+            }
+            if (op === 'move') {
+              const dir = body.dir === 'up' ? -1 : 1;
+              const idx = q.items.findIndex((x) => x.id === id && x.state === 'queued');
+              if (idx >= 0) {
+                let swapIdx = idx + dir;
+                while (swapIdx >= 0 && swapIdx < q.items.length && q.items[swapIdx].state !== 'queued') swapIdx += dir;
+                if (swapIdx >= 0 && swapIdx < q.items.length) {
+                  const tmp = q.items[idx];
+                  q.items[idx] = q.items[swapIdx];
+                  q.items[swapIdx] = tmp;
+                }
+              }
+              broadcast();
+              const pendingQueue = serializeQueue(session);
+              sendJson(res, 200, { ok: true, pendingQueue, queuePaused: Boolean(q.paused) });
+              return;
+            }
+            if (op === 'flush') {
+              if (session.status === 'blocked') {
+                return sendJson(res, 409, { error: '当前会话正在等待终端确认，请先响应确认框后再注入' });
+              }
+              q.paused = false;
+              const target = id
+                ? q.items.find((x) => x.id === id && x.state === 'queued')
+                : q.items.find((x) => x.state === 'queued');
+              if (target) await injectQueueItem(session, target);
+              broadcast();
+              const pendingQueue = serializeQueue(session);
+              sendJson(res, 200, { ok: true, pendingQueue, queuePaused: Boolean(q.paused) });
+              return;
+            }
+            if (op === 'resume') {
+              q.paused = false;
+              await maybeFlushQueue(session);
+              broadcast();
+              const pendingQueue = serializeQueue(session);
+              sendJson(res, 200, { ok: true, pendingQueue, queuePaused: false });
+              return;
+            }
+            if (op === 'clear') {
+              q.items = body.all ? [] : q.items.filter((x) => x.state !== 'queued');
+              q.paused = false;
+              broadcast();
+              const pendingQueue = serializeQueue(session);
+              sendJson(res, 200, { ok: true, pendingQueue, queuePaused: false });
+              return;
+            }
+            return sendJson(res, 400, { error: `unknown queue action: ${op}` });
+          }
+        }
         if (req.method === 'POST' && action === 'stop') {
+          const q = queues.get(session.key);
+          if (q?.items.some((x) => x.state === 'queued')) q.paused = true;
           const keys = session.kind === 'shell' ? ['c-c'] : ['esc'];
           await router.tmux.sendKeys(session.key, keys);
           router.registry.markStopped?.(session);
@@ -656,7 +963,9 @@ export function startWebServer({
           return;
         }
         if (req.method === 'POST' && action === 'kill') {
+          queues.delete(session.key);
           await router.tmux.killSession(session.tmuxSession);
+          await router.registry.poll().catch(() => {});
           broadcast();
           sendJson(res, 200, { killed: session.tmuxSession });
           return;
@@ -688,6 +997,10 @@ export function startWebServer({
           if (ownedOps) opsEngine.stop();
           if (ownedGpu) gpuRegistry.stop();
           for (const name of regEvents) router.registry.off(name, broadcast);
+          router.registry.off('status', onRegSessionProgress);
+          router.registry.off('output', onRegSessionProgress);
+          router.registry.off('turn_end', onRegSessionProgress);
+          router.registry.off('removed', onRegRemoved);
           opsEngine.off('changed', broadcast);
           gpuRegistry.off('changed', broadcast);
           for (const client of sseClients) client.end();
