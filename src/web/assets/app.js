@@ -185,33 +185,83 @@ $('chkFade').onchange = () => { state.hl.fade = $('chkFade').checked; LS.set('fm
 $('chkTldr').onchange = () => { state.hl.tldr = $('chkTldr').checked; LS.set('fmux_hl_tldr', state.hl.tldr); syncHlClasses(); applyAllHighlights(); };
 
 
-async function loadHighlightFor(wrap, tries = 0) {
-  if (!wrap.isConnected || wrap.dataset.hlDone || (!state.hl.on && !state.hl.tldr)) return;
-  const raw = wrap.dataset.raw || '';
-  if (raw.length < 40) { wrap.dataset.hlDone = '1'; return; }
-  const cached = state.hl.cache.get(raw);
-  if (cached) { paintHighlightOnto(wrap, cached); return; }
-  const badge = wrap.querySelector('.hl-status');
+// Strictly throttled Highlight Scheduler (max concurrency = 1, latest 6 replies only)
+// so /api/highlight NEVER starves the browser's HTTP/1.1 connection pool during tab switches!
+let hlEpoch = 0;
+let hlRunning = false;
+let hlQueue = [];
+const hlQueuedSet = new WeakSet();
+
+function resetHighlightQueue() {
+  hlEpoch++;
+  hlQueue = [];
+}
+
+async function pumpHighlightQueue(epoch) {
+  if (hlRunning) return;
+  hlRunning = true;
   try {
-    const res = await api('/api/highlight', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: raw }),
-    });
-    if (res.pending) {
-      if (badge && badge.textContent !== '· DEEPSEEK HIGHLIGHTING…') badge.textContent = '· DEEPSEEK HIGHLIGHTING…';
-      if (tries < 25) setTimeout(() => loadHighlightFor(wrap, tries + 1), 2200);
-      else if (badge) badge.textContent = '';
-      return;
+    while (hlQueue.length && epoch === hlEpoch) {
+      const item = hlQueue.shift();
+      if (!item) continue;
+      const { wrap, tries } = item;
+      if (!wrap.isConnected || wrap.dataset.hlDone || (!state.hl.on && !state.hl.tldr)) continue;
+      const raw = wrap.dataset.raw || '';
+      if (raw.length < 40) { wrap.dataset.hlDone = '1'; continue; }
+      const cached = state.hl.cache.get(raw);
+      if (cached) { paintHighlightOnto(wrap, cached); continue; }
+      const badge = wrap.querySelector('.hl-status');
+      try {
+        const res = await api('/api/highlight', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: raw }),
+        });
+        if (epoch !== hlEpoch || !wrap.isConnected) continue;
+        if (res.pending) {
+          if (badge && badge.textContent !== '· DEEPSEEK HIGHLIGHTING…') badge.textContent = '· DEEPSEEK HIGHLIGHTING…';
+          if (tries < 15) {
+            setTimeout(() => {
+              if (epoch === hlEpoch && wrap.isConnected && !wrap.dataset.hlDone) {
+                hlQueue.push({ wrap, tries: tries + 1 });
+                pumpHighlightQueue(epoch);
+              }
+            }, 2400);
+          } else if (badge) {
+            badge.textContent = '';
+          }
+          continue;
+        }
+        state.hl.cache.set(raw, res);
+        paintHighlightOnto(wrap, res);
+      } catch {
+        if (badge) badge.textContent = '';
+      }
     }
-    state.hl.cache.set(raw, res);
-    if (wrap.isConnected) paintHighlightOnto(wrap, res);
-  } catch {
-    if (badge) badge.textContent = '';
+  } finally {
+    hlRunning = false;
   }
 }
 
 function applyAllHighlights() {
   if (!state.hl.on && !state.hl.tldr) return;
-  document.querySelectorAll('.msg-bot-wrap[data-raw]:not([data-hl-done])').forEach((w) => loadHighlightFor(w));
+  const all = [...document.querySelectorAll('.msg-bot-wrap[data-raw]:not([data-hl-done])')];
+  // Paint cached highlights immediately for every visible turn, and only network-fetch the latest 6 (newest first).
+  const uncached = [];
+  for (const w of all) {
+    const raw = w.dataset.raw || '';
+    if (raw.length < 40) { w.dataset.hlDone = '1'; continue; }
+    const cached = state.hl.cache.get(raw);
+    if (cached) paintHighlightOnto(w, cached);
+    else uncached.push(w);
+  }
+  const latest = uncached.slice(-6).reverse();
+  const epoch = hlEpoch;
+  for (const w of latest) {
+    if (!hlQueuedSet.has(w)) {
+      hlQueuedSet.add(w);
+      hlQueue.push({ wrap: w, tries: 0 });
+    }
+  }
+  if (hlQueue.length) pumpHighlightQueue(epoch);
 }
 
 async function api(path, opts) {
@@ -1045,7 +1095,45 @@ async function openModelDialog(forceRefresh = false) {
   });
 }
 
-async function renderWorkspace({ forceScroll = false } = {}) {
+let wsFetchCtrl = null;
+let prefetchTimer = null;
+let prefetchRunning = false;
+
+function scheduleSessionPrefetch() {
+  if (prefetchTimer || prefetchRunning || state.mode !== 'sessions') return;
+  prefetchTimer = setTimeout(async () => {
+    prefetchTimer = null;
+    if (prefetchRunning || state.mode !== 'sessions') return;
+    const candidates = orderedSessions()
+      .filter((x) => x.key !== state.selectedKey && x.kind !== 'shell' && !state.killingKeys.has(x.key))
+      .filter((x) => {
+        const c = getSessionCache(x.key);
+        return !c.turns || (x.transcriptRev && c.rev !== x.transcriptRev);
+      })
+      .slice(0, 6);
+    if (!candidates.length) return;
+    prefetchRunning = true;
+    try {
+      for (const s of candidates) {
+        if (state.mode !== 'sessions' || s.key === state.selectedKey) break;
+        const c = getSessionCache(s.key);
+        const sinceQ = c.rev ? `?since=${encodeURIComponent(c.rev)}` : '';
+        try {
+          const res = await api(`/api/session/${encodeURIComponent(s.key)}/turns${sinceQ}`);
+          if (!res.unchanged && Array.isArray(res.turns)) c.turns = res.turns;
+          if (res.rev) c.rev = res.rev;
+        } catch {
+          // ignore transient background prefetch failures
+        }
+        await sleepMs(120);
+      }
+    } finally {
+      prefetchRunning = false;
+    }
+  }, 350);
+}
+
+async function renderWorkspace({ forceScroll = false, forceFetch = false } = {}) {
   if (state.mode !== 'sessions') return;
   const s = selectedSession();
   $('wsBar').style.display = s ? '' : 'none';
@@ -1081,55 +1169,99 @@ async function renderWorkspace({ forceScroll = false } = {}) {
   document.querySelectorAll('#wsSubtabs .subtab').forEach((b) => b.classList.toggle('active', b.dataset.tab === state.tab));
   syncSubtabGlider($('wsSubtabs'));
 
-  // Instant 0ms paint from sessionCache on tab/session switch so UI never blinks waiting for network!
+  // Instant 0ms paint from sessionCache on tab/session switch; on cache miss, IMMEDIATELY clear stale
+  // previous session view and show a PRTS loading bar so the right pane NEVER stays stuck on the old unit!
   const cache = getSessionCache(s.key);
   const tabAtStart = state.tab;
   const keyAtStart = s.key;
   const panelView = $('panel').dataset.view || '';
-  if (tabAtStart === 'chat' && cache.turns && !panelView.startsWith(`chat:${s.key}`)) {
-    paintChat(s, cache.turns, cache.dialog, { forceScroll });
-  } else if (tabAtStart === 'tasks' && cache.tasksData && !panelView.startsWith(`tasks:${s.key}`)) {
-    paintTasks(s, cache.tasksData);
-  } else if (tabAtStart === 'term' && cache.screenData && panelView !== `term:${s.key}`) {
-    paintTerm(s, cache.screenData, { forceScroll });
+  const targetPrefix = tabAtStart === 'term' ? `term:${s.key}` : `${tabAtStart}:${s.key}`;
+  const isSwitchingView = tabAtStart === 'term' ? panelView !== targetPrefix : !panelView.startsWith(targetPrefix);
+
+  if (isSwitchingView) {
+    resetHighlightQueue();
+    if (tabAtStart === 'chat' && cache.turns) {
+      paintChat(s, cache.turns, cache.dialog, { forceScroll });
+    } else if (tabAtStart === 'tasks' && cache.tasksData) {
+      paintTasks(s, cache.tasksData);
+    } else if (tabAtStart === 'term' && cache.screenData) {
+      paintTerm(s, cache.screenData, { forceScroll });
+    } else {
+      $('hlBar').style.display = tabAtStart === 'chat' ? 'flex' : 'none';
+      $('cornerBg').style.display = 'none';
+      $('panel').dataset.view = `loading:${tabAtStart}:${s.key}`;
+      $('panel').innerHTML = `<div class="ws-loading"><strong>SYNCING TELEMETRY // ${esc(s.name)}</strong><span>LOADING ${tabAtStart === 'chat' ? 'CONVERSATION STREAM' : tabAtStart === 'tasks' ? 'ASYNC OPERATIONS' : 'TERMINAL CAPTURE'}…</span><div class="ws-loading-bar"></div></div>`;
+    }
   }
+
+  // Skip redundant /turns HTTP fetch if transcriptRev is unchanged, turns are cached, and session is not blocked/entering!
+  const hasEntering = getEffectiveQueue(s).some((x) => x.state === 'injected');
+  if (
+    tabAtStart === 'chat'
+    && !forceFetch
+    && !isSwitchingView
+    && cache.turns
+    && s.status !== 'blocked'
+    && !hasEntering
+    && s.transcriptRev
+    && cache.rev === s.transcriptRev
+  ) {
+    paintChat(s, cache.turns, cache.dialog, { forceScroll });
+    scheduleSessionPrefetch();
+    return;
+  }
+
+  // Abort previous in-flight workspace fetch when switching tabs/sessions so stale requests never pile up!
+  if (isSwitchingView && wsFetchCtrl) {
+    try { wsFetchCtrl.abort(); } catch {}
+    wsFetchCtrl = null;
+  }
+  const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+  wsFetchCtrl = ctrl;
+  const fetchOpts = ctrl ? { signal: ctrl.signal } : undefined;
 
   const keyEnc = encodeURIComponent(s.key);
   const seq = ++wsRenderSeq;
   state.lastWsFetchAt = Date.now();
   try {
     if (tabAtStart === 'chat') {
+      const sinceQ = cache.turns && cache.rev ? `?since=${encodeURIComponent(cache.rev)}` : '';
       const [turnsRes, screenData] = await Promise.all([
-        api(`/api/session/${keyEnc}/turns`),
-        s.status === 'blocked' ? api(`/api/session/${keyEnc}/screen?lines=30`) : Promise.resolve(null),
+        api(`/api/session/${keyEnc}/turns${sinceQ}`, fetchOpts),
+        s.status === 'blocked' ? api(`/api/session/${keyEnc}/screen?lines=30`, fetchOpts) : Promise.resolve(null),
       ]);
-      const turns = turnsRes.turns || [];
       if (Array.isArray(turnsRes.pendingQueue)) {
         s.pendingQueue = turnsRes.pendingQueue;
         s.queuePaused = Boolean(turnsRes.queuePaused);
       }
-      cache.turns = turns;
+      if (!turnsRes.unchanged && Array.isArray(turnsRes.turns)) {
+        cache.turns = turnsRes.turns;
+      }
+      if (turnsRes.rev !== undefined) cache.rev = turnsRes.rev;
       cache.dialog = screenData?.dialog || null;
       if (seq !== wsRenderSeq || state.tab !== 'chat' || state.selectedKey !== keyAtStart) return;
       renderSessions();
-      paintChat(s, turns, cache.dialog, { forceScroll });
+      paintChat(s, cache.turns || [], cache.dialog, { forceScroll });
+      scheduleSessionPrefetch();
     } else if (tabAtStart === 'tasks') {
       const validSel = state.selectedTaskId && (s.tasks || []).some((t) => t.id === state.selectedTaskId && t.status === 'running');
       const q = validSel ? `&taskId=${encodeURIComponent(state.selectedTaskId)}` : '';
-      const data = await api(`/api/session/${keyEnc}/tasks?lines=120${q}`);
+      const data = await api(`/api/session/${keyEnc}/tasks?lines=120${q}`, fetchOpts);
       cache.tasksData = data;
       if (seq !== wsRenderSeq || state.tab !== 'tasks' || state.selectedKey !== keyAtStart) return;
       paintTasks(s, data);
     } else {
-      const data = await api(`/api/session/${keyEnc}/screen?lines=100`);
+      const data = await api(`/api/session/${keyEnc}/screen?lines=100`, fetchOpts);
       cache.screenData = data;
       if (seq !== wsRenderSeq || state.tab !== 'term' || state.selectedKey !== keyAtStart) return;
       paintTerm(s, data, { forceScroll });
     }
   } catch (err) {
-    if (seq !== wsRenderSeq) return;
+    if (err?.name === 'AbortError' || seq !== wsRenderSeq) return;
     $('panel').dataset.view = 'error';
     $('panel').innerHTML = `<div class="empty"><strong>TELEMETRY ERROR</strong>${esc(err.message)}</div>`;
+  } finally {
+    if (wsFetchCtrl === ctrl) wsFetchCtrl = null;
   }
 }
 

@@ -749,6 +749,20 @@ section.workspace { display: flex; flex-direction: column; min-width: 0; min-hei
 
 .empty { margin: auto; text-align: center; padding: 36px 20px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.14em; color: var(--muted); }
 .empty strong { display: block; font-size: 15px; color: var(--ink-2); margin-bottom: 6px; }
+.ws-loading {
+  margin: auto; width: min(360px, 86%); padding: 22px 24px;
+  border: 1px solid var(--line-strong); background: var(--bg-elev);
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+  font-family: var(--mono); text-align: center;
+}
+.ws-loading strong { display: block; font-size: 12px; letter-spacing: 0.16em; color: var(--cyan); }
+.ws-loading span { display: block; margin-top: 5px; font-size: 10.5px; letter-spacing: 0.1em; color: var(--muted); }
+.ws-loading-bar { margin-top: 12px; height: 3px; background: var(--bg-rail); overflow: hidden; position: relative; }
+.ws-loading-bar::after {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 42%;
+  background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+  animation: scanbar 0.9s linear infinite;
+}
 
 /* ---- Modals ---- */
 dialog {

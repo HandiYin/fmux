@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import zlib from 'node:zlib';
 import { inferEffortFromModel, listAgyModels } from './agy.mjs';
 import { listTasks, readTaskLog } from './agy-tasks.mjs';
 import { createFeishuOidc, parseCookies } from './feishu-oidc.mjs';
@@ -54,10 +55,32 @@ function readJsonBody(req, maxBytes = 256 * 1024) {
   });
 }
 
-function sendJson(res, status, data) {
-  const body = JSON.stringify(data);
+function sendJson(res, status, data, req = null) {
+  const body = Buffer.from(JSON.stringify(data), 'utf8');
+  const acceptEnc = String(req?.headers?.['accept-encoding'] || '');
+  if (body.length >= 2048 && /\bgzip\b/i.test(acceptEnc)) {
+    const gz = zlib.gzipSync(body, { level: 1 });
+    res.writeHead(status, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Encoding': 'gzip',
+      Vary: 'Accept-Encoding',
+      'Cache-Control': 'no-store',
+    });
+    res.end(gz);
+    return;
+  }
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   res.end(body);
+}
+
+function readTranscriptRev(file) {
+  if (!file) return '';
+  try {
+    const st = fs.statSync(file);
+    return `${st.size}:${Math.trunc(st.mtimeMs)}`;
+  } catch {
+    return '';
+  }
 }
 
 // Lightweight HTTP + SSE server sharing the live Registry, Router, OpsEngine, and GpuRegistry,
@@ -127,6 +150,22 @@ export function startWebServer({
 
   const queueMgr = new SessionQueueManager({ router, broadcast });
 
+  // Metadata-keyed (size + mtimeMs, zero hashing) transcript turns cache so tab switches are <1ms.
+  const turnsCache = new Map(); // file -> { rev, turns }
+  function getCachedTurns(session) {
+    if (!session?.transcript || !adapters[session.kind]) return { rev: '', turns: [] };
+    const file = session.transcript;
+    const rev = readTranscriptRev(file);
+    if (!rev) return { rev: '', turns: [] };
+    const hit = turnsCache.get(file);
+    if (hit && hit.rev === rev) return hit;
+    const turns = lastTurns(file, adapters[session.kind], 6 * 1024 * 1024).slice(-60);
+    const entry = { rev, turns };
+    turnsCache.set(file, entry);
+    if (turnsCache.size > 32) turnsCache.delete(turnsCache.keys().next().value);
+    return entry;
+  }
+
   const snapshot = async () => {
     const rawSessions = await router.api.ls({ stable: true });
     const sessions = rawSessions.map((s) => {
@@ -134,6 +173,7 @@ export function startWebServer({
       const pendingQueue = queueMgr.serialize(live);
       return {
         ...s,
+        transcriptRev: readTranscriptRev(live.transcript),
         pendingQueue,
         queuePaused: queueMgr.isPaused(live),
       };
@@ -242,9 +282,15 @@ export function startWebServer({
       // Whitelisted static UI assets (no secrets/session data; avoids WebView cookie edge cases)
       if (req.method === 'GET' && STATIC_ASSETS.has(url.pathname)) {
         const asset = STATIC_ASSETS.get(url.pathname);
-        const body = fs.readFileSync(asset.file, 'utf8');
-        res.writeHead(200, { 'Content-Type': asset.mime, 'Cache-Control': 'no-cache' });
-        res.end(body);
+        const body = fs.readFileSync(asset.file);
+        const acceptEnc = String(req.headers['accept-encoding'] || '');
+        if (body.length >= 2048 && /\bgzip\b/i.test(acceptEnc)) {
+          res.writeHead(200, { 'Content-Type': asset.mime, 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding', 'Cache-Control': 'no-cache' });
+          res.end(zlib.gzipSync(body, { level: 1 }));
+        } else {
+          res.writeHead(200, { 'Content-Type': asset.mime, 'Cache-Control': 'no-cache' });
+          res.end(body);
+        }
         return;
       }
 
@@ -419,17 +465,22 @@ export function startWebServer({
         if (!session) return sendJson(res, 404, { error: `session not found: ${key}` });
 
         if (req.method === 'GET' && action === 'turns') {
-          const turns = session.transcript && adapters[session.kind]
-            ? lastTurns(session.transcript, adapters[session.kind], 6 * 1024 * 1024).slice(-60)
-            : [];
+          const since = url.searchParams.get('since') || '';
           const pendingQueue = queueMgr.serialize(session);
-          sendJson(res, 200, { key: session.key, name: session.name, kind: session.kind, turns, pendingQueue, queuePaused: queueMgr.isPaused(session) });
+          const queuePaused = queueMgr.isPaused(session);
+          const rev = readTranscriptRev(session.transcript);
+          if (since && rev && since === rev) {
+            sendJson(res, 200, { key: session.key, name: session.name, kind: session.kind, rev, unchanged: true, pendingQueue, queuePaused }, req);
+            return;
+          }
+          const { turns } = getCachedTurns(session);
+          sendJson(res, 200, { key: session.key, name: session.name, kind: session.kind, rev, turns, pendingQueue, queuePaused }, req);
           return;
         }
         if (req.method === 'GET' && action === 'screen') {
           const lines = Math.max(10, Math.min(300, Number(url.searchParams.get('lines') || 80)));
           const screen = await router.tmux.capture(session.key, { history: Math.max(0, lines - 50) });
-          sendJson(res, 200, { key: session.key, screen: screen.split('\n').slice(-lines).join('\n'), dialog: findDialog(screen) });
+          sendJson(res, 200, { key: session.key, screen: screen.split('\n').slice(-lines).join('\n'), dialog: findDialog(screen) }, req);
           return;
         }
         if (req.method === 'GET' && action === 'tasks') {
@@ -444,7 +495,7 @@ export function startWebServer({
             tasks: tasks.map((t) => ({ ...t, hasLog: Boolean(t.logFile) })),
             selectedTaskId: selected?.id || null,
             log: selected ? readTaskLog(selected, { maxLines: lines }) : '',
-          });
+          }, req);
           return;
         }
         if (req.method === 'POST' && action === 'model') {

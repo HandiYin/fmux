@@ -54,11 +54,15 @@ test('Web server enforces token auth, serves UI, APIs, agy task logs, and SSE st
     assert.ok(Array.isArray(state.ops.goals));
     assert.ok(Array.isArray(state.gpu.leases));
 
-    // Turns API returns full untruncated agy turns.
+    // Turns API returns full untruncated agy turns, rev token, and skips payload when ?since=<rev> matches.
     const turns = await (await fetch(`${base}/api/session/%251/turns`, { headers: auth })).json();
     assert.equal(turns.turns.length, 1);
     assert.equal(turns.turns[0].prompt, '检查状态');
     assert.equal(turns.turns[0].texts[0], '一切正常。');
+    assert.ok(turns.rev, 'turns response should include metadata rev');
+    const unchanged = await (await fetch(`${base}/api/session/%251/turns?since=${encodeURIComponent(turns.rev)}`, { headers: auth })).json();
+    assert.equal(unchanged.unchanged, true);
+    assert.equal(unchanged.turns, undefined);
 
     // Tasks API returns running background tasks and live log tail.
     const taskRes = await (await fetch(`${base}/api/session/%251/tasks`, { headers: auth })).json();
