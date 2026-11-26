@@ -103,3 +103,26 @@ test('Feishu OIDC gates access to owner open_id and issues HttpOnly session cook
     await web.close();
   }
 });
+
+test('Feishu OIDC uses request Host for direct multi-interface HTTP access (Tailscale + WireGuard)', async () => {
+  const h = harness({ sessions: [session({ kind: 'agy', name: 'dev' })] });
+  h.cfg.app = { id: 'cli_test_app', tenant: 'feishu', secret: null };
+  h.cfg.owner = { openId: 'ou_owner_001', chatId: 'oc_owner' };
+  h.cfg.highlight = { enabled: false };
+  h.cfg.web = {
+    enabled: true,
+    host: '127.0.0.1',
+    port: 0,
+    publicUrl: 'http://172.16.60.45:18790',
+    oidc: { enabled: true },
+  };
+  const web = await startWebServer({ router: h.router, cfg: h.cfg, getAppSecret: async () => 'sec' });
+  const base = `http://127.0.0.1:${web.port}`;
+  try {
+    const r = await fetch(`${base}/auth/login`, { redirect: 'manual' });
+    const loc = new URL(r.headers.get('location'));
+    assert.equal(loc.searchParams.get('redirect_uri'), `http://127.0.0.1:${web.port}/auth/callback`);
+  } finally {
+    await web.close();
+  }
+});

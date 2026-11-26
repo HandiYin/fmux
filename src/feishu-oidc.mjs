@@ -65,7 +65,12 @@ export function createFeishuOidc({
 
   function resolveRedirectUri(req) {
     if (redirectUri) return redirectUri;
-    if (publicUrl) return `${publicUrl.replace(/\/+$/, '')}/auth/callback`;
+    // When behind an HTTPS reverse proxy (publicUrl=https://...), always use publicUrl.
+    // For direct HTTP access across multiple interfaces (Tailscale + WireGuard + localhost),
+    // derive the callback from the request Host so the state cookie matches the callback host.
+    if (publicUrl && (String(publicUrl).startsWith('https://') || !req.headers.host)) {
+      return `${publicUrl.replace(/\/+$/, '')}/auth/callback`;
+    }
     const proto = isSecureRequest(req, publicUrl) ? 'https' : 'http';
     const host = req.headers['x-forwarded-host'] || req.headers.host || '127.0.0.1';
     return `${proto}://${host}/auth/callback`;
