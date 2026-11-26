@@ -943,7 +943,7 @@
 </dialog>
 
 <script>
-const STATUS_LABEL = { working: 'ACTIVE', background: 'BG-OPS', blocked: 'WAIT-OP', idle: 'STANDBY', shell: 'SHELL' };
+const STATUS_LABEL = { working: 'RUNNING', background: 'ASYNC', blocked: 'CONFIRM', idle: 'READY', shell: 'SHELL' };
 const KIND_LABEL = { agy: 'AGY', dsh: 'DSH', claude: 'CLAUDE', codex: 'CODEX', pi: 'PI', shell: 'SHELL' };
 const LS = {
   get: (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
