@@ -12,7 +12,7 @@ It runs on Linux and macOS, and on Windows with psmux or inside WSL.
 
 ### Highlights
 - **WebMUX Browser & Mobile Console** (`01 // SESSIONS`, `02 // HEARTBEAT`, `03 // GOALS`, `04 // GPU`):
-  - Direct real-time tmux streaming with **Thinking blocks**, **Tool Call traces**, delivery ACK, **LaTeX math** (KaTeX + offline fallback), **DeepSeek API semantic highlights** (`✓ RESULT`, `! PROBLEM`, `→ ACTION`, `# FACT`) & TL;DR, top-right **Async background-task HUD**, **Day/Night mode**, **custom frosted-grid wallpaper**, and mobile Chrome / Feishu responsive UI.
+  - Direct real-time tmux streaming with **Thinking blocks**, **Tool Call traces**, delivery ACK, **full GFM Markdown (tables, task lists, nested lists, blockquotes, links)**, **LaTeX math** (KaTeX + offline fallback), **DeepSeek API semantic highlights** (`✓ RESULT`, `! PROBLEM`, `→ ACTION`, `# FACT`) & TL;DR, top-right **Async background-task HUD**, **Day/Night mode**, **custom frosted-grid wallpaper with interactive crop box**, and mobile Chrome / Feishu responsive UI.
   - Built-in **Feishu OIDC** owner-only authentication (supports Tailscale/WireGuard direct multi-interface HTTP and Cloudflare Tunnel / Nginx HTTPS).
   - Native **Heartbeat** scheduled tasks (interval & 5-field cron), **Long-Horizon Goals** with designated supervisor check-ins, and **3-Cluster GPU Register** (`local` nvidia-smi + `gongji` live sync + `volc` leases).
 - **Feishu Bot Integration**:

@@ -165,8 +165,9 @@
   html[data-theme="day"].has-wallpaper .ws-header, html[data-theme="day"].has-wallpaper .composer { background: rgba(250, 252, 255, 0.76); }
   html[data-theme="day"].has-wallpaper .hl-bar { background: rgba(235, 240, 247, 0.74); }
   html[data-theme="day"].has-wallpaper .msg-bot-wrap, html[data-theme="day"].has-wallpaper .op-card, html[data-theme="day"].has-wallpaper .kpi-box { background: rgba(255, 255, 255, 0.8); }
+  .wp-dialog { width: min(600px, 94vw); max-height: 92vh; overflow-y: auto; }
   .wp-preview {
-    width: 100%; height: 140px; border: 1px solid var(--line-strong); margin-bottom: 12px;
+    width: 100%; height: 150px; border: 1px solid var(--line-strong); margin-bottom: 12px;
     background: var(--bg-rail) center/cover no-repeat; position: relative; overflow: hidden;
     display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 11px; color: var(--muted);
   }
@@ -174,6 +175,68 @@
     content: ""; position: absolute; inset: 0; pointer-events: none;
     background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
     background-size: 24px 24px;
+  }
+  .wp-crop-pane { display: none; margin-bottom: 14px; }
+  .wp-crop-pane.open { display: block; }
+  .wp-crop-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+  .wp-ratio-group { display: flex; flex-wrap: wrap; gap: 4px; }
+  .wp-ratio-btn {
+    border: 1px solid var(--line-strong); background: var(--bg-rail); color: var(--muted);
+    font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+    padding: 4px 8px; cursor: pointer;
+  }
+  .wp-ratio-btn:hover { color: var(--ink); border-color: var(--ink); }
+  .wp-ratio-btn.active { border-color: var(--cyan); color: var(--cyan); background: var(--cyan-dim); }
+  .wp-crop-dims { font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; color: var(--cyan); }
+  .wp-crop-stage {
+    width: 100%; min-height: 180px; max-height: 320px; padding: 10px;
+    background: repeating-conic-gradient(rgba(127,127,127,0.12) 0% 25%, transparent 0% 50%) 50% / 16px 16px, var(--bg-rail);
+    border: 1px solid var(--line-strong);
+    display: flex; align-items: center; justify-content: center; overflow: hidden; user-select: none;
+  }
+  .wp-crop-frame {
+    position: relative; display: inline-block; line-height: 0; overflow: hidden;
+    touch-action: none; max-width: 100%;
+  }
+  .wp-crop-frame img {
+    display: block; max-width: 100%; max-height: 296px; width: auto; height: auto;
+    pointer-events: none; user-select: none; -webkit-user-drag: none;
+  }
+  .wp-crop-box {
+    position: absolute; border: 1.5px solid var(--cyan);
+    box-shadow: 0 0 0 9999px rgba(6, 9, 14, 0.66);
+    cursor: move; touch-action: none;
+  }
+  .wp-crop-box::before, .wp-crop-box::after {
+    content: ""; position: absolute; pointer-events: none;
+  }
+  .wp-crop-box::before {
+    inset: 33.33% 0; border-top: 1px dashed rgba(34, 187, 255, 0.45); border-bottom: 1px dashed rgba(34, 187, 255, 0.45);
+  }
+  .wp-crop-box::after {
+    inset: 0 33.33%; border-left: 1px dashed rgba(34, 187, 255, 0.45); border-right: 1px dashed rgba(34, 187, 255, 0.45);
+  }
+  .wp-handle {
+    position: absolute; width: 16px; height: 16px; z-index: 3; touch-action: none;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .wp-handle::after {
+    content: ""; width: 8px; height: 8px; background: var(--cyan); border: 1px solid #0b0d11;
+    box-shadow: 0 0 6px rgba(34, 187, 255, 0.7);
+  }
+  .wp-handle.nw { top: -8px; left: -8px; cursor: nwse-resize; }
+  .wp-handle.ne { top: -8px; right: -8px; cursor: nesw-resize; }
+  .wp-handle.sw { bottom: -8px; left: -8px; cursor: nesw-resize; }
+  .wp-handle.se { bottom: -8px; right: -8px; cursor: nwse-resize; }
+  .wp-handle.n { top: -8px; left: calc(50% - 8px); cursor: ns-resize; }
+  .wp-handle.s { bottom: -8px; left: calc(50% - 8px); cursor: ns-resize; }
+  .wp-handle.w { left: -8px; top: calc(50% - 8px); cursor: ew-resize; }
+  .wp-handle.e { right: -8px; top: calc(50% - 8px); cursor: ew-resize; }
+  .wp-crop-hint {
+    margin: 7px 0 10px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; color: var(--muted);
   }
 
   /* ---- Top Micro Telemetry Rail ---- */
@@ -472,14 +535,50 @@
   .msg-bot-body { padding: 14px 18px; font-size: 14px; line-height: 1.72; color: var(--ink); word-break: break-word; }
   .msg-bot-body p { margin: 0 0 10px; }
   .msg-bot-body p:last-child { margin-bottom: 0; }
-  .msg-bot-body h1, .msg-bot-body h2, .msg-bot-body h3, .msg-bot-body h4 { margin: 14px 0 8px; font-weight: 700; color: var(--ink); }
-  .msg-bot-body h1 { font-size: 17px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
-  .msg-bot-body h2 { font-size: 15.5px; }
+  .msg-bot-body h1, .msg-bot-body h2, .msg-bot-body h3, .msg-bot-body h4, .msg-bot-body h5, .msg-bot-body h6 { margin: 14px 0 8px; font-weight: 700; color: var(--ink); line-height: 1.35; }
+  .msg-bot-body h1 { font-size: 17px; border-bottom: 1px solid var(--line-strong); padding-bottom: 4px; }
+  .msg-bot-body h2 { font-size: 15.5px; border-bottom: 1px dashed var(--line); padding-bottom: 3px; }
   .msg-bot-body h3 { font-size: 14.5px; color: var(--cyan); }
+  .msg-bot-body h4, .msg-bot-body h5, .msg-bot-body h6 { font-size: 13.5px; color: var(--ink-2); }
   .msg-bot-body ul, .msg-bot-body ol { margin: 6px 0 10px; padding-left: 22px; }
+  .msg-bot-body ul ul, .msg-bot-body ul ol, .msg-bot-body ol ul, .msg-bot-body ol ol { margin: 3px 0 4px; }
   .msg-bot-body li { margin: 3px 0; }
-  .msg-bot-body blockquote { margin: 8px 0; padding: 6px 12px; border-left: 2px solid var(--amber); background: var(--amber-dim); color: var(--ink-2); }
+  .msg-bot-body li.md-task { list-style: none; margin-left: -18px; }
+  .msg-bot-body .md-chk {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 14px; height: 14px; margin-right: 6px; vertical-align: -2px;
+    font-family: var(--mono); font-size: 10px; font-weight: 800;
+    border: 1px solid var(--line-strong); background: var(--bg-rail); color: var(--muted);
+  }
+  .msg-bot-body .md-chk.done { border-color: var(--cyan); background: var(--cyan-dim); color: var(--cyan); }
+  .msg-bot-body blockquote { margin: 8px 0; padding: 7px 13px; border-left: 2px solid var(--amber); background: var(--amber-dim); color: var(--ink-2); }
+  .msg-bot-body blockquote p { margin: 0 0 6px; }
+  .msg-bot-body blockquote p:last-child { margin-bottom: 0; }
+  .msg-bot-body hr.md-hr { border: 0; height: 1px; margin: 14px 0; background: linear-gradient(90deg, var(--cyan), var(--line-strong) 45%, transparent); }
+  .msg-bot-body a.md-link { color: var(--cyan); text-decoration: none; border-bottom: 1px dashed var(--cyan); }
+  .msg-bot-body a.md-link:hover { border-bottom-style: solid; }
+  .msg-bot-body img.md-img { max-width: 100%; height: auto; border: 1px solid var(--line-strong); margin: 8px 0; display: block; }
+  .msg-bot-body del { color: var(--muted); text-decoration: line-through; }
   .msg-bot-body code.inline { font-family: var(--mono); font-size: 12.5px; padding: 1px 6px; background: var(--inline-code-bg); border: 1px solid var(--line); color: var(--inline-code-fg); overflow-wrap: anywhere; }
+  .md-table-wrap {
+    margin: 10px 0; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch;
+    border: 1px solid var(--line-strong); background: var(--bg-rail);
+  }
+  .md-table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.5; }
+  .md-table th, .md-table td {
+    padding: 8px 12px; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line);
+    vertical-align: top; word-break: normal; overflow-wrap: break-word;
+  }
+  .md-table th:last-child, .md-table td:last-child { border-right: 0; }
+  .md-table tbody tr:last-child td { border-bottom: 0; }
+  .md-table thead th {
+    background: var(--panel-2); color: var(--ink); font-weight: 700;
+    border-bottom: 2px solid var(--cyan); white-space: nowrap;
+  }
+  .md-table tbody tr:nth-child(even) { background: rgba(127, 140, 160, 0.05); }
+  .md-table tbody tr:hover { background: var(--cyan-dim); }
+  .md-table code.inline { white-space: nowrap; }
+  .hl-fade .msg-bot-body.has-hl .md-table-wrap { color: var(--ink); }
 
   .msg-bot-body mark { color: inherit; background: none; padding: 1px 4px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
   .hk-result { color: var(--hk-res-fg) !important; background: var(--hk-res-bg) !important; }
@@ -1033,22 +1132,64 @@
   </form>
 </dialog>
 
-<!-- Modal: Wallpaper Settings -->
-<dialog id="wpDialog">
+<!-- Modal: Wallpaper Settings & Cropper -->
+<dialog id="wpDialog" class="wp-dialog">
   <div class="modal-stripe"></div>
   <div class="modal-body">
-    <div style="font-family:var(--mono);font-size:10px;letter-spacing:0.2em;color:var(--cyan);margin-bottom:4px">PRTS // BACKDROP WALLPAPER</div>
+    <div style="font-family:var(--mono);font-size:10px;letter-spacing:0.2em;color:var(--cyan);margin-bottom:4px">PRTS // BACKDROP WALLPAPER &amp; CROP</div>
     <h3 style="margin:0 0 12px;font-size:17px">磨砂网格背景壁纸</h3>
-    <div id="wpPreview" class="wp-preview">DEFAULT TACTICAL GRID</div>
     <input id="wpFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none" />
-    <div style="display:flex;gap:8px;margin-bottom:14px">
-      <button id="wpUploadBtn" type="button" class="btn solid" style="flex:1;justify-content:center">UPLOAD IMAGE</button>
-      <button id="wpResetBtn" type="button" class="btn danger">RESET DEFAULT</button>
+
+    <!-- Normal Preview Mode -->
+    <div id="wpNormalPane">
+      <div id="wpPreview" class="wp-preview">DEFAULT TACTICAL GRID</div>
+      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+        <button id="wpUploadBtn" type="button" class="btn solid" style="flex:1;justify-content:center">SELECT IMAGE</button>
+        <button id="wpRecropBtn" type="button" class="btn cyan" style="display:none">CROP CURRENT</button>
+        <button id="wpResetBtn" type="button" class="btn danger">RESET DEFAULT</button>
+      </div>
     </div>
-    <label class="field">WALLPAPER OPACITY (<span id="wpOpVal">45</span>%)
+
+    <!-- Interactive Crop Mode -->
+    <div id="wpCropPane" class="wp-crop-pane">
+      <div class="wp-crop-bar">
+        <div id="wpRatioGroup" class="wp-ratio-group">
+          <button type="button" class="wp-ratio-btn active" data-ratio="screen">SCREEN</button>
+          <button type="button" class="wp-ratio-btn" data-ratio="16:9">16:9</button>
+          <button type="button" class="wp-ratio-btn" data-ratio="16:10">16:10</button>
+          <button type="button" class="wp-ratio-btn" data-ratio="4:3">4:3</button>
+          <button type="button" class="wp-ratio-btn" data-ratio="9:16">9:16</button>
+          <button type="button" class="wp-ratio-btn" data-ratio="free">FREE</button>
+          <button type="button" class="wp-ratio-btn" data-ratio="full">FULL</button>
+        </div>
+        <span id="wpCropDims" class="wp-crop-dims">0 × 0</span>
+      </div>
+      <div class="wp-crop-stage">
+        <div id="wpCropFrame" class="wp-crop-frame">
+          <img id="wpCropImg" alt="Crop source" />
+          <div id="wpCropBox" class="wp-crop-box" data-handle="move">
+            <div class="wp-handle nw" data-handle="nw"></div>
+            <div class="wp-handle n" data-handle="n"></div>
+            <div class="wp-handle ne" data-handle="ne"></div>
+            <div class="wp-handle e" data-handle="e"></div>
+            <div class="wp-handle se" data-handle="se"></div>
+            <div class="wp-handle s" data-handle="s"></div>
+            <div class="wp-handle sw" data-handle="sw"></div>
+            <div class="wp-handle w" data-handle="w"></div>
+          </div>
+        </div>
+      </div>
+      <div class="wp-crop-hint">拖拽框内移动截取区 · 拖拽四角或边缘缩放框区 · 默认按当前屏幕比例裁切</div>
+      <div style="display:flex;gap:8px">
+        <button id="wpCropCancel" type="button" class="btn ghost">CANCEL</button>
+        <button id="wpCropApply" type="button" class="btn solid" style="flex:1;justify-content:center">APPLY CROP &amp; SAVE</button>
+      </div>
+    </div>
+
+    <label class="field"><span>WALLPAPER OPACITY (<span id="wpOpVal">45</span>%)</span>
       <input id="wpOpRange" type="range" min="10" max="90" step="5" value="45" style="padding:0" />
     </label>
-    <label class="field">FROSTED BLUR (<span id="wpBlurVal">6</span>px)
+    <label class="field"><span>FROSTED BLUR (<span id="wpBlurVal">6</span>px)</span>
       <input id="wpBlurRange" type="range" min="0" max="20" step="1" value="6" style="padding:0" />
     </label>
     <div style="display:flex;justify-content:flex-end;margin-top:12px">
@@ -1107,7 +1248,209 @@ function applyTheme(mode) {
 applyTheme(state.theme);
 $('themeBtn').onclick = () => applyTheme(state.theme === 'day' ? 'night' : 'day');
 
-// ---- Optional Wallpaper Behind Frosted Grid ----
+// ---- Optional Wallpaper Behind Frosted Grid (+ Interactive Cropper) ----
+const wpCrop = {
+  open: false,
+  srcDataUrl: '',
+  mime: '',
+  natW: 0,
+  natH: 0,
+  ratioMode: 'screen',
+  rect: { x: 0, y: 0, w: 1, h: 1 }, // normalized [0..1]
+  drag: null,
+};
+
+function getTargetAspect(mode) {
+  if (mode === 'screen') return Math.max(0.35, Math.min(3.5, window.innerWidth / Math.max(1, window.innerHeight)));
+  if (mode === '16:9') return 16 / 9;
+  if (mode === '16:10') return 16 / 10;
+  if (mode === '4:3') return 4 / 3;
+  if (mode === '9:16') return 9 / 16;
+  return null; // free / full
+}
+
+function fitCropRect(aspect, cx = 0.5, cy = 0.5) {
+  if (!aspect || !wpCrop.natW || !wpCrop.natH) return { x: 0, y: 0, w: 1, h: 1 };
+  const imgAspect = wpCrop.natW / wpCrop.natH;
+  let w, h;
+  if (aspect >= imgAspect) {
+    w = 1;
+    h = imgAspect / aspect;
+  } else {
+    h = 1;
+    w = aspect / imgAspect;
+  }
+  const x = Math.max(0, Math.min(1 - w, cx - w / 2));
+  const y = Math.max(0, Math.min(1 - h, cy - h / 2));
+  return { x, y, w, h };
+}
+
+function renderCropBox() {
+  const box = $('wpCropBox');
+  const { x, y, w, h } = wpCrop.rect;
+  box.style.left = `${(x * 100).toFixed(4)}%`;
+  box.style.top = `${(y * 100).toFixed(4)}%`;
+  box.style.width = `${(w * 100).toFixed(4)}%`;
+  box.style.height = `${(h * 100).toFixed(4)}%`;
+  const pw = Math.max(1, Math.round(w * wpCrop.natW));
+  const ph = Math.max(1, Math.round(h * wpCrop.natH));
+  $('wpCropDims').textContent = `${pw} × ${ph} px`;
+}
+
+function setCropRatio(mode) {
+  wpCrop.ratioMode = mode;
+  document.querySelectorAll('#wpRatioGroup .wp-ratio-btn').forEach((b) => {
+    b.classList.toggle('active', b.dataset.ratio === mode);
+  });
+  if (mode === 'full') {
+    wpCrop.rect = { x: 0, y: 0, w: 1, h: 1 };
+  } else if (mode !== 'free') {
+    const cx = wpCrop.rect.x + wpCrop.rect.w / 2;
+    const cy = wpCrop.rect.y + wpCrop.rect.h / 2;
+    wpCrop.rect = fitCropRect(getTargetAspect(mode), cx, cy);
+  }
+  renderCropBox();
+}
+
+function closeCropMode() {
+  wpCrop.open = false;
+  wpCrop.drag = null;
+  $('wpCropPane').classList.remove('open');
+  $('wpNormalPane').style.display = '';
+}
+
+function openCropMode(srcUrl, mime = '') {
+  const img = $('wpCropImg');
+  img.onload = () => {
+    wpCrop.natW = img.naturalWidth || 1;
+    wpCrop.natH = img.naturalHeight || 1;
+    wpCrop.srcDataUrl = srcUrl;
+    wpCrop.mime = mime;
+    wpCrop.open = true;
+    $('wpNormalPane').style.display = 'none';
+    $('wpCropPane').classList.add('open');
+    setCropRatio('screen');
+  };
+  img.onerror = () => alert('加载图片失败');
+  img.src = srcUrl;
+}
+
+$('wpRatioGroup').onclick = (e) => {
+  const btn = e.target.closest('.wp-ratio-btn');
+  if (!btn) return;
+  setCropRatio(btn.dataset.ratio);
+};
+
+$('wpCropBox').addEventListener('pointerdown', (e) => {
+  const handle = e.target.closest('[data-handle]')?.dataset.handle || 'move';
+  const frameRect = $('wpCropFrame').getBoundingClientRect();
+  if (!frameRect.width || !frameRect.height) return;
+  e.preventDefault();
+  wpCrop.drag = {
+    handle,
+    pointerId: e.pointerId,
+    startX: e.clientX,
+    startY: e.clientY,
+    frameW: frameRect.width,
+    frameH: frameRect.height,
+    orig: { ...wpCrop.rect },
+  };
+  try { $('wpCropBox').setPointerCapture(e.pointerId); } catch {}
+});
+
+$('wpCropBox').addEventListener('pointermove', (e) => {
+  const d = wpCrop.drag;
+  if (!d) return;
+  const dx = (e.clientX - d.startX) / d.frameW;
+  const dy = (e.clientY - d.startY) / d.frameH;
+  const o = d.orig;
+  const minW = Math.min(0.25, Math.max(0.06, 36 / d.frameW));
+  const minH = Math.min(0.25, Math.max(0.06, 36 / d.frameH));
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+  if (d.handle === 'move') {
+    wpCrop.rect = {
+      x: clamp(o.x + dx, 0, 1 - o.w),
+      y: clamp(o.y + dy, 0, 1 - o.h),
+      w: o.w,
+      h: o.h,
+    };
+    renderCropBox();
+    return;
+  }
+
+  let l = o.x, t = o.y, r = o.x + o.w, b = o.y + o.h;
+  const hasW = d.handle.includes('w'), hasE = d.handle.includes('e');
+  const hasN = d.handle.includes('n'), hasS = d.handle.includes('s');
+  if (hasW) l = clamp(o.x + dx, 0, r - minW);
+  if (hasE) r = clamp(o.x + o.w + dx, l + minW, 1);
+  if (hasN) t = clamp(o.y + dy, 0, b - minH);
+  if (hasS) b = clamp(o.y + o.h + dy, t + minH, 1);
+
+  const aspect = getTargetAspect(wpCrop.ratioMode);
+  if (aspect && wpCrop.natW && wpCrop.natH) {
+    // Normalized height/width ratio k = (natW / natH) / aspect
+    const k = (wpCrop.natW / wpCrop.natH) / aspect;
+    let w = r - l, h = b - t;
+    if ((hasN || hasS) && !(hasW || hasE)) {
+      w = h / k;
+      const cx = (o.x + o.x + o.w) / 2;
+      const maxW = Math.min(1, 2 * Math.min(cx, 1 - cx));
+      if (w > maxW) { w = maxW; h = w * k; }
+      if (w < minW) { w = minW; h = w * k; }
+      l = clamp(cx - w / 2, 0, 1 - w);
+      r = l + w;
+      if (hasN) t = Math.max(0, b - h); else b = Math.min(1, t + h);
+    } else {
+      // Corner or horizontal edge: drive from width (or vertical delta if larger on corner)
+      if ((hasN || hasS) && Math.abs(dy) * d.frameH > Math.abs(dx) * d.frameW) {
+        w = h / k;
+      } else {
+        h = w * k;
+      }
+      if ((hasW || hasE) && !(hasN || hasS)) {
+        const cy = (o.y + o.y + o.h) / 2;
+        const maxH = Math.min(1, 2 * Math.min(cy, 1 - cy));
+        if (h > maxH) { h = maxH; w = h / k; }
+        if (h < minH) { h = minH; w = h / k; }
+        t = clamp(cy - h / 2, 0, 1 - h);
+        b = t + h;
+        if (hasW) l = Math.max(0, r - w); else r = Math.min(1, l + w);
+      } else {
+        const maxW = hasW ? r : (1 - l);
+        const maxH = hasN ? b : (1 - t);
+        if (w > maxW) { w = maxW; h = w * k; }
+        if (h > maxH) { h = maxH; w = h / k; }
+        if (w < minW) { w = minW; h = w * k; }
+        if (h < minH) { h = minH; w = h / k; }
+        if (hasW) l = r - w; else r = l + w;
+        if (hasN) t = b - h; else b = t + h;
+      }
+    }
+  } else if (wpCrop.ratioMode === 'full') {
+    wpCrop.ratioMode = 'free';
+    document.querySelectorAll('#wpRatioGroup .wp-ratio-btn').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.ratio === 'free');
+    });
+  }
+
+  wpCrop.rect = {
+    x: clamp(l, 0, 1 - minW),
+    y: clamp(t, 0, 1 - minH),
+    w: clamp(r - l, minW, 1),
+    h: clamp(b - t, minH, 1),
+  };
+  renderCropBox();
+});
+
+const endCropDrag = (e) => {
+  if (!wpCrop.drag) return;
+  try { $('wpCropBox').releasePointerCapture(wpCrop.drag.pointerId); } catch {}
+  wpCrop.drag = null;
+};
+$('wpCropBox').addEventListener('pointerup', endCropDrag);
+$('wpCropBox').addEventListener('pointercancel', endCropDrag);
+
 function applyWallpaper(version = state.wp.version) {
   state.wp.version = Number(version) || 0;
   const has = state.wp.version > 0;
@@ -1122,20 +1465,24 @@ function applyWallpaper(version = state.wp.version) {
   $('wpOpVal').textContent = String(state.wp.opacity);
   $('wpBlurRange').value = String(state.wp.blur);
   $('wpBlurVal').textContent = String(state.wp.blur);
+  $('wpRecropBtn').style.display = has ? '' : 'none';
   const pv = $('wpPreview');
   pv.style.backgroundImage = url;
   pv.textContent = has ? '' : 'DEFAULT TACTICAL GRID';
 }
 applyWallpaper(0);
-$('wpBtn').onclick = () => { applyWallpaper(); $('wpDialog').showModal(); };
+$('wpBtn').onclick = () => { closeCropMode(); applyWallpaper(); $('wpDialog').showModal(); };
 $('wpUploadBtn').onclick = () => $('wpFile').click();
+$('wpCropCancel').onclick = () => closeCropMode();
+$('wpRecropBtn').onclick = () => {
+  if (!state.wp.version) return;
+  openCropMode(`/api/wallpaper?v=${state.wp.version}`, '');
+};
 $('wpFile').onchange = async () => {
   const file = $('wpFile').files?.[0];
   $('wpFile').value = '';
   if (!file) return;
-  if (file.size > 12 * 1024 * 1024) return alert('图片不能超过 12 MB');
-  $('wpUploadBtn').disabled = true;
-  $('wpUploadBtn').textContent = 'UPLOADING...';
+  if (file.size > 20 * 1024 * 1024) return alert('原图不能超过 20 MB');
   try {
     const dataUrl = await new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -1143,22 +1490,59 @@ $('wpFile').onchange = async () => {
       reader.onerror = () => reject(new Error('读取图片失败'));
       reader.readAsDataURL(file);
     });
+    openCropMode(dataUrl, file.type || '');
+  } catch (err) {
+    alert(err.message);
+  }
+};
+$('wpCropApply').onclick = async () => {
+  if (!wpCrop.open) return;
+  $('wpCropApply').disabled = true;
+  $('wpCropApply').textContent = 'SAVING...';
+  try {
+    const img = $('wpCropImg');
+    const { x, y, w, h } = wpCrop.rect;
+    const isFull = x <= 0.002 && y <= 0.002 && w >= 0.996 && h >= 0.996;
+    let outUrl = '';
+    if (isFull && wpCrop.mime === 'image/gif' && wpCrop.srcDataUrl.startsWith('data:image/gif')) {
+      outUrl = wpCrop.srcDataUrl;
+    } else {
+      const sx = Math.round(x * wpCrop.natW);
+      const sy = Math.round(y * wpCrop.natH);
+      const sw = Math.max(1, Math.min(wpCrop.natW - sx, Math.round(w * wpCrop.natW)));
+      const sh = Math.max(1, Math.min(wpCrop.natH - sy, Math.round(h * wpCrop.natH)));
+      const maxDim = 2560;
+      const scale = Math.min(1, maxDim / Math.max(sw, sh));
+      const dw = Math.max(1, Math.round(sw * scale));
+      const dh = Math.max(1, Math.round(sh * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = dw;
+      canvas.height = dh;
+      const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
+      outUrl = canvas.toDataURL('image/webp', 0.92);
+      if (!outUrl.startsWith('data:image/webp')) outUrl = canvas.toDataURL('image/jpeg', 0.92);
+    }
     const res = await api('/api/wallpaper', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dataUrl }),
+      body: JSON.stringify({ dataUrl: outUrl }),
     });
+    closeCropMode();
     applyWallpaper(res.updatedAt);
   } catch (err) {
     alert(err.message);
   } finally {
-    $('wpUploadBtn').disabled = false;
-    $('wpUploadBtn').textContent = 'UPLOAD IMAGE';
+    $('wpCropApply').disabled = false;
+    $('wpCropApply').textContent = 'APPLY CROP & SAVE';
   }
 };
 $('wpResetBtn').onclick = async () => {
   try {
     await api('/api/wallpaper', { method: 'DELETE' });
+    closeCropMode();
     applyWallpaper(0);
   } catch (err) { alert(err.message); }
 };
@@ -1227,15 +1611,47 @@ window.__onKatexReady = () => {
   });
 };
 
-// ---- Markdown + Math Renderer ----
-function renderMarkdown(raw) {
+// ---- Full GFM Markdown (Tables, Lists, Tasks, Links, Quotes) + Math Renderer ----
+function safeUrl(u) {
+  const s = String(u || '').trim();
+  if (/^(https?:\/\/|mailto:|\/|#)/i.test(s)) return s;
+  return '';
+}
+
+function splitTableRow(line) {
+  let s = String(line || '').trim();
+  if (s.startsWith('|')) s = s.slice(1);
+  if (s.endsWith('|') && !s.endsWith('\\|')) s = s.slice(0, -1);
+  const cells = [];
+  let cur = '';
+  let inCode = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === '\\' && s[i + 1] === '|' && !inCode) { cur += '|'; i++; continue; }
+    if (c === '`') { inCode = !inCode; cur += c; continue; }
+    if (c === '|' && !inCode) { cells.push(cur.trim()); cur = ''; continue; }
+    cur += c;
+  }
+  cells.push(cur.trim());
+  return cells;
+}
+
+function isTableSep(line) {
+  const t = String(line || '').trim();
+  if (!t.includes('|') || !t.includes('-')) return false;
+  const cells = splitTableRow(t);
+  return cells.length >= 1 && cells.every((c) => /^:?-+:?$/.test(c));
+}
+
+function renderMarkdown(raw, depth = 0) {
   const src = String(raw || '').replace(/\r\n/g, '\n');
   const blocks = [];
   const stashBlock = (html) => { const id = blocks.length; blocks.push(html); return `\u0000BLOCK_${id}\u0000`; };
 
-  let text = src.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (_, lang, code) => {
+  // Fenced code blocks (``` or ~~~, including trailing unclosed fence during streaming)
+  let text = src.replace(/(^|\n)[ \t]*(```|~~~)([a-zA-Z0-9_+-]*)[ \t]*\n([\s\S]*?)(?:\n[ \t]*\2[ \t]*(?=\n|$)|$)/g, (_, lead, _fence, lang, code) => {
     const id = blocks.length;
-    return stashBlock(`<div class="code-frame"><div class="code-bar"><span>${esc((lang || 'TEXT').toUpperCase())}</span><button type="button" class="code-copy" data-copy="${id}">COPY</button></div><pre data-code="${id}">${esc(code.replace(/\n$/, ''))}</pre></div>`);
+    return `${lead}${stashBlock(`<div class="code-frame"><div class="code-bar"><span>${esc((lang || 'TEXT').toUpperCase())}</span><button type="button" class="code-copy" data-copy="${id}">COPY</button></div><pre data-code="${id}">${esc(code.replace(/\n$/, ''))}</pre></div>`)}`;
   });
   text = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, tex) =>
     stashBlock(`<div class="math-block" data-tex="${esc(tex)}" data-display="1">${renderMathTex(tex, true)}</div>`));
@@ -1245,40 +1661,178 @@ function renderMarkdown(raw) {
   const inline = (line) => {
     const inlines = [];
     const stashIn = (html) => { const i = inlines.length; inlines.push(html); return `\u0001IN_${i}\u0001`; };
-    let s = line
+    let s = String(line || '')
+      .replace(/``([^`\n]+?)``/g, (_, c) => stashIn(`<code class="inline">${esc(c.trim())}</code>`))
       .replace(/`([^`\n]+)`/g, (_, c) => stashIn(`<code class="inline">${esc(c)}</code>`))
       .replace(/\\\((.+?)\\\)/g, (_, tex) => stashIn(`<span class="math-inline" data-tex="${esc(tex)}" data-display="0">${renderMathTex(tex, false)}</span>`))
       .replace(/(?<!\\)\$([^$\n]+?)(?<!\\)\$/g, (m, tex) => {
         if (/^\s|\s$|^\d+$/.test(tex)) return m;
         return stashIn(`<span class="math-inline" data-tex="${esc(tex)}" data-display="0">${renderMathTex(tex, false)}</span>`);
+      })
+      .replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (m, alt, url) => {
+        const u = safeUrl(url);
+        return u ? stashIn(`<img class="md-img" src="${esc(u)}" alt="${esc(alt)}" loading="lazy" />`) : m;
+      })
+      .replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (m, label, url) => {
+        const u = safeUrl(url);
+        if (!u) return m;
+        const inner = esc(label).replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+        return stashIn(`<a class="md-link" href="${esc(u)}" target="_blank" rel="noopener noreferrer">${inner}</a>`);
       });
     s = esc(s)
-      .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
-      .replace(/\u0001IN_(\d+)\u0001/g, (_, i) => inlines[Number(i)]);
+      .replace(/\*\*\*([^*\n]+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+      .replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/(?<![\w])__([^_\n]+?)__(?![\w])/g, '<strong>$1</strong>')
+      .replace(/~~([^~\n]+?)~~/g, '<del>$1</del>')
+      .replace(/(?<!\*)\*([^*\n]+?)\*(?!\*)/g, '<em>$1</em>')
+      .replace(/(?<![\w])_([^_\n]+?)_(?![\w])/g, '<em>$1</em>');
+    for (let pass = 0; pass < 3 && /\u0001IN_\d+\u0001/.test(s); pass++) {
+      s = s.replace(/\u0001IN_(\d+)\u0001/g, (_, i) => inlines[Number(i)]);
+    }
     return s;
   };
 
   const lines = text.split('\n');
   const out = [];
-  let inList = false;
-  const closeList = () => { if (inList) { out.push('</ul>'); inList = false; } };
+  let para = [];
+  const listStack = []; // { tag: 'ul'|'ol', indent: number }
 
-  for (const line of lines) {
-    const bm = line.trim().match(/^\u0000BLOCK_(\d+)\u0000$/);
-    if (bm) { closeList(); out.push(blocks[Number(bm[1])]); continue; }
-    if (!line.trim()) { closeList(); continue; }
-    const hm = line.match(/^(#{1,4})\s+(.+)$/);
-    if (hm) { closeList(); out.push(`<h${hm[1].length}>${inline(hm[2])}</h${hm[1].length}>`); continue; }
-    if (/^\s*[-*]\s+/.test(line)) {
-      if (!inList) { out.push('<ul>'); inList = true; }
-      out.push(`<li>${inline(line.replace(/^\s*[-*]\s+/, ''))}</li>`);
+  const flushPara = () => {
+    if (!para.length) return;
+    out.push(`<p>${para.map((l) => inline(l)).join('<br>')}</p>`);
+    para = [];
+  };
+  const closeLists = (toIndent = -1) => {
+    while (listStack.length && listStack[listStack.length - 1].indent > toIndent) {
+      out.push(`</${listStack.pop().tag}>`);
+    }
+  };
+  const isBlockStart = (idx) => {
+    const ln = lines[idx];
+    if (!ln || !ln.trim()) return true;
+    if (/^\u0000BLOCK_(\d+)\u0000$/.test(ln.trim())) return true;
+    if (/^\s*(?:---+|\*\*\*+|___+)\s*$/.test(ln)) return true;
+    if (/^(#{1,6})\s+/.test(ln)) return true;
+    if (/^\s*>\s?/.test(ln)) return true;
+    if (/^\s*(?:[-*+]|\d+[.)])\s+/.test(ln)) return true;
+    if (idx + 1 < lines.length && ln.includes('|') && isTableSep(lines[idx + 1])) return true;
+    return false;
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    const bm = trimmed.match(/^\u0000BLOCK_(\d+)\u0000$/);
+    if (bm) { flushPara(); closeLists(); out.push(blocks[Number(bm[1])]); continue; }
+
+    if (!trimmed) { flushPara(); closeLists(); continue; }
+
+    // GFM Table: header row + alignment separator row + body rows
+    if (i + 1 < lines.length && line.includes('|') && isTableSep(lines[i + 1])) {
+      flushPara(); closeLists();
+      const headers = splitTableRow(line);
+      const aligns = splitTableRow(lines[i + 1]).map((c) => {
+        if (c.startsWith(':') && c.endsWith(':')) return 'center';
+        if (c.endsWith(':')) return 'right';
+        return 'left';
+      });
+      const rows = [];
+      let j = i + 2;
+      while (j < lines.length) {
+        const r = lines[j];
+        if (!r.trim() || !r.includes('|') || /^\u0000BLOCK_\d+\u0000$/.test(r.trim())) break;
+        rows.push(splitTableRow(r));
+        j++;
+      }
+      const cols = Math.max(headers.length, aligns.length, ...rows.map((r) => r.length));
+      const thHtml = Array.from({ length: cols }, (_, c) =>
+        `<th style="text-align:${aligns[c] || 'left'}">${inline(headers[c] || '')}</th>`).join('');
+      const tbHtml = rows.map((r) => `<tr>${Array.from({ length: cols }, (_, c) =>
+        `<td style="text-align:${aligns[c] || 'left'}">${inline(r[c] || '')}</td>`).join('')}</tr>`).join('');
+      out.push(`<div class="md-table-wrap"><table class="md-table"><thead><tr>${thHtml}</tr></thead><tbody>${tbHtml}</tbody></table></div>`);
+      i = j - 1;
       continue;
     }
-    if (line.startsWith('> ')) { closeList(); out.push(`<blockquote>${inline(line.slice(2))}</blockquote>`); continue; }
-    closeList();
-    out.push(`<p>${inline(line)}</p>`);
+
+    // Horizontal rule
+    if (/^\s*(?:---+|\*\*\*+|___+)\s*$/.test(line)) {
+      flushPara(); closeLists();
+      out.push('<hr class="md-hr" />');
+      continue;
+    }
+
+    // Headings h1-h6
+    const hm = line.match(/^(#{1,6})\s+(.+?)\s*#*$/);
+    if (hm) {
+      flushPara(); closeLists();
+      out.push(`<h${hm[1].length}>${inline(hm[2])}</h${hm[1].length}>`);
+      continue;
+    }
+
+    // Multi-line Blockquote (supports nested Markdown)
+    if (/^\s*>\s?/.test(line)) {
+      flushPara(); closeLists();
+      const qLines = [];
+      let j = i;
+      while (j < lines.length && /^\s*>\s?/.test(lines[j])) {
+        qLines.push(lines[j].replace(/^\s*>\s?/, ''));
+        j++;
+      }
+      const inner = depth < 3
+        ? renderMarkdown(qLines.join('\n'), depth + 1)
+        : `<p>${qLines.map((l) => inline(l)).join('<br>')}</p>`;
+      out.push(`<blockquote>${inner}</blockquote>`);
+      i = j - 1;
+      continue;
+    }
+
+    // Unordered, Task, or Ordered List (with indentation nesting)
+    const ulm = line.match(/^(\s*)[-*+]\s+(.*)$/);
+    const olm = !ulm ? line.match(/^(\s*)(\d+)[.)]\s+(.*)$/) : null;
+    if (ulm || olm) {
+      flushPara();
+      const indent = (ulm ? ulm[1] : olm[1]).replace(/\t/g, '  ').length;
+      const tag = ulm ? 'ul' : 'ol';
+      const content = ulm ? ulm[2] : olm[3];
+      const startNum = olm ? Number(olm[2]) : 1;
+      while (listStack.length && listStack[listStack.length - 1].indent > indent) {
+        out.push(`</${listStack.pop().tag}>`);
+      }
+      const top = listStack[listStack.length - 1];
+      if (!top || top.indent < indent) {
+        out.push(tag === 'ol' && startNum !== 1 ? `<ol start="${startNum}">` : `<${tag}>`);
+        listStack.push({ tag, indent });
+      } else if (top.tag !== tag) {
+        out.push(`</${listStack.pop().tag}>`);
+        out.push(tag === 'ol' && startNum !== 1 ? `<ol start="${startNum}">` : `<${tag}>`);
+        listStack.push({ tag, indent });
+      }
+      const task = ulm ? content.match(/^\[([ xX])\]\s+(.*)$/) : null;
+      if (task) {
+        const done = task[1].toLowerCase() === 'x';
+        out.push(`<li class="md-task"><span class="md-chk${done ? ' done' : ''}">${done ? '✓' : ''}</span>${inline(task[2])}</li>`);
+      } else {
+        out.push(`<li>${inline(content)}</li>`);
+      }
+      continue;
+    }
+
+    // Inline block token inside normal line
+    if (/\u0000BLOCK_\d+\u0000/.test(line)) {
+      flushPara(); closeLists();
+      out.push(line.replace(/\u0000BLOCK_(\d+)\u0000/g, (_, id) => blocks[Number(id)]));
+      continue;
+    }
+
+    // Plain paragraph line
+    closeLists();
+    para.push(line);
+    if (i + 1 < lines.length && isBlockStart(i + 1)) flushPara();
   }
-  closeList();
+
+  flushPara();
+  closeLists();
   return out.join('');
 }
 
@@ -1604,7 +2158,7 @@ async function renderWorkspace({ forceScroll = false } = {}) {
       panel.querySelectorAll('.hazard-box button').forEach((btn) => { btn.onclick = () => sendKeys([btn.dataset.key]); });
       panel.querySelectorAll('.code-copy').forEach((btn) => {
         btn.onclick = () => {
-          const pre = panel.querySelector(`pre[data-code="${btn.dataset.copy}"]`);
+          const pre = btn.closest('.code-frame')?.querySelector('pre');
           if (pre) navigator.clipboard?.writeText(pre.textContent || '');
           btn.textContent = 'COPIED';
           setTimeout(() => { btn.textContent = 'COPY'; }, 1200);

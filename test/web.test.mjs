@@ -185,3 +185,61 @@ test('DeepSeek API highlighter runs asynchronously, filters hallucinations, and 
     await web.close();
   }
 });
+
+test('WebMUX UI supports full GFM Markdown tables, lists, links, and wallpaper crop box', async () => {
+  const vm = await import('node:vm');
+  const html = fs.readFileSync(path.resolve('src/web/ui.html'), 'utf8');
+
+  // Verify wallpaper cropper UI controls are present.
+  for (const id of ['wpCropPane', 'wpCropFrame', 'wpCropBox', 'wpCropApply', 'wpRatioGroup', 'wpRecropBtn']) {
+    assert.ok(html.includes(`id="${id}"`), `missing #${id} in ui.html`);
+  }
+
+  // Extract renderMarkdown and its pure helpers into a sandboxed VM context.
+  const escLine = html.match(/const esc = [^\n]+;/)?.[0];
+  const mathStart = html.indexOf('// ---- LaTeX Math Rendering');
+  const hlStart = html.indexOf('// ---- DeepSeek Async Highlighting');
+  assert.ok(escLine && mathStart > 0 && hlStart > mathStart);
+  const snippet = `${escLine}\nconst window = {};\n${html.slice(mathStart, hlStart)}\n`;
+  const ctx = vm.createContext({});
+  vm.runInContext(snippet, ctx);
+
+  const md = [
+    '## 评估对比',
+    '',
+    '| 模型 | PSNR ↑ | 显存 (`A | B`) | 备注 |',
+    '| :--- | :---: | ---: | :--- |',
+    '| **v3-bf16** | `24.8 dB` | 35.8 GB | 含转义 \\| 管道与 $\\lambda=0.1$ |',
+    '| ~~v2-fp16~~ | 23.1 dB | 38.2 GB | [报告](https://example.com/r) & [`ui.html`](https://example.com/ui) |',
+    '',
+    '> 第一行引用',
+    '> 第二行引用含 `snake_case_var` 与 *斜体*',
+    '',
+    '- [x] 已完成表格渲染',
+    '- [ ] 待验证壁纸裁剪',
+    '  - 嵌套子项',
+    '',
+    '1. 步骤一',
+    '2. 步骤二 [危险](javascript:alert(1))',
+    '',
+    '---',
+    '```python',
+    'print("streaming...")',
+  ].join('\n');
+
+  const out = ctx.renderMarkdown(md);
+  assert.match(out, /<div class="md-table-wrap"><table class="md-table">/);
+  assert.match(out, /<th style="text-align:center">PSNR ↑<\/th>/);
+  assert.match(out, /<th style="text-align:right">显存 \(<code class="inline">A \| B<\/code>\)<\/th>/);
+  assert.match(out, /<td style="text-align:left">含转义 \| 管道与 <span class="math-inline"/);
+  assert.match(out, /<del>v2-fp16<\/del>/);
+  assert.match(out, /<a class="md-link" href="https:\/\/example\.com\/ui"[^>]*><code class="inline">ui\.html<\/code><\/a>/);
+  assert.match(out, /<blockquote><p>第一行引用<br>第二行引用含 <code class="inline">snake_case_var<\/code> 与 <em>斜体<\/em><\/p><\/blockquote>/);
+  assert.match(out, /<li class="md-task"><span class="md-chk done">✓<\/span>已完成表格渲染<\/li>/);
+  assert.match(out, /<li class="md-task"><span class="md-chk"><\/span>待验证壁纸裁剪<\/li>/);
+  assert.match(out, /<ul><li>嵌套子项<\/li><\/ul>/);
+  assert.match(out, /<ol><li>步骤一<\/li><li>步骤二 \[危险\]\(javascript:alert\(1\)\)<\/li><\/ol>/);
+  assert.doesNotMatch(out, /href="javascript:/);
+  assert.match(out, /<hr class="md-hr" \/>/);
+  assert.match(out, /<div class="code-frame">.*print\(&quot;streaming\.\.\.&quot;\)/);
+});

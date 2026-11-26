@@ -172,4 +172,5 @@ fmuxctl gpu release --job-id 3897570 --cluster gongji
 ```
 
 - **共绩集群自动同步（可选）**：若本机配置了 `~/gongji/.env`（含 `SUANLI_TOKEN`）或环境变量 `SUANLI_TOKEN`，`fmux` 会自动每 30 秒只读拉取 `Pending/Running` 任务显示在 `02 // 共绩集群` 分区；可设置 `GONGJI_TASK_PREFIX` 标记属于自己的任务。
-- **自定义背景壁纸**：点击顶栏 **`BG`** 上传任意 PNG/JPG/WebP/GIF（最大 12 MB），壁纸持久化保存在 `~/.local/state/fmux/wallpaper.bin` 并在电脑与手机间自动同步，支持实时调节透明度与磨砂模糊度，随时一键还原默认样式。
+- **完整 GFM Markdown 与公式渲染**：对话面板原生支持 **GFM 表格**（左/中/右对齐、单元格内代码/公式、移动端横向滚动不破版）、任务清单、多级嵌套列表、多行引用、删除线、安全外链、代码块一键复制，以及 KaTeX + 离线公式渲染。
+- **自定义背景壁纸与框选裁切**：点击顶栏 **`BG`** 选择任意 PNG/JPG/WebP/GIF 图片（支持对已有壁纸再次点击 **`CROP CURRENT`** 重新构图），可通过交互式截取框自由拖拽移动/缩放，并支持 `SCREEN`（自动匹配当前屏幕比例）、`16:9`、`16:10`、`4:3`、`9:16`、`FREE`、`FULL` 等预设；保存后持久化到 `~/.local/state/fmux/wallpaper.bin` 并在电脑与手机间自动同步，支持实时调节透明度与磨砂模糊度，随时一键还原默认样式。
