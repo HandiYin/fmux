@@ -1,10 +1,14 @@
 import path from 'node:path';
 import { agyTranscriptPath, defaultAgyHome } from './agent-files.mjs';
-import { openFiles } from './procs.mjs';
+import { readTailSlice } from './jsonl.mjs';
+import { openFiles, procArgs } from './procs.mjs';
 import { oneLine } from './util.mjs';
 
 const PRESENCE_RE = /[/\\]presence[/\\]([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\.lock$/i;
 const CONV_DB_RE = /[/\\]conversations[/\\]([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\.db$/i;
+const CLI_LOG_RE = /[/\\]log[/\\]cli-[^/\\]+\.log$/i;
+const LOG_CONV_RE = /(?:(?:Resuming|Streaming|Starting conversation update stream for|Forwarding user message to|Sending user message to|Full redraw completed[^\n]*?for|Created)\s+conversation\s+|cascade_id:)([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})/gi;
+const RESUME_FLAG_RE = /(?:^|\s)(?:-r|--resume)(?:=|\s+)([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})(?:\s|$)/i;
 const UUID_RE = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
 // Unwrap agy's JSON-encoded string values inside tool_calls[].args (e.g. "\"ls -la\"" -> "ls -la").
@@ -176,8 +180,11 @@ export function agyAdapter(d) {
   return [];
 }
 
-// Locate an active `agy` process's exact conversation transcript via its open presence lock or DB FD.
-export function createAgyLocator({ home = defaultAgyHome(), files = openFiles } = {}) {
+// Locate an active or idle `agy` process's exact conversation transcript via:
+//   1. open presence/<uuid>.lock or conversations/<uuid>.db FD (when running)
+//   2. open log/cli-*.log FD (held open for the entire lifetime of agy, even when idle)
+//   3. cmdline `-r <uuid>` / `--resume <uuid>` fallback
+export function createAgyLocator({ home = defaultAgyHome(), files = openFiles, argsOf = procArgs } = {}) {
   return async (pid) => {
     const opened = await files(pid);
     for (const file of opened) {
@@ -193,6 +200,25 @@ export function createAgyLocator({ home = defaultAgyHome(), files = openFiles } 
         const root = path.dirname(path.dirname(file));
         return agyTranscriptPath(m[1], root);
       }
+    }
+    for (const file of opened) {
+      if (!CLI_LOG_RE.test(file)) continue;
+      const tail = readTailSlice(file, 256 * 1024);
+      if (!tail) continue;
+      let lastId = '';
+      for (const m of tail.matchAll(LOG_CONV_RE)) lastId = m[1];
+      if (lastId) {
+        const root = path.dirname(path.dirname(file));
+        const found = agyTranscriptPath(lastId, root);
+        if (found) return found;
+      }
+    }
+    try {
+      const cmd = await argsOf(pid);
+      const m = RESUME_FLAG_RE.exec(String(cmd || ''));
+      if (m) return agyTranscriptPath(m[1], home);
+    } catch {
+      // process exited or unreadable
     }
     return null;
   };

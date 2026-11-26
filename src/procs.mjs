@@ -65,6 +65,10 @@ export async function openFiles(pid) {
   return backend.openFiles(pid);
 }
 
+export async function procArgs(pid) {
+  return backend.args(pid);
+}
+
 export function alive(pid) {
   try {
     process.kill(Number(pid), 0);

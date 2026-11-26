@@ -45,6 +45,26 @@ test('agy locator binds the exact active conversation via presence lock or db fd
     files: async () => [path.join(root, 'conversations', `${CONV_ID}.db`)],
   });
   assert.equal(await locateViaDb(100), full);
+
+  // When agy is idle it closes presence/db FDs but keeps log/cli-*.log open.
+  const cliLogDir = path.join(root, 'log');
+  fs.mkdirSync(cliLogDir, { recursive: true });
+  const cliLog = path.join(cliLogDir, 'cli-20261126_201635.log');
+  fs.writeFileSync(cliLog, `I1126 20:16:35 common.go:496] Resuming conversation ${CONV_ID}\n`);
+  const locateViaLog = createAgyLocator({
+    home: root,
+    files: async () => [cliLog],
+    argsOf: async () => 'agy --dangerously-skip-permissions',
+  });
+  assert.equal(await locateViaLog(100), full);
+
+  // Cmdline -r <uuid> fallback when neither lock nor log has flushed yet.
+  const locateViaArgs = createAgyLocator({
+    home: root,
+    files: async () => [],
+    argsOf: async () => `agy --dangerously-skip-permissions -r ${CONV_ID}`,
+  });
+  assert.equal(await locateViaArgs(100), full);
 });
 
 test('agy adapter parses user prompts, planner tool calls, background commands, timers, subagents, and wakeups', () => {

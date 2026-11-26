@@ -428,7 +428,7 @@ export function startWebServer({
         }
         if (req.method === 'GET' && action === 'turns') {
           const turns = session.transcript && adapters[session.kind]
-            ? lastTurns(session.transcript, adapters[session.kind]).slice(-20)
+            ? lastTurns(session.transcript, adapters[session.kind], 6 * 1024 * 1024).slice(-60)
             : [];
           sendJson(res, 200, { key: session.key, name: session.name, kind: session.kind, turns });
           return;
