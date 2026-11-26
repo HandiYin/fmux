@@ -7,6 +7,7 @@
   "owner": { "openId": "", "chatId": "" },
   "notify": { "minWorkSec": 20, "quietIfLocalActiveSec": 180 },
   "attach": { "idleMinutes": 10 },
+  "lifecycle": { "enabled": true, "idleMinutes": 60, "restoreTimeoutMs": 30000 },
   "web": {
     "enabled": true,
     "host": "127.0.0.1",

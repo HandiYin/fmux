@@ -1,18 +1,31 @@
 import { listTasks, readTaskLog, runningTasks } from '../agy-tasks.mjs';
-import * as cards from '../cards.mjs';
 
 // Local control API exposed over the Unix socket / named pipe for fmuxctl and the concierge.
 export function createControlApi(router) {
   const summary = (s) => ({
-    name: s.name, tmuxSession: s.tmuxSession || s.name, key: s.key, unitId: s.unitId || 0, kind: s.kind, status: s.status,
-    since: new Date(s.statusSince).toISOString(), stoppedAt: s.stoppedAt || 0, note: s.note,
-    cwd: s.cwd, title: s.title, model: s.model || '', modelFamily: s.modelFamily || '', effort: s.effort || '', attached: router.attachedKey() === s.key,
+    name: s.name,
+    tmuxSession: s.tmuxSession || s.name,
+    key: s.key,
+    unitId: s.unitId || 0,
+    kind: s.kind,
+    status: s.status,
+    dormant: Boolean(s.dormant),
+    since: new Date(s.statusSince).toISOString(),
+    stoppedAt: s.stoppedAt || 0,
+    note: s.note,
+    cwd: s.cwd,
+    title: s.title,
+    model: s.model || '',
+    modelFamily: s.modelFamily || '',
+    effort: s.effort || '',
+    attached: router.attachedKey() === s.key,
     runningTasks: runningTasks(s).length,
     tasks: listTasks(s).slice(0, 10).map((t) => ({
       id: t.id, shortId: t.shortId, kind: t.kind, status: t.status, description: t.description,
       startedAt: t.startedAt, endedAt: t.endedAt, summary: t.summary, hasLog: Boolean(t.logFile),
     })),
-    lastPrompt: s.lastPrompt.slice(0, 300), lastText: s.lastText.slice(0, 600),
+    lastPrompt: s.lastPrompt.slice(0, 300),
+    lastText: s.lastText.slice(0, 600),
   });
 
   return {
@@ -62,14 +75,18 @@ export function createControlApi(router) {
     },
     kill: async ({ ref }) => {
       const session = router.need(ref);
-      await router.tmux.killSession(session.tmuxSession);
+      await router.tmux.killSession(session.tmuxSession, { key: session.key });
       return { killed: session.tmuxSession };
     },
     rename: async ({ ref, tmuxName = '', sessionTitle = '' }) => {
       const session = router.need(ref);
       return router.renameSession(session, { tmuxName, sessionTitle });
     },
-    notify: async ({ title = 'fmux', text }) => ({ messageId: await router.post(cards.infoCard({ title, text })) }),
+    notify: async ({ title = 'fmux', text }) => {
+      const session = router.attachedSession();
+      const rootId = session ? await router.sessionRoot(session) : await router.sendDashboard();
+      return { messageId: await router.notifyThread(session, `**${title}**\n${text}`, rootId) };
+    },
     dashboard: async () => ({ messageId: await router.sendDashboard() }),
     handoff: async (params) => router.handoff(params),
     tasks: async ({ ref, taskId, lines = 40 }) => {

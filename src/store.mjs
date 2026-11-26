@@ -2,14 +2,41 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const MAX_MESSAGES = 400;
-const DEFAULTS = { chatId: '', attached: null, live: [], messages: [], transcripts: {} };
+const DEFAULTS = {
+  chatId: '',
+  attached: null,
+  live: [],
+  messages: [],
+  transcripts: {},
+  unitIds: {},
+  managedSessions: {},
+  startingSessions: {},
+  reusableCards: {},
+  rootSessions: {},
+  threadSessions: {},
+  turnCards: {},
+  pendingCompletions: {},
+};
 
-// Small persistent state: owner chat, attached session, live cards, card->session map,
-// and confirmed Codex transcript offsets. Unknown legacy keys from older branches are ignored.
+// Small persistent state: owner chat, attached session, live/reusable cards, thread routing,
+// managed session restore records, unit IDs, and confirmed Codex transcript offsets.
 export class Store {
   constructor(file) {
     this.file = file;
-    this.data = { ...DEFAULTS, live: [], messages: [], transcripts: {} };
+    this.data = {
+      ...DEFAULTS,
+      live: [],
+      messages: [],
+      transcripts: {},
+      unitIds: {},
+      managedSessions: {},
+      startingSessions: {},
+      reusableCards: {},
+      rootSessions: {},
+      threadSessions: {},
+      turnCards: {},
+      pendingCompletions: {},
+    };
     if (file && fs.existsSync(file)) {
       try {
         const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));

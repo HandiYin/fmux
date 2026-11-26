@@ -608,7 +608,7 @@ export function startWebServer({
         }
         if (req.method === 'POST' && action === 'kill') {
           queueMgr.delete(session.key);
-          await router.tmux.killSession(session.tmuxSession);
+          await router.tmux.killSession(session.tmuxSession, { key: session.key });
           await router.registry.poll().catch(() => {});
           broadcast();
           sendJson(res, 200, { killed: session.tmuxSession });

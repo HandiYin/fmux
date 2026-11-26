@@ -12,6 +12,7 @@ import { HUB_SESSION } from './service.mjs';
 import * as realTmux from './tmux.mjs';
 import { Tail, adapters, lastExchange, lastTurns, locateTranscript, readClaudeMeta } from './transcript.mjs';
 import { log } from './util.mjs';
+import { sessionFilter } from './session-filter.mjs';
 
 const SHELLS = new Set(['bash', 'zsh', 'fish', 'sh', 'dash', 'pwsh', 'powershell', 'cmd', 'nu']);
 // psmux keeps a spare server under this name to start sessions fast. It is not a session of the user.
@@ -43,12 +44,13 @@ function paneNum(paneId) {
 export class Registry extends EventEmitter {
   // `probe` is how the registry looks at processes and transcripts; tests replace it.
   // `store` keeps the last confirmed Codex transcript per pane across hub restarts.
-  constructor({ tmux = realTmux, intervalMs = 2000, hide = [], probe = {}, store = null } = {}) {
+  constructor({ tmux = realTmux, intervalMs = 2000, hide = [], include = [], exclude = [], probe = {}, store = null } = {}) {
     super();
     this.tmux = tmux;
     this.probe = { snapshot, findAgent, readClaudeMeta, locateTranscript, hasAgyActiveDb, ...probe };
     this.intervalMs = intervalMs;
     this.hide = new Set([...hide, HUB_SESSION]);
+    this.allows = sessionFilter({ include, exclude, hide: [...this.hide] });
     this.codexBindings = new CodexBindingStore(store);
     this.store = store;
     const savedIds = store?.get?.('unitIds') || {};
@@ -112,8 +114,9 @@ export class Registry extends EventEmitter {
     const list = this.list();
     if (!text) return { match: null, candidates: [] };
     if (/^\d+$/.test(text)) return { match: list[Number(text) - 1] || null, candidates: [] };
-    const exact = list.find((s) => s.key === text || s.name === text);
-    if (exact) return { match: exact, candidates: [] };
+    const exact = list.filter((s) => s.key === text || s.name === text);
+    if (exact.length === 1) return { match: exact[0], candidates: [] };
+    if (exact.length > 1) return { match: null, candidates: exact };
     return pick(text, list, (s) => [[s.name, 1], [s.title, 0.9], [path.basename(s.cwd || ''), 0.5], [s.kind, 0.4]]);
   }
 
@@ -134,7 +137,7 @@ export class Registry extends EventEmitter {
     const snap = await this.probe.snapshot();
     const seen = new Set();
     const visible = panes
-      .filter((p) => !this.hide.has(p.sessionName) && !INTERNAL_SESSION.test(p.sessionName))
+      .filter((p) => this.allows(p.sessionName) && !INTERNAL_SESSION.test(p.sessionName))
       .sort((a, b) => paneNum(a.paneId) - paneNum(b.paneId));
     // Rebase unitIds cleanly to 1..N only when none of the saved paneIds are alive anymore (e.g. fresh tmux server).
     if (visible.length && !visible.some((p) => this.unitIds.has(p.paneId))) {
@@ -198,6 +201,9 @@ export class Registry extends EventEmitter {
     s.activityAt = pane.activityAt;
     s.title = cleanTitle(pane.title, pane.sessionName);
     s.paneTitle = pane.title;
+    s.logicalId = pane.logicalId;
+    s.clients = pane.clients;
+    s.single = pane.single;
 
     const agent = await this.probe.findAgent(snap, pane.panePid, pane.tty);
     const kind = agent?.kind || 'shell';
@@ -219,6 +225,8 @@ export class Registry extends EventEmitter {
       if (!isNew) s.lastText = '';
     }
     const meta = kind === 'claude' ? this.probe.readClaudeMeta(s.agentPid) : null;
+    s.conversationId = meta?.sessionId || null;
+    s.hasChildren = Boolean((snap.children.get(agent?.pid) || []).length);
 
     await this.followTranscript(s, kind, meta);
     if (kind === 'agy' && s.transcript) {

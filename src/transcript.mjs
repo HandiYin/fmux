@@ -8,7 +8,6 @@ import { createDshLocator, dshAdapter, readZstdText } from './dsh.mjs';
 import { parseJsonLines, readTailSlice } from './jsonl.mjs';
 import { procCwd, procStartMs } from './procs.mjs';
 import { oneLine } from './util.mjs';
-
 export { readClaudeMeta };
 
 // Each adapter turns one transcript line (parsed JSON) into zero or more events:

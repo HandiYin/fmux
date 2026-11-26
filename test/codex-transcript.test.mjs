@@ -95,7 +95,6 @@ test('a waiting dialog keeps the named thread instead of dropping the binding', 
   }
   assert.equal(await f.locate(1, { title: '[ ! ] Action Required | ubuntu' }), null);
 });
-
 test('activity normalization does not choose between a decorated name and a literal name', async (t) => {
   const f = fixture(t);
   f.rollout(A, '2020-01-01'); f.index(A, '训练');

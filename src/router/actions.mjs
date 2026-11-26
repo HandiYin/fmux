@@ -42,6 +42,14 @@ async function dispatchAction(router, v, evt) {
   const form = evt.action?.formValue || {};
   const { liveCards } = router;
   switch (v.a) {
+    case 'dash':
+      return replace(await liveCards.adopt('dash', evt.messageId, null, DASH_TTL), '已刷新');
+    case 'dash.new':
+      router.sendDashboard().catch((err) => log('error', 'dash.send', { message: err.message }));
+      return {};
+    case 'help':
+      router.post(cards.helpCard()).catch(() => {});
+      return {};
     case 'new.form':
       router.post(router.newSessionForm()).catch((err) => log('error', 'new.form', { message: err.message }));
       return {};
@@ -63,6 +71,11 @@ async function dispatchAction(router, v, evt) {
       }
       await router.attach(session, { announce: false });
       router.store.rememberMessage(evt.messageId, session.key);
+      const existing = liveCards.reusable.get(`session:${session.key}`);
+      if (existing && existing.id !== evt.messageId) {
+        await router.sendPeek(session);
+        return replace(cards.stubCard(`${session.name}：已更新原会话卡片。`), `已创建 ${session.name}`);
+      }
       return replace(await liveCards.adopt('peek', evt.messageId, session, liveCards.peekTtl), `已创建 ${session.name}`);
     }
     default:
@@ -73,8 +86,18 @@ async function dispatchAction(router, v, evt) {
   if (!session) return toast(`会话 ${v.n || ''} 已不存在`, 'error');
   switch (v.a) {
     case 'attach': {
+      if (session.dormant || router.registry.restoring?.has(session.key)) {
+        router.attach(session).catch(async (err) => {
+          log('error', 'session.activate', { session: session.name, message: err.message });
+          const rootId = liveCards.reusable.get(`session:${session.key}`)?.id || evt.messageId;
+          await router.notifyThread(session, `恢复 ${session.name} 失败：${err.message}`, rootId)
+            .catch((reportError) => log('error', 'session.activate_report', { message: reportError.message }));
+        });
+        return toast(`正在恢复 ${session.name}，就绪后会接入`);
+      }
       // A click on the session's own card needs no second card: that card turns into "已接入".
-      const own = liveCards.entries.get(evt.messageId);
+      const own = liveCards.entries.get(evt.messageId)
+        || (liveCards.reusable.get(`session:${session.key}`)?.id === evt.messageId ? { kind: 'peek', key: session.key } : null);
       const sameCard = own && own.kind !== 'dash' && own.key === session.key && session.status !== 'working' && session.status !== 'blocked';
       await router.attach(session, { announce: !sameCard });
       if (sameCard) return replace(await liveCards.redraw(session, evt, own.kind), `已接入 ${session.name}`);
@@ -124,20 +147,29 @@ async function dispatchAction(router, v, evt) {
     case 'reply': {
       const text = String(form.text || '').trim();
       if (!text) return toast('内容为空', 'warning');
-      if (v.from === 'term' || v.from === 'peek') {
-        // The terminal card talks to the terminal as it is, dialog or not.
-        await router.tmux.sendText(session.key, text);
-        router.touchAttached(session);
-        await sleep(600);
-        return replace(await liveCards.redraw(session, evt, 'term'), '已发送');
-      }
-      if (!(await router.deliver(session, text))) return toast('会话在等确认，没有发出', 'warning');
-      const finished = router.finished.get(evt.messageId);
-      return finished ? replace(cards.finishedCard({ session, turn: finished.turn, replied: text }), '已发送') : toast('已发送');
+      // Restoring an agent may take longer than Feishu's callback deadline.
+      const send = async () => {
+        if (v.from === 'term' || v.from === 'peek') {
+          await router.tmux.sendText(session.key, text, { allowBlocked: true });
+          router.touchAttached(session);
+          await sleep(600);
+          await router.feishu.updater.flush(evt.messageId, await liveCards.redraw(session, evt, 'term'));
+          return;
+        }
+        if (!(await router.deliver(session, text))) return;
+        const finished = router.finished.get(evt.messageId);
+        if (finished) await router.feishu.updater.flush(evt.messageId, cards.finishedCard({ session, turn: finished.turn, replied: text }));
+      };
+      send().catch(async (err) => {
+        log('error', 'card.deliver', { session: session.name, message: err.message });
+        await router.postThreadCard(session, cards.infoCard({ title: '发送失败', text: err.message, template: 'red' }))
+          .catch((reportError) => log('error', 'card.deliver_report', { message: reportError.message }));
+      });
+      return toast('已接收，正在发送');
     }
     case 'kill':
       liveCards.forget(evt.messageId);
-      await router.tmux.killSession(session.tmuxSession);
+      await router.tmux.killSession(session.tmuxSession, { key: session.key });
       return replace(cards.stubCard(`tmux 会话 ${session.tmuxSession} 已结束。`), '已结束');
     default:
       return toast('未知操作', 'warning');

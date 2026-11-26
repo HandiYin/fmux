@@ -243,12 +243,14 @@ test('an agent that exits to the shell in the middle of a turn ends the turn', a
 test('Store drops unknown legacy keys when loading and flushing state', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fmux-store-'));
   const file = path.join(dir, 'state.json');
-  fs.writeFileSync(file, JSON.stringify({ chatId: 'oc_1', attached: null, dash: { messageId: 'om_old' }, managedSessions: { a: 1 }, live: [], messages: [], transcripts: {} }));
+  fs.writeFileSync(file, JSON.stringify({ chatId: 'oc_1', attached: null, dash: { messageId: 'om_old' }, obsoleteLegacy: { a: 1 }, live: [], messages: [], transcripts: {} }));
   const store = new Store(file);
   assert.equal(store.get('chatId'), 'oc_1');
   assert.equal(store.get('dash'), undefined);
-  assert.equal(store.get('managedSessions'), undefined);
+  assert.equal(store.get('obsoleteLegacy'), undefined);
   store.flush();
   const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
-  assert.deepEqual(Object.keys(saved).sort(), ['attached', 'chatId', 'live', 'messages', 'transcripts']);
+  assert.equal(saved.dash, undefined);
+  assert.equal(saved.obsoleteLegacy, undefined);
+  assert.equal(saved.chatId, 'oc_1');
 });

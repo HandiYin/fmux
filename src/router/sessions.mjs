@@ -13,11 +13,12 @@ export function newSessionForm(router, error) {
 }
 
 // A name for a session created without one: the agent and the time, made unique.
-function autoName(registry, agent) {
+function autoName(router, agent) {
   const d = new Date();
   const two = (n) => String(n).padStart(2, '0');
-  const base = `${agent}-${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}`;
-  const taken = new Set(registry.list().map((s) => s.tmuxSession));
+  const prefix = router.cfg.sessions?.namePrefix || '';
+  const base = `${prefix}${agent}-${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}`;
+  const taken = new Set(router.registry.list().map((s) => s.tmuxSession));
   let name = base;
   for (let i = 2; taken.has(name); i++) name = `${base}-${i}`;
   return name;
@@ -43,12 +44,19 @@ export async function autoTrust(router, key, { tries = 25, everyMs = 1000 } = {}
   return false;
 }
 
+// Serialize concurrent session creation so conflict checks & autoName remain race-free.
+export async function createSession(router, options) {
+  const next = (router.creating || Promise.resolve()).catch(() => {}).then(() => createSessionOnce(router, options));
+  router.creating = next;
+  return next;
+}
+
 // resume: 'new', 'last' (latest conversation of the directory), '<agent>:<conversation id>',
 // or words from a conversation's title. yolo: start the agent with its `flags` (-d, --yolo).
-export async function createSession(router, { name, agent = 'claude', cwd = '~', prompt = '', resume = 'new', yolo = true }) {
+async function createSessionOnce(router, { name, agent = 'claude', cwd = '~', prompt = '', resume = 'new', yolo = true }) {
   let template;
   if (resume && resume !== 'new' && resume !== 'last') {
-    const tagged = resume.match(/^(claude|codex|agy):(.+)$/);
+    const tagged = resume.match(/^(claude|codex|agy|dsh):(.+)$/);
     const { match: conversation, candidates } = router.history.lookupConversation(tagged ? tagged[2] : resume, { agent: tagged?.[1] });
     if (!conversation && candidates.length) {
       throw new Error(`「${resume}」对上了多个对话：${candidates.slice(0, 5).map((c) => `${c.id.slice(0, 8)} ${oneLine(c.title, 24)}`).join('；')}`);
@@ -66,17 +74,28 @@ export async function createSession(router, { name, agent = 'claude', cwd = '~',
     if (!template) throw new Error(`${agent} 不支持「继续最近一次对话」`);
   }
   template ??= spec.command;
-  name = String(name || '').trim() || autoName(router.registry, agent);
+  name = String(name || '').trim() || autoName(router, agent);
+  const prefix = router.cfg.sessions?.namePrefix || '';
+  if (prefix && !name.startsWith(prefix)) name = prefix + name;
+  if (router.tmux.SESSION_NAME_RE && !router.tmux.SESSION_NAME_RE.test(name)) throw new Error('无效的会话名称');
+  if (router.registry.allows && !router.registry.allows(name)) throw new Error(`会话 ${name} 被用户的 tmux 过滤设置排除`);
   const dir = expandHome(cwd || '~');
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) throw new Error(`目录不存在：${cwd}`);
-  if (router.registry.list().some((s) => s.tmuxSession === name)) throw new Error(`已有叫 ${name} 的会话`);
+  const exists = router.registry.list().some((s) => s.tmuxSession === name);
+  if (exists && router.cfg.sessions?.onConflict !== 'replace-idle') throw new Error(`已有叫 ${name} 的会话`);
   const base = template.replace('{flags}', yolo ? spec.flags || '' : '').replace('{name}', name).replace(/\s+/g, ' ').trim();
   const promptPart = prompt ? (spec.promptFlag ? `${spec.promptFlag} ${quoteArg(prompt)}` : quoteArg(prompt)) : '';
   const command = base ? (promptPart ? `${base} ${promptPart}` : base) : prompt;
-  await router.tmux.newSession({ name, cwd: dir, command });
+  if (exists) {
+    if (!router.registry.replaceSession) throw new Error('当前 registry 不支持替换同名会话');
+    await router.registry.replaceSession({ name, cwd: dir, command, agent });
+  } else {
+    await router.tmux.newSession({ name, cwd: dir, command });
+  }
   await router.registry.poll();
   const session = router.registry.list().find((s) => s.tmuxSession === name);
   if (!session) throw new Error('会话创建后没有出现在 tmux 里');
+  router.registry.setLaunchPolicy?.(session, { agent, yolo });
   log('info', 'session.new', { name, agent, cwd: dir, resume, yolo });
   if (spec.autoTrust) autoTrust(router, session.key).catch((err) => log('warn', 'autotrust', { message: err.message }));
   return session;

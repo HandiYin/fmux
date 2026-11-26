@@ -5,8 +5,8 @@ import { Concierge } from './concierge.mjs';
 import { startControl } from './control.mjs';
 import { createFakeFeishu, createFeishu } from './feishu.mjs';
 import { GpuRegistry } from './gpu.mjs';
+import { ManagedRegistry } from './managed-registry.mjs';
 import { OpsEngine } from './ops.mjs';
-import { Registry } from './registry.mjs';
 import { Router } from './router.mjs';
 import { Store } from './store.mjs';
 import { log } from './util.mjs';
@@ -30,7 +30,7 @@ export async function runDaemon({ fake = false, web = false } = {}) {
     : await createFeishu({ appId: cfg.app.id, appSecret, ownerOpenId: cfg.owner.openId, tenant: cfg.app.tenant });
 
   const store = new Store(path.join(cfg.stateDir, fake ? 'state.fake.json' : 'state.json'));
-  const registry = new Registry({ intervalMs: cfg.poll.intervalMs, hide: cfg.tmux.hide, store });
+  const registry = new ManagedRegistry({ cfg, store });
   const concierge = cfg.concierge.enabled
     ? new Concierge({
         bin: cfg.concierge.bin,
@@ -44,7 +44,7 @@ export async function runDaemon({ fake = false, web = false } = {}) {
       })
     : null;
   const gpu = new GpuRegistry({ registry, stateDir: cfg.stateDir });
-  const router = new Router({ feishu, registry, concierge, store, cfg, gpu });
+  const router = new Router({ feishu, registry, concierge, store, cfg, tmux: registry.transport, gpu });
   const ops = new OpsEngine({ router, stateDir: cfg.stateDir });
   router.ops = ops;
   router.wire();
@@ -74,7 +74,7 @@ export async function runDaemon({ fake = false, web = false } = {}) {
   const control = startControl({ socket: cfg.socket, methods });
   const webServer = cfg.web?.enabled ? await startWebServer({ router, cfg, ops, gpu, getAppSecret: async () => appSecret || resolveSecret(cfg.app.secret) }) : null;
   await feishu.connect();
-  router.resume();
+  await router.resume();
   log('info', 'hub.ready', {
     fake,
     sessions: registry.sessions.size,

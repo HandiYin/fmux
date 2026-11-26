@@ -18,6 +18,7 @@ const FIELDS = [
   'session_name', 'window_index', 'window_name', 'pane_index', 'pane_id', 'pane_pid',
   'pane_current_command', 'pane_current_path', 'pane_title', 'session_attached',
   'window_activity', 'pane_in_mode', 'pane_dead', 'session_windows', 'window_panes', 'pane_tty',
+  '@fmux_session_id',
 ];
 
 // Keys a card button or fmuxctl may send. Anything else is rejected.
@@ -64,6 +65,7 @@ export async function listPanes() {
       activityAt: Number(p.window_activity) * 1000,
       inMode: p.pane_in_mode === '1',
       single: p.session_windows === '1' && p.window_panes === '1',
+      logicalId: p['@fmux_session_id'] || null,
     });
   }
   return panes;
@@ -183,7 +185,7 @@ async function hasServer() {
   }
 }
 
-export async function newSession({ name, cwd, command }) {
+export async function newSession({ name, cwd, command, logicalId }) {
   if (!SESSION_NAME_RE.test(name)) throw new Error('会话名只能用中英文、数字、_ 和 -（最长 48）');
   // -P -F: print the id of the new pane, which is the surest way to address it afterwards.
   const args = ['new-session', '-d', '-P', '-F', '#{pane_id}', '-s', name, '-x', '160', '-y', '48', '-c', cwd];
@@ -196,6 +198,7 @@ export async function newSession({ name, cwd, command }) {
     out = await sh('systemd-run', ['--user', '--scope', '--quiet', '--collect', TMUX_BIN, '-u', ...args]).catch(() => null);
   }
   out ??= await tmux(args);
+  if (logicalId) await setSessionIdentity(out.trim(), logicalId);
   if (command) {
     await sleep(300);
     const paneId = /^%\d+$/.test(out.trim()) ? out.trim() : `=${name}:`;
@@ -206,6 +209,10 @@ export async function newSession({ name, cwd, command }) {
 export async function renameSession(oldName, newName) {
   if (!SESSION_NAME_RE.test(newName)) throw new Error('tmux 会话名只能用中英文、数字、_ 和 -（最长 48，不含空格或冒号）');
   await tmux(['rename-session', '-t', `=${oldName}`, newName]);
+}
+
+export async function setSessionIdentity(paneId, logicalId) {
+  await tmux(['set-option', '-p', '-t', paneId, '@fmux_session_id', logicalId]);
 }
 
 export async function killSession(name) {

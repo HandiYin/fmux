@@ -4,20 +4,116 @@ import { log } from '../util.mjs';
 
 export const DASH_TTL = 13 * 24 * 3600 * 1000; // Feishu lets a card be edited for 14 days
 
-// Keeps dashboard, session ("peek"), terminal ("term"), and background tasks ("tasks")
-// cards updated in place until they expire or a newer card of the same kind takes over.
+// Manages reusable root cards, thread posting, and live-updating dashboard/terminal/tasks cards.
 export class LiveCardManager {
   constructor(router) {
     this.router = router;
     // message id -> { kind: 'dash' | 'peek' | 'term' | 'tasks', key, until, signature }
     this.entries = new Map();
+    this.reusable = new Map(Object.entries(router.store.get('reusableCards') || {}));
+    this.rootSessions = new Map(Object.entries(router.store.get('rootSessions') || {}));
+    this.cardWrites = new Map();
+    this.sessionRoots = new Set();
   }
 
   get peekTtl() {
     return (this.router.cfg.live?.peekMinutes ?? 10) * 60000;
   }
 
-  // One dashboard is live at a time, and for each session one session card and one terminal card.
+  rememberCard(slot, id, createdAt = Date.now()) {
+    if (slot.startsWith('session:')) {
+      const key = slot.slice('session:'.length);
+      const previous = this.reusable.get(slot);
+      // Renewing an editable root must not redirect replies in its older thread.
+      if (previous) this.rootSessions.set(previous.id, key);
+      this.rootSessions.set(id, key);
+      while (this.rootSessions.size > 400) this.rootSessions.delete(this.rootSessions.keys().next().value);
+      this.router.store.set('rootSessions', Object.fromEntries(this.rootSessions));
+    }
+    this.reusable.set(slot, { id, createdAt });
+    this.router.store.set('reusableCards', Object.fromEntries(this.reusable));
+  }
+
+  // Serialize first creation and edits so concurrent status/output events share one card.
+  reuseCard(slot, card, key, opts, fresh = false) {
+    const next = (this.cardWrites.get(slot) || Promise.resolve()).catch(() => {}).then(async () => {
+      const existing = this.reusable.get(slot);
+      if (existing && !fresh && Date.now() - existing.createdAt < DASH_TTL) {
+        try {
+          await this.router.feishu.updater.flush(existing.id, card, { throwOnError: true });
+          return existing.id;
+        } catch (err) {
+          // A transient API failure must not produce duplicate cards.
+          if (!/deleted|recalled|not found|expired|message does not exist/i.test(err.message || '')) throw err;
+          this.forget(existing.id);
+        }
+      } else if (existing) {
+        this.forget(existing.id);
+      }
+      const id = await this.router.post(card, key, opts);
+      this.rememberCard(slot, id);
+      this.router.store.flush();
+      return id;
+    });
+    this.cardWrites.set(slot, next);
+    return next.finally(() => {
+      if (this.cardWrites.get(slot) === next) this.cardWrites.delete(slot);
+    });
+  }
+
+  clearSessionLive(key) {
+    const id = this.reusable.get(`session:${key}`)?.id;
+    if (id) this.forget(id);
+  }
+
+  sessionCard(session, card) {
+    this.clearSessionLive(session.key);
+    return this.reuseCard(`session:${session.key}`, card, session.key).then((id) => {
+      this.forget(id);
+      return id;
+    });
+  }
+
+  async sessionRoot(session) {
+    const slot = `session:${session.key}`;
+    const existing = this.reusable.get(slot);
+    if (existing && Date.now() - existing.createdAt < DASH_TTL && this.sessionRoots.has(existing.id)) return existing.id;
+    // Also migrates roots previously overwritten with the turn-only layout.
+    const id = await this.reuseCard(slot, cards.sessionCard({ session, attached: this.router.attachedKey() === session.key }), session.key);
+    this.sessionRoots.add(id);
+    this.forget(id);
+    return id;
+  }
+
+  async postThreadCard(session, card) {
+    const rootId = await this.sessionRoot(session);
+    try {
+      return await this.router.post(card, session.key, { replyTo: rootId, replyInThread: true });
+    } catch (err) {
+      if (!/deleted|recalled|not found|expired|message does not exist/i.test(err.message || '')) throw err;
+      const slot = `session:${session.key}`;
+      if (this.reusable.get(slot)?.id === rootId) {
+        this.reusable.delete(slot);
+        this.sessionRoots.delete(rootId);
+        this.router.store.set('reusableCards', Object.fromEntries(this.reusable));
+      }
+      const replacement = await this.sessionRoot(session);
+      return this.router.post(card, session.key, { replyTo: replacement, replyInThread: true });
+    }
+  }
+
+  boundSession(messageId) {
+    if (!messageId) return null;
+    const key = this.router.store.sessionKeyFor(messageId) || this.rootSessions.get(messageId);
+    if (key) return key;
+    // Long-lived roots may outlast the bounded message-ID cache.
+    for (const [slot, root] of this.reusable) {
+      if (root.id === messageId && /^(session|terminal|tasks):/.test(slot)) return slot.slice(slot.indexOf(':') + 1);
+    }
+    return null;
+  }
+
+  // One dashboard is live at a time, and for each session one terminal/tasks card.
   track(kind, messageId, key = '', ttlMs = Infinity) {
     for (const [id, other] of [...this.entries]) {
       if (id !== messageId && other.kind === kind && (kind === 'dash' || other.key === key)) this.retire(id, { replaced: true });
@@ -29,8 +125,6 @@ export class LiveCardManager {
     return entry;
   }
 
-  // Stop updating a card, and say so on the card. A card that a newer one replaced shrinks to
-  // one line, so the chat does not keep two copies of the same content.
   retire(messageId, { replaced = false } = {}) {
     const entry = this.entries.get(messageId);
     if (!entry) return;
@@ -47,18 +141,38 @@ export class LiveCardManager {
   }
 
   persist() {
-    this.router.store.set('live', [...this.entries].map(([id, e]) => ({ id, kind: e.kind, key: e.key, until: Number.isFinite(e.until) ? e.until : null })));
+    this.router.store.set('live', [...this.entries].map(([id, e]) => ({
+      id, kind: e.kind, key: e.key, until: Number.isFinite(e.until) ? e.until : null,
+    })));
   }
 
   resume() {
-    const saved = this.router.store.get('live') || [];
+    const saved = [...(this.router.store.get('live') || [])];
+    const legacy = this.router.store.get('dash');
+    if (legacy?.messageId && !saved.some((e) => e.kind === 'dash')) saved.push({ id: legacy.messageId, kind: 'dash', key: '', until: null });
     for (const e of saved) {
-      if (!e?.id || !['dash', 'peek', 'term', 'tasks'].includes(e.kind)) continue;
+      if (!e?.id) continue;
+      const slot = e.kind === 'dash' ? 'dashboard' : `${e.kind === 'term' ? 'terminal' : e.kind === 'tasks' ? 'tasks' : 'session'}:${e.key}`;
+      if (!this.reusable.has(slot)) this.rememberCard(slot, e.id);
+      if (e.kind === 'peek' || e.kind === 'attached') continue;
       this.entries.set(e.id, { kind: e.kind, key: e.key || '', until: e.until ?? Infinity, signature: '' });
+    }
+    this.persist();
+  }
+
+  async refreshDashboard(reason, { throwOnError = false } = {}) {
+    if (!this.reusable.has('dashboard')) return;
+    try {
+      const out = await this.render({ kind: 'dash', key: '' });
+      const id = await this.reuseCard('dashboard', out.card);
+      this.track('dash', id, '', DASH_TTL).signature = out.signature;
+      log('info', 'dashboard.refreshed', { reason, sessions: this.router.registry.list().map((s) => ({ name: s.name, status: s.status })) });
+    } catch (err) {
+      log('warn', 'dashboard.refresh', { reason, message: err.message });
+      if (throwOnError) throw err;
     }
   }
 
-  // The card of a live entry as it should look now, and a signature that changes only when the card does.
   async render(entry, { final = false } = {}) {
     const { registry, cfg, tmux } = this.router;
     const now = Date.now();
@@ -66,7 +180,6 @@ export class LiveCardManager {
       if (final) return { signature: 'stale', card: cards.stubCard('这张面板已停止更新。发「面板」看最新的。') };
       const sessions = registry.list();
       const running = sessions.some((s) => s.status === 'working' || s.status === 'background');
-      // Elapsed times move once a minute while an agent runs. An idle dashboard gets a heartbeat every 5 minutes.
       const beat = Math.floor(now / (running ? 60000 : 300000));
       const webUrl = cfg.web?.enabled && cfg.web?.publicUrl ? cfg.web.publicUrl : '';
       return {
@@ -89,16 +202,13 @@ export class LiveCardManager {
         signature: [taskSig, logText, session.status, minute, attached, live].join('\u0003'),
       };
     }
-    // A shell has nothing but its screen. An agent shows its last exchange unless the terminal was asked for.
-    if (entry.kind === 'term' || session.kind === 'shell') {
+    if (!session.dormant && entry.kind === 'term') {
       const screen = await tmux.capture(session.key);
       return {
         card: cards.terminalCard({ session, screen, attached, now, live }),
         signature: [screen, session.status, session.note, minute, attached, live].join('\u0003'),
       };
     }
-    // While attached, replies arrive as their own cards below. This card then keeps the exchange it
-    // showed at that moment, and only its state and buttons stay current.
     if (attached) entry.frozen ??= { lastText: session.lastText, lastPrompt: session.lastPrompt };
     else entry.frozen = null;
     const shown = entry.frozen ? { ...session, ...entry.frozen } : session;
@@ -115,6 +225,7 @@ export class LiveCardManager {
         continue;
       }
       const out = await this.render(entry);
+      if (this.entries.get(messageId) !== entry) continue;
       if (out.gone) {
         this.forget(messageId);
         await this.router.feishu.updater.flush(messageId, out.card);
@@ -125,23 +236,42 @@ export class LiveCardManager {
     }
   }
 
-  async post(kind, session, ttlMs) {
+  slotFor(kind, key) {
+    if (kind === 'dash') return 'dashboard';
+    if (kind === 'term') return `terminal:${key}`;
+    if (kind === 'tasks') return `tasks:${key}`;
+    return `session:${key}`;
+  }
+
+  async postLive(kind, session, ttlMs, fresh = false) {
     const key = session?.key || '';
     const out = await this.render({ kind, key });
-    const messageId = await this.router.post(out.card, key || undefined);
+    const slot = this.slotFor(kind, key);
+    const opts = kind === 'term' || kind === 'tasks' ? { replyTo: await this.sessionRoot(session), replyInThread: true } : undefined;
+    const messageId = await this.reuseCard(slot, out.card, key || undefined, opts, fresh);
+    if (kind === 'peek') {
+      this.sessionRoots.add(messageId);
+      this.forget(messageId);
+      return messageId;
+    }
     this.track(kind, messageId, key, ttlMs).signature = out.signature;
     return messageId;
   }
 
-  // Make the card a click came from the live one, and return its new content for the click's reply.
   async adopt(kind, messageId, session, ttlMs) {
-    const entry = this.track(kind, messageId, session?.key || '', ttlMs);
+    if (kind === 'peek') this.sessionRoots.add(messageId);
+    const slot = this.slotFor(kind, session?.key);
+    const sameMain = session && this.reusable.get(`session:${session.key}`)?.id === messageId;
+    if ((kind !== 'term' && kind !== 'tasks') || !sameMain) {
+      if (this.reusable.get(slot)?.id !== messageId) this.rememberCard(slot, messageId);
+    }
+    const entry = kind === 'peek' ? { kind, key: session.key } : this.track(kind, messageId, session?.key || '', ttlMs);
+    if (kind === 'peek') this.forget(messageId);
     const out = await this.render(entry);
     entry.signature = out.signature;
     return out.card;
   }
 
-  // The card a click came from, drawn again and kept current. Used as the reply to that click.
   async redraw(session, evt, fallbackKind) {
     await this.router.registry.poll();
     const kind = this.entries.get(evt.messageId)?.kind;
@@ -149,22 +279,23 @@ export class LiveCardManager {
   }
 
   sendDashboard() {
-    return this.post('dash', null, DASH_TTL);
+    // Clearing local chat history does not invalidate the server-side card ID.
+    // An explicit request must therefore send a visible new panel.
+    return this.postLive('dash', null, DASH_TTL, true);
   }
 
-  // Poll first, so the status light matches the content of the same card.
   async sendPeek(session) {
     await this.router.registry.poll();
-    return this.post('peek', session, this.peekTtl);
+    return this.postLive('peek', session, this.peekTtl);
   }
 
   async sendTerminal(session) {
     await this.router.registry.poll();
-    return this.post('term', session, this.peekTtl);
+    return this.postLive('term', session, this.peekTtl);
   }
 
   async sendTasks(session) {
     await this.router.registry.poll();
-    return this.post('tasks', session, this.peekTtl);
+    return this.postLive('tasks', session, this.peekTtl);
   }
 }
