@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { BOT_MENU_EVENT, createBotMenuHandler } from './bot-menu.mjs';
+import { CLOSED_GROUPS, feishuDomain } from './config.mjs';
 import { log } from './util.mjs';
 
 // Feishu allows about five updates a second per message; one a second is plenty for a phone.
@@ -11,12 +12,17 @@ export class CardUpdater {
     this.entries = new Map();
   }
 
-  schedule(messageId, card) {
+  ensureEntry(messageId) {
     let entry = this.entries.get(messageId);
     if (!entry) {
       entry = { lastSent: 0, card: null, timer: null, busy: Promise.resolve() };
       this.entries.set(messageId, entry);
     }
+    return entry;
+  }
+
+  schedule(messageId, card) {
+    const entry = this.ensureEntry(messageId);
     entry.card = card;
     if (entry.timer) return;
     const wait = Math.max(0, entry.lastSent + this.minIntervalMs - Date.now());
@@ -43,19 +49,16 @@ export class CardUpdater {
 
   // Push the latest card now and wait for it; used for the final state of a card.
   async flush(messageId, card, { throwOnError = false } = {}) {
-    let entry = this.entries.get(messageId);
-    if (!entry) {
-      entry = { lastSent: 0, card: null, timer: null, busy: Promise.resolve() };
-      this.entries.set(messageId, entry);
-    }
+    const entry = this.ensureEntry(messageId);
     if (card) entry.card = card;
     clearTimeout(entry.timer);
     entry.timer = null;
     const sent = this.send(messageId, entry);
     const error = await sent;
-    // A newer write may already be queued on this same entry.
+    // A newer write may already be queued on this same entry; only drop it when this was the last.
     if (entry.busy === sent && !entry.card && !entry.timer && this.entries.get(messageId) === entry) this.entries.delete(messageId);
     if (throwOnError && error) throw error;
+    return !error;
   }
 }
 
@@ -64,9 +67,8 @@ export async function createFeishu({ appId, appSecret, ownerOpenId, tenant = 'fe
   const channel = createChannel({
     appId,
     appSecret,
-    ...(tenant === 'lark' ? { domain: 'https://open.larksuite.com' } : {}),
-    // Only the owner's direct chat reaches the handlers. Groups are closed with a chat id that cannot exist.
-    policy: { dmMode: 'allowlist', dmAllowlist: [ownerOpenId], groupAllowlist: ['oc_fmux_groups_closed'], requireMention: true },
+    ...feishuDomain(tenant),
+    policy: { dmMode: 'allowlist', dmAllowlist: [ownerOpenId], groupAllowlist: CLOSED_GROUPS, requireMention: true },
     safety: {
       staleMessageWindowMs: 5 * 60 * 1000,
       // A chat can contain different session threads; merging loses their routing context.

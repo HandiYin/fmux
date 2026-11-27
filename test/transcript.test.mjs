@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { Tail, adapters, cwdNeedle, lastExchange, lastTurns, piSessionDir } from '../src/transcript.mjs';
+import { Tail, adapters, lastExchange, lastTurns, piSessionDir } from '../src/transcript.mjs';
 import { expandHome, quoteArg, shortPath } from '../src/util.mjs';
 
 const claudeLines = [
@@ -24,6 +24,7 @@ test('claude adapter', () => {
   const events = claudeLines.flatMap((l) => adapters.claude(l));
   assert.deepEqual(events, [
     { type: 'user', text: '跑一下测试' },
+    { type: 'thinking', text: '...' },
     { type: 'text', text: '先看一下目录。' },
     { type: 'tool', name: 'Bash', summary: 'Run the tests' },
     { type: 'tool', name: 'Read', summary: 'main.py' },
@@ -107,9 +108,9 @@ test('lastTurns splits a transcript at the prompts and knows which turn is finis
   const lines = [user('first'), say('thinking aloud'), say('answer one'), end, user('second'), say('answer two'), end, user('third'), say('working on it')];
   fs.writeFileSync(file, lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
   assert.deepEqual(lastTurns(file, adapters.claude), [
-    { prompt: 'first', texts: ['thinking aloud', 'answer one'], done: true },
-    { prompt: 'second', texts: ['answer two'], done: true },
-    { prompt: 'third', texts: ['working on it'], done: false },
+    { prompt: 'first', texts: ['thinking aloud', 'answer one'], thoughts: [], tools: [], done: true },
+    { prompt: 'second', texts: ['answer two'], thoughts: [], tools: [], done: true },
+    { prompt: 'third', texts: ['working on it'], thoughts: [], tools: [], done: false },
   ]);
   assert.deepEqual(lastTurns('/no/such/file', adapters.claude), []);
 });
@@ -119,12 +120,6 @@ test('a pasted block in a Claude prompt: the prompt is what was typed around it'
   assert.deepEqual(user('照着改 <pasted_content id="1">\nA\nB\n</pasted_content id="1">'), [{ type: 'user', text: '照着改' }]);
   assert.deepEqual(user('\n\n<pasted_content id="2">\nonly pasted\nlines\n</pasted_content id="2">\n'), [{ type: 'user', text: 'only pasted\nlines' }]);
   assert.deepEqual(user('<local-command-stdout>x</local-command-stdout>'), []);
-});
-
-test('a working directory is matched in a Codex rollout the way JSON writes it', () => {
-  assert.equal(cwdNeedle('/home/u/proj', 'linux'), '"cwd":"/home/u/proj"');
-  const line = JSON.stringify({ type: 'session_meta', payload: { cwd: 'C:\\Users\\Me\\proj' } });
-  assert.ok(line.toLowerCase().includes(cwdNeedle('c:\\users\\me\\proj', 'win32')), 'Windows paths differ in case');
 });
 
 test('the pi session directory follows the rule pi uses, for both kinds of path', () => {

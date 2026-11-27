@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { agyTranscriptPath, defaultAgyHome, defaultCodexHome, listOpenClaudeSessionIds, readAgyHistory, readCodexIndex, scanCodexRollouts } from './agent-files.mjs';
+import { parseJsonLines, readFileSlice } from './jsonl.mjs';
 import { pick } from './match.mjs';
 import { alive } from './procs.mjs';
 
@@ -9,56 +11,12 @@ import { alive } from './procs.mjs';
 
 const HOME = os.homedir();
 
-function readSlice(file, start, length) {
-  const fd = fs.openSync(file, 'r');
-  try {
-    const buf = Buffer.alloc(length);
-    const n = fs.readSync(fd, buf, 0, length, start);
-    return buf.toString('utf8', 0, n);
-  } finally {
-    fs.closeSync(fd);
-  }
-}
-
-function jsonLines(text) {
-  const out = [];
-  for (const line of text.split('\n')) {
-    if (!line.startsWith('{')) continue;
-    try {
-      out.push(JSON.parse(line));
-    } catch {
-      // a line cut by the slice boundary
-    }
-  }
-  return out;
-}
-
-// Session ids that a running Claude Code has open. Resuming one of these would open it twice.
-function openClaudeSessions() {
-  const open = new Set();
-  const dir = path.join(HOME, '.claude', 'sessions');
-  try {
-    for (const name of fs.readdirSync(dir)) {
-      if (!name.endsWith('.json')) continue;
-      if (!alive(name.slice(0, -5))) continue;
-      try {
-        open.add(JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')).sessionId);
-      } catch {
-        // half-written file
-      }
-    }
-  } catch {
-    // Claude Code never ran here
-  }
-  return open;
-}
-
 function claudeConversation(file, st) {
-  const head = jsonLines(readSlice(file, 0, Math.min(st.size, 48 * 1024)));
+  const head = parseJsonLines(readFileSlice(file, 0, Math.min(st.size, 48 * 1024)));
   const first = head.find((d) => d.cwd);
   if (!first || (first.entrypoint && first.entrypoint !== 'cli')) return null;
   const tailStart = Math.max(0, st.size - 256 * 1024);
-  const tail = jsonLines(readSlice(file, tailStart, st.size - tailStart));
+  const tail = parseJsonLines(readFileSlice(file, tailStart, st.size - tailStart));
   let aiTitle = '';
   let customTitle = '';
   let lastPrompt = '';
@@ -98,7 +56,7 @@ function claudeConversations(limit) {
     return [];
   }
   files.sort((a, b) => b.st.mtimeMs - a.st.mtimeMs);
-  const open = openClaudeSessions();
+  const open = listOpenClaudeSessionIds(alive);
   const out = [];
   for (const { file, st } of files) {
     if (out.length >= limit) break;
@@ -109,43 +67,23 @@ function claudeConversations(limit) {
   return out;
 }
 
-function codexRollouts() {
-  const byId = new Map();
-  const root = path.join(HOME, '.codex', 'sessions');
-  const walk = (dir, depth) => {
-    let entries;
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      if (entry.isDirectory() && depth < 3) walk(path.join(dir, entry.name), depth + 1);
-      else if (entry.name.startsWith('rollout-') && entry.name.endsWith('.jsonl')) byId.set(entry.name.slice(-42, -6), path.join(dir, entry.name));
-    }
-  };
-  walk(root, 0);
-  return byId;
-}
-
 function codexConversations(limit) {
-  let index;
+  const root = defaultCodexHome();
+  let latest;
   try {
-    index = jsonLines(fs.readFileSync(path.join(HOME, '.codex', 'session_index.jsonl'), 'utf8'));
+    latest = readCodexIndex(root);
   } catch {
     return [];
   }
-  const latest = new Map();
-  for (const row of index) if (row.id) latest.set(row.id, row);
   const rows = [...latest.values()].sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
-  const rollouts = codexRollouts();
+  const rollouts = scanCodexRollouts(root);
   const out = [];
   for (const row of rows) {
     if (out.length >= limit) break;
     const file = rollouts.get(row.id);
     if (!file) continue;
     // The first line holds the whole system prompt, so the two fields are cut out of its start.
-    const head = readSlice(file, 0, 4096);
+    const head = readFileSlice(file, 0, 4096);
     const cwd = head.match(/"cwd":"((?:[^"\\]|\\.)*)"/)?.[1];
     const originator = head.match(/"originator":"([^"]*)"/)?.[1];
     // Only conversations held in the terminal UI; threads driven by a script (app-server) are not resumable by hand.
@@ -155,17 +93,42 @@ function codexConversations(limit) {
   return out;
 }
 
-// Newest first. Each agent has its own quota, so a busy Claude history does not hide Codex.
+function agyConversations(limit) {
+  const root = defaultAgyHome();
+  const byId = new Map();
+  for (const row of readAgyHistory(root)) {
+    const id = row.conversationId;
+    if (!id || !row.workspace) continue;
+    const display = String(row.display || '').trim();
+    const prev = byId.get(id);
+    const updatedAt = Number(row.timestamp) || 0;
+    const isSlash = display.startsWith('/');
+    const title = (!isSlash && display) ? display : (prev?.title || display || '(未命名)');
+    if (!prev || updatedAt >= prev.updatedAt) {
+      byId.set(id, { agent: 'agy', id, title, cwd: row.workspace, updatedAt, lastPrompt: !isSlash ? display : (prev?.lastPrompt || '') });
+    }
+  }
+  const out = [];
+  for (const conv of [...byId.values()].sort((a, b) => b.updatedAt - a.updatedAt)) {
+    if (out.length >= limit) break;
+    if (!agyTranscriptPath(conv.id, root)) continue;
+    out.push(conv);
+  }
+  return out;
+}
+
+// Newest first. Each agent has its own quota, so a busy Claude history does not hide Codex or agy.
 // A conversation whose directory is gone cannot be resumed and is left out.
-export function recentConversations({ claude = 10, codex = 5 } = {}) {
-  return [...claudeConversations(claude + 5), ...codexConversations(codex + 5)]
+export function recentConversations({ claude = 10, codex = 5, agy = 5 } = {}) {
+  const quotas = { claude, codex, agy };
+  return [...claudeConversations(claude + 5), ...codexConversations(codex + 5), ...agyConversations(agy + 5)]
     .filter((c) => fs.existsSync(c.cwd))
     .sort((a, b) => b.updatedAt - a.updatedAt)
-    .filter((c, i, all) => all.slice(0, i).filter((o) => o.agent === c.agent).length < (c.agent === 'claude' ? claude : codex));
+    .filter((c, i, all) => all.slice(0, i).filter((o) => o.agent === c.agent).length < (quotas[c.agent] ?? 5));
 }
 
 // By id (or the start of one), or loosely by title. Returns { match, candidates }.
-export function lookupConversation(ref, { agent, list = recentConversations({ claude: 60, codex: 30 }) } = {}) {
+export function lookupConversation(ref, { agent, list = recentConversations({ claude: 60, codex: 30, agy: 30 }) } = {}) {
   const wanted = String(ref || '').trim();
   const pool = list.filter((c) => !agent || c.agent === agent);
   if (/^[0-9a-f-]{6,}$/i.test(wanted)) {

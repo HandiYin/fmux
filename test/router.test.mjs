@@ -93,6 +93,29 @@ test('followed turn: one card streams and then holds the reply; only a long turn
   assert.equal(h.router.views.size, 0);
 });
 
+test('a deleted final card reposts the reply in the session thread instead of losing it', async () => {
+  const s = session({ status: 'working', turn: { startedAt: Date.now(), texts: [], tools: 0 } });
+  const h = harness({ sessions: [s] });
+  h.store.set('attached', { key: '%1', name: 'work' });
+  await h.router.onStatus(s, 'idle');
+  await h.router.views.get('%1').ready;
+  assert.equal(h.cardsSent().length, 2);
+  const liveId = h.router.views.get('%1').messageId;
+  const origUpdate = h.feishu.updater.update;
+  h.feishu.updater.update = async (id, card) => {
+    if (id === liveId) throw new Error('message does not exist');
+    return origUpdate(id, card);
+  };
+
+  s.status = 'idle';
+  await h.router.onTurnEnd(s, turn(3));
+  const cards = h.cardsSent();
+  assert.equal(cards.length, 3, 'the finished card was posted again in the thread');
+  assert.equal(cards[2].card.body.elements[0].content, 'all done');
+  assert.equal(cards[2].replyInThread, true);
+  assert.equal(h.router.views.size, 0);
+});
+
 test('followed long turn: the same card holds the reply, and one line rings the phone', async () => {
   const s = session({ status: 'working', turn: { startedAt: Date.now(), texts: [], tools: 0 } });
   const h = harness({ sessions: [s] });
@@ -185,6 +208,43 @@ test('personal name prefix applies to explicit and automatic names; filtered nam
   h.registry.allows = () => false;
   await assert.rejects(h.router.createSession({ name: 'reserved', agent: 'shell', cwd: '/tmp' }), /过滤设置排除/);
   assert.equal(h.tmux.created.length, 2);
+});
+
+test('with notifications off, even a promised completion stays silent', async () => {
+  const s = session();
+  const h = harness({ sessions: [s], notify: { enabled: false } });
+  h.router.promised.add('%1');
+  await h.router.onTurnEnd(s, turn(90));
+  await h.router.onBlocked(s);
+  assert.equal(h.feishu.sent.length, 0);
+});
+
+test('an idle attachment returns to the dashboard after ten minutes without input', async () => {
+  const s = session();
+  const h = harness({ sessions: [s] });
+  h.store.set('attached', { key: '%1', name: 'work', lastInputAt: Date.now() - 11 * 60000 });
+  await h.router.tick();
+  assert.equal(h.store.get('attached'), null);
+  assert.equal(h.titles().at(-1), '会话面板');
+});
+
+test('a working session, recent input, or idleMinutes 0 keeps the attachment', async () => {
+  const idle = session();
+  const h = harness({ sessions: [idle] });
+  h.store.set('attached', { key: '%1', name: 'work', lastInputAt: Date.now() - 11 * 60000 });
+  idle.status = 'working';
+  await h.router.tick();
+  assert.equal(h.store.get('attached').name, 'work');
+
+  idle.status = 'idle';
+  await h.router.deliver(idle, 'still here');
+  await h.router.tick();
+  assert.equal(h.store.get('attached').name, 'work');
+
+  h.cfg.attach.idleMinutes = 0;
+  h.store.set('attached', { key: '%1', name: 'work', lastInputAt: Date.now() - 99 * 60000 });
+  await h.router.tick();
+  assert.equal(h.store.get('attached').name, 'work');
 });
 
 test('quote-reply and the reply form reach a session without attaching', async () => {

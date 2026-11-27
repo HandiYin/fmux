@@ -4,9 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { Registry } from '../src/registry.mjs';
+import { Store } from '../src/store.mjs';
 import { fakeTmux, pane } from './helpers.mjs';
 
-function setup({ kind = 'claude' } = {}) {
+function setup({ kind = 'claude', store = null } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fmux-reg-'));
   const file = path.join(dir, 't.jsonl');
   fs.writeFileSync(file, '');
@@ -14,6 +15,7 @@ function setup({ kind = 'claude' } = {}) {
   const meta = { status: 'idle', sessionId: 'x' };
   const registry = new Registry({
     tmux,
+    store,
     probe: {
       snapshot: () => ({ procs: new Map(), children: new Map() }),
       findAgent: () => (kind === 'shell' ? null : { kind, pid: 200 }),
@@ -24,7 +26,7 @@ function setup({ kind = 'claude' } = {}) {
   const events = [];
   for (const name of ['added', 'removed', 'status', 'blocked', 'turn_end']) registry.on(name, (s, extra) => events.push([name, name === 'turn_end' ? extra : s.status]));
   const append = (...lines) => fs.appendFileSync(file, lines.map((l) => JSON.stringify(l) + '\n').join(''));
-  return { tmux, meta, registry, events, append };
+  return { tmux, meta, registry, events, file, append };
 }
 
 const text = (t) => ({ type: 'assistant', message: { content: [{ type: 'text', text: t }] } });
@@ -104,8 +106,8 @@ test('agents without a status file are read from the screen', async () => {
   assert.deepEqual(events.at(-1), ['status', 'working']);
 });
 
-test('Codex drops the previous transcript before reading when its identity becomes unknown', async () => {
-  const { registry, append } = setup({ kind: 'codex' });
+test('Codex keeps the last confirmed transcript through an unknown title and forwards the whole turn', async () => {
+  const { registry, file, append } = setup({ kind: 'codex' });
   const output = [];
   registry.on('output', (_, events) => output.push(...events));
   await registry.poll();
@@ -114,19 +116,99 @@ test('Codex drops the previous transcript before reading when its identity becom
   append(say('correct reply'));
   await registry.poll();
   assert.equal(s.lastText, 'correct reply');
-  registry.probe.locateTranscript = (_, __, ___, hint) => {
-    assert.equal(hint.title, 'different conversation');
-    return null;
-  };
-  registry.tmux.panes[0].title = 'different conversation';
-  append(say('must not be forwarded'));
+
+  // While Codex works it sometimes sets the title to only the spinner and the cwd.
+  registry.probe.locateTranscript = () => null;
+  registry.tmux.panes[0].title = '⠧ ubuntu';
+  append(say('reply during the transient title'));
   await registry.poll();
+  assert.equal(s.transcript, file);
+  assert.equal(s.lastText, 'reply during the transient title');
+  assert.doesNotMatch(s.note, /未定位到回复记录/);
+
+  // When the title comes back to the same conversation, nothing is reset and nothing is skipped.
+  registry.probe.locateTranscript = () => file;
+  registry.tmux.panes[0].title = '⠧ work | u';
+  append(say('reply after the title came back'));
+  await registry.poll();
+  assert.equal(s.transcript, file);
+  assert.deepEqual(output.filter((ev) => ev.type === 'text').map((ev) => ev.text), [
+    'correct reply', 'reply during the transient title', 'reply after the title came back',
+  ]);
+});
+
+test('Codex rebinds when the title resolves another thread, without forwarding the old file', async () => {
+  const { registry, tmux, file, append } = setup({ kind: 'codex' });
+  const output = [];
+  registry.on('output', (_, events) => output.push(...events));
+  await registry.poll();
+  const s = registry.resolve('work');
+  const say = (text) => ({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] } });
+  append(say('old thread'));
+  await registry.poll();
+  assert.equal(s.lastText, 'old thread');
+
+  const other = path.join(path.dirname(file), 'other.jsonl');
+  fs.writeFileSync(other, '');
+  registry.probe.locateTranscript = () => other;
+  tmux.panes[0].title = 'other conversation';
+  append(say('old thread continues'));
+  fs.appendFileSync(other, JSON.stringify(say('new thread')) + '\n');
+  await registry.poll();
+  assert.equal(s.transcript, other);
+  assert.equal(s.lastText, 'new thread');
+  assert.deepEqual(output.filter((ev) => ev.type === 'text').map((ev) => ev.text), ['old thread', 'new thread']);
+});
+
+test('Codex with no known identity from the start stays unbound until it can be resolved', async () => {
+  const { registry, tmux, file, append } = setup({ kind: 'codex' });
+  registry.probe.locateTranscript = () => null;
+  tmux.panes[0].title = '⠧ ubuntu';
+  await registry.poll();
+  const s = registry.resolve('work');
   assert.equal(s.transcript, null);
-  assert.equal(s.lastText, '');
-  assert.equal(s.lastPrompt, '');
-  assert.equal(s.turn, null);
   assert.match(s.note, /未定位到回复记录/);
-  assert.deepEqual(output.filter((ev) => ev.type === 'text').map((ev) => ev.text), ['correct reply']);
+
+  registry.probe.locateTranscript = () => file;
+  tmux.panes[0].title = '⠧ work | u';
+  const say = { type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'recovered' }] } };
+  append(say);
+  await registry.poll();
+  assert.equal(s.transcript, file);
+  assert.equal(s.lastText, 'recovered');
+  assert.doesNotMatch(s.note, /未定位到回复记录/);
+});
+
+test('a hub restart resumes the confirmed Codex rollout while the title is bare', async () => {
+  const store = new Store(null);
+  const { tmux, registry, file, append } = setup({ kind: 'codex', store });
+  const say = (text) => ({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] } });
+  append(say('before the restart'));
+  await registry.poll();
+  assert.equal(registry.resolve('work').lastText, 'before the restart');
+  assert.equal(store.get('transcripts')['%1'].file, file);
+
+  // A new hub process starts while Codex has only the spinner and the cwd in its title.
+  const output = [];
+  const restarted = new Registry({
+    tmux,
+    store,
+    probe: {
+      snapshot: () => ({ procs: new Map(), children: new Map() }),
+      findAgent: () => ({ kind: 'codex', pid: 200 }),
+      readClaudeMeta: () => null,
+      locateTranscript: () => null,
+    },
+  });
+  restarted.on('output', (_, events) => output.push(...events));
+  tmux.panes[0].title = '⠧ ubuntu';
+  append(say('while the hub was down'));
+  await restarted.poll();
+  const s = restarted.resolve('work');
+  assert.equal(s.transcript, file);
+  assert.equal(s.lastText, 'while the hub was down');
+  assert.doesNotMatch(s.note, /未定位到回复记录/);
+  assert.deepEqual(output.filter((ev) => ev.type === 'text').map((ev) => ev.text), ['while the hub was down']);
 });
 
 test('a pane that goes away is removed; names follow the pane layout', async () => {
@@ -156,4 +238,19 @@ test('an agent that exits to the shell in the middle of a turn ends the turn', a
   assert.equal(ended.length, 1);
   assert.deepEqual(ended[0][1].texts, ['halfway']);
   assert.equal(registry.resolve('work').kind, 'shell');
+});
+
+test('Store drops unknown legacy keys when loading and flushing state', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fmux-store-'));
+  const file = path.join(dir, 'state.json');
+  fs.writeFileSync(file, JSON.stringify({ chatId: 'oc_1', attached: null, dash: { messageId: 'om_old' }, obsoleteLegacy: { a: 1 }, live: [], messages: [], transcripts: {} }));
+  const store = new Store(file);
+  assert.equal(store.get('chatId'), 'oc_1');
+  assert.equal(store.get('dash'), undefined);
+  assert.equal(store.get('obsoleteLegacy'), undefined);
+  store.flush();
+  const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.equal(saved.dash, undefined);
+  assert.equal(saved.obsoleteLegacy, undefined);
+  assert.equal(saved.chatId, 'oc_1');
 });

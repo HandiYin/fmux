@@ -85,10 +85,10 @@ export function keysFor(dialog, index) {
   return [...Array(Math.abs(delta)).fill(delta > 0 ? 'down' : 'up'), 'enter'];
 }
 
-// Claude and Codex print "esc to interrupt" while they run; pi shows a braille spinner before "Working".
+// Claude, Codex, agy and dsh print interrupt hints or Braille spinners while running.
 export function looksWorking(screen) {
-  const bottom = screen.split('\n').slice(-10).join('\n');
-  return /esc to interrupt|ctrl\+c to interrupt|[\u2801-\u28ff]\s*(Working|Thinking|Compacting|Retrying)/i.test(bottom);
+  const bottom = screen.split('\n').slice(-16).join('\n');
+  return /esc to (interrupt|cancel)|ctrl\+c to (interrupt|cancel)|esc\s*(?:中断|取消)|思考中|执行中|[\u2801-\u28ff]\s*(Working|Thinking|Compacting|Retrying|Running)|^\s*[\u2801-\u28ff]\s+\S/im.test(bottom);
 }
 
 // Trim a capture for a phone: drop blank runs, shorten rules, keep the last `maxLines`.

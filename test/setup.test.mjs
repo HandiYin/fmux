@@ -68,6 +68,7 @@ test('pair binds the sender of the first direct message and confirms in the chat
   assert.deepEqual(sent, [['oc_dm', 'om_1']]);
   assert.equal(disconnected, true);
   assert.equal(loadConfig().owner.openId, 'ou_me');
+  assert.equal(loadConfig().live.peekMinutes, 10);
 });
 
 test('pair gives up with a hint when no message arrives', async () => {

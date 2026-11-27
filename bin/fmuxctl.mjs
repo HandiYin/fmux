@@ -15,16 +15,24 @@ const USAGE = `fmuxctl — control the running fmux
                [--screen] [--lines N]      the end of <from>'s terminal instead (a shell always uses this)
   fmuxctl attach <session>                route the Feishu chat to the session
   fmuxctl detach                          route the Feishu chat back to the concierge
-  fmuxctl new <name> [--agent claude|codex|pi|shell] [--cwd DIR] [--prompt TEXT] [--no-attach]
+  fmuxctl new <name> [--agent claude|codex|agy|dsh|pi|shell] [--cwd DIR] [--prompt TEXT] [--no-attach]
                [--continue]                resume the latest conversation of that agent in DIR
                [--resume ID|TITLE]         resume a past conversation (agent and DIR come from it)
-               [--no-yolo]                 start without "claude -d" / "codex --yolo"
+               [--no-yolo]                 start without auto-approve flags
   fmuxctl new                             post the new-session form to the chat, for the owner to fill in
-  fmuxctl history [--json]                past Claude Code and Codex conversations that can be resumed
+  fmuxctl history [--json]                past Claude Code, Codex and agy conversations that can be resumed
+  fmuxctl tasks <session> [-n LINES] [--task ID] [--json]
+                                          show background tasks and task logs of a session (agy)
+  fmuxctl gpu ls [--json]                 show live local/gongji GPUs and all registered leases by cluster
+  fmuxctl gpu register --cluster local|gongji|volc --gpus 0|1|8 --session NAME --task DESC [--job-id ID] [--model NAME] [--host HOST] [--ttl 240]
+  fmuxctl gpu release <lease-id> | --job-id ID | --session NAME [--cluster C]
+  fmuxctl rename <session> [new-tmux-name] [--title TITLE]
+                                          rename the tmux session and/or inner agent conversation (/rename)
   fmuxctl kill <session> --yes            end the tmux session
   fmuxctl notify <text…> [--title T]      send a card to the owner's chat
   fmuxctl dashboard                       post a fresh session dashboard card
-  fmuxctl show <session> [--terminal]     post the session's card to the chat: its last exchange, or its terminal
+  fmuxctl show <session> [--terminal|--tasks]
+                                          post the session's card to the chat: reply, terminal, or tasks
 
 <session> is the number shown by "ls", or a loose name: part of the tmux name, of the
 agent's title or of the directory. A name that fits several sessions is refused with the list.`;
@@ -43,7 +51,7 @@ function has(args, flag) {
   return true;
 }
 
-const STATUS = { working: 'working', idle: 'idle', blocked: 'BLOCKED', shell: 'shell' };
+const STATUS = { working: 'working', background: 'BG-TASK', idle: 'idle', blocked: 'BLOCKED', shell: 'shell' };
 
 async function main() {
   const args = process.argv.slice(2);
@@ -95,13 +103,33 @@ async function main() {
     case 'attach':
       return console.log(JSON.stringify(await call('attach', { ref: args[0] })));
     case 'show':
-      return console.log(JSON.stringify(await call('show', { terminal: has(args, '--terminal'), ref: args[0] })));
+      return console.log(JSON.stringify(await call('show', { terminal: has(args, '--terminal'), tasks: has(args, '--tasks'), ref: args[0] })));
+    case 'tasks': {
+      const json = has(args, '--json');
+      const lines = Number(take(args, '-n') || 40);
+      const taskId = take(args, '--task');
+      const r = await call('tasks', { ref: args[0], taskId, lines });
+      if (json) return console.log(JSON.stringify(r, null, 2));
+      console.log(`# ${r.name} · ${r.kind} · ${r.status} (${r.runningTasks} running / ${r.tasks.length} total)`);
+      for (const t of r.tasks) {
+        console.log(`  [${t.status.padEnd(7)}] ${t.shortId.padEnd(10)} (${t.kind}) ${t.description}${t.summary ? ` — ${t.summary}` : ''}`);
+      }
+      if (r.log) console.log(`\n--- log (${r.selectedTaskId}) ---\n${r.log}`);
+      return undefined;
+    }
     case 'new': {
       if (!args.length) return console.log(JSON.stringify(await call('form')));
       const resume = take(args, '--resume') || (has(args, '--continue') ? 'last' : 'new');
       const params = { agent: take(args, '--agent') || 'claude', cwd: take(args, '--cwd') || '~', prompt: take(args, '--prompt') || '', attach: !has(args, '--no-attach'), yolo: !has(args, '--no-yolo'), resume };
-      has(args, '--yolo');
       return console.log(JSON.stringify(await call('new', { name: args[0], ...params }), null, 2));
+    }
+    case 'rename': {
+      const sessionTitle = take(args, '--title') || '';
+      const tmuxName = take(args, '--tmux') || args[1] || '';
+      if (!args[0] || (!tmuxName && !sessionTitle)) {
+        throw new Error('usage: fmuxctl rename <session> [new-tmux-name] [--title "Conversation Title"]');
+      }
+      return console.log(JSON.stringify(await call('rename', { ref: args[0], tmuxName, sessionTitle }), null, 2));
     }
     case 'kill':
       if (!has(args, '--yes')) throw new Error('refusing to kill without --yes');
@@ -109,6 +137,66 @@ async function main() {
     case 'notify': {
       const title = take(args, '--title');
       return console.log(JSON.stringify(await call('notify', { title, text: args.join(' ') })));
+    }
+    case 'gpu': {
+      const sub = args.shift() || 'ls';
+      if (sub === 'ls') {
+        const json = has(args, '--json');
+        const snap = await call('gpu.ls');
+        if (json) return console.log(JSON.stringify(snap, null, 2));
+        console.log(`=== 本机器 (local · ${snap.hostName}) ===`);
+        for (const g of snap.localGpus) {
+          console.log(`  GPU ${g.index} ${g.name} | ${g.utilization}% | ${g.memoryUsedMb}/${g.memoryTotalMb} MiB | ${g.temperatureC}C | ${g.powerW}W`);
+        }
+        for (const l of snap.clusters?.local?.leases || []) {
+          console.log(`  [LEASE ${l.id}] GPU:${l.gpus.join(',')} session=${l.session || '-'} task=${l.task} (${l.expired ? 'EXPIRED' : l.status})`);
+        }
+        console.log(`=== 共绩集群 (gongji · ${snap.gongjiJobs?.length || 0} live) ===`);
+        for (const j of snap.gongjiJobs || []) {
+          console.log(`  [LIVE ${j.taskId}] ${j.own ? 'OUR' : 'TEAM'} ${j.status}/${j.jobStatus} ${j.subType} ${j.gpuCount}x${j.model} ¥${j.costYuan} — ${j.name}`);
+        }
+        for (const l of snap.clusters?.gongji?.leases || []) {
+          console.log(`  [LEASE ${l.id}] job=${l.jobId || '-'} GPU:${l.gpus.join(',')} ${l.model || ''} session=${l.session || '-'} task=${l.task}`);
+        }
+        console.log(`=== 火山集群 (volc · ${snap.clusters?.volc?.leases?.length || 0} leases) ===`);
+        for (const l of snap.clusters?.volc?.leases || []) {
+          console.log(`  [LEASE ${l.id}] job=${l.jobId || '-'} GPU:${l.gpus.join(',')} ${l.model || ''} session=${l.session || '-'} task=${l.task} (${l.expired ? 'EXPIRED' : l.status})`);
+        }
+        return undefined;
+      }
+      if (sub === 'register') {
+        const params = {
+          cluster: take(args, '--cluster') || '',
+          gpus: take(args, '--gpus') || '0',
+          host: take(args, '--host') || '',
+          jobId: take(args, '--job-id') || '',
+          session: take(args, '--session') || '',
+          task: take(args, '--task') || args.join(' '),
+          model: take(args, '--model') || '',
+          note: take(args, '--note') || '',
+          status: take(args, '--status') || 'running',
+          ttlMinutes: Number(take(args, '--ttl') || 240),
+        };
+        return console.log(JSON.stringify(await call('gpu.register', params), null, 2));
+      }
+      if (sub === 'heartbeat') {
+        const id = take(args, '--id') || take(args, '--job-id') || args[0];
+        const params = {
+          id,
+          status: take(args, '--status'),
+          note: take(args, '--note'),
+          ttlMinutes: take(args, '--ttl') ? Number(take(args, '--ttl')) : undefined,
+        };
+        return console.log(JSON.stringify(await call('gpu.heartbeat', params), null, 2));
+      }
+      if (sub === 'release') {
+        const session = take(args, '--session');
+        const jobId = take(args, '--job-id');
+        const cluster = take(args, '--cluster');
+        const id = take(args, '--id') || (!session && !jobId ? args[0] : undefined);
+        return console.log(JSON.stringify(await call('gpu.release', { id, jobId, session, cluster }), null, 2));
+      }
+      throw new Error('usage: fmuxctl gpu ls|register|heartbeat|release');
     }
     case 'dev': {
       const sub = args.shift();

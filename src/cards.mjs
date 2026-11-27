@@ -3,10 +3,11 @@
 // Look: a header is colored only when the session needs a glance (green: running,
 // orange: waiting for the owner, red: error). Everything else is plain. A card carries
 // only the buttons that make sense in its state.
+import { listTasks, runningTasks } from './agy-tasks.mjs';
 import { compactScreen } from './screen.mjs';
-import { fmtClock, fmtDuration, oneLine, shortPath, truncate, truncateHead } from './util.mjs';
+import { fmtClock, fmtClockSec, fmtDuration, oneLine, shortPath, truncate, truncateHead } from './util.mjs';
 
-export const KIND_LABEL = { claude: 'Claude', codex: 'Codex', pi: 'pi', shell: 'shell' };
+export const KIND_LABEL = { claude: 'Claude', codex: 'Codex', agy: 'AGY', dsh: 'DeepSeek', pi: 'pi', shell: 'shell' };
 
 // Tokens from Feishu's icon library (open.feishu.cn: feishu-cards/enumerations-for-icons).
 export const ICON = {
@@ -14,6 +15,7 @@ export const ICON = {
   detach: 'logout_outlined',
   peek: 'visible_outlined',
   terminal: 'computer_outlined',
+  tasks: 'time_outlined',
   refresh: 'refresh_outlined',
   add: 'add_outlined',
   concierge: 'robot_outlined',
@@ -37,10 +39,11 @@ export function fmtElapsed(ms) {
   return `${Math.floor(min / 60)} 小时 ${min % 60} 分`;
 }
 
-// The light of a session: lit green while it runs, off when it ended, orange when it waits for you.
+// The light of a session: green while running, blue while background tasks run, orange when waiting, off when ended.
 export function light(s, now = Date.now()) {
   if (s.dormant) return { dot: '⚪', label: '休眠', color: 'neutral', detail: '发送消息会自动恢复' };
   if (s.status === 'working') return { dot: '🟢', label: '运行中', color: 'green', detail: `已 ${fmtElapsed(now - s.statusSince)}` };
+  if (s.status === 'background') return { dot: '🔵', label: '后台任务', color: 'blue', detail: s.note || `已 ${fmtElapsed(now - s.statusSince)}` };
   if (s.status === 'blocked') return { dot: '🟠', label: '等待确认', color: 'orange', detail: s.note || '' };
   if (s.status === 'shell') {
     return s.note
@@ -52,12 +55,12 @@ export function light(s, now = Date.now()) {
   return { dot: '⚪', label: '已结束', color: 'neutral', detail: [`${fmtClock(s.statusSince)} 结束`, s.note].filter(Boolean).join(' · ') };
 }
 
-export function statusText(s, now = Date.now()) {
+function statusText(s, now = Date.now()) {
   const l = light(s, now);
   return [l.label, l.detail].filter(Boolean).join(' · ');
 }
 
-const TONE = { green: 'green', orange: 'orange', neutral: 'default' };
+const TONE = { green: 'green', blue: 'blue', orange: 'orange', neutral: 'default' };
 const tone = (session, now) => TONE[light(session, now).color];
 
 // ---- elements ----
@@ -67,10 +70,11 @@ const note = (content) => ({ tag: 'markdown', content, text_size: 'notation' });
 const plain = (content) => ({ tag: 'plain_text', content });
 const icon = (token) => ({ tag: 'standard_icon', token });
 const tag = (content, color = 'neutral') => ({ tag: 'text_tag', text: plain(content), color });
-const clock = (ms) => new Date(ms).toTimeString().slice(0, 8);
 
-function btn(label, value, { type = 'default', confirm, icon: token, size } = {}) {
+function btn(label, value, { type = 'default', confirm, icon: token, size, name, submit = false } = {}) {
   const button = { tag: 'button', text: plain(label), type, behaviors: [{ type: 'callback', value }] };
+  if (name) button.name = name;
+  if (submit) button.form_action_type = 'submit';
   if (token) button.icon = icon(token);
   if (size) button.size = size;
   if (confirm) button.confirm = { title: plain(confirm.title), text: plain(confirm.text) };
@@ -137,12 +141,13 @@ function toolNote(count, lastTool) {
 
 // The last line of a card that is kept current after it was sent.
 function liveNote(live, now) {
-  if (live === 'off') return note(`已停止刷新（${clock(now)}）`);
-  return note(`更新于 ${clock(now)}`);
+  if (live === 'off') return note(`已停止刷新（${fmtClockSec(now)}）`);
+  return note(`更新于 ${fmtClockSec(now)}`);
 }
 
 const ref = (s) => ({ s: s.key, n: s.name });
 const terminalButton = (session) => btn('终端', { a: 'term', ...ref(session) }, { icon: ICON.terminal });
+const tasksButton = (session) => btn('后台任务', { a: 'tasks', ...ref(session) }, { icon: ICON.tasks });
 const attachButton = (session, extra = {}, options = {}) => btn('接入', { a: 'attach', ...extra, ...ref(session) }, { type: 'primary', icon: ICON.attach, ...options });
 const detachButton = (extra = {}, options = {}) => btn('断开', { a: 'detach', ...extra }, { icon: ICON.detach, ...options });
 
@@ -152,15 +157,7 @@ function replyForm(session, placeholder, extra = {}) {
     name: 'reply',
     elements: [
       { tag: 'input', name: 'text', placeholder: plain(placeholder), required: true },
-      row([{
-        tag: 'button',
-        name: 'send',
-        text: plain('发送'),
-        icon: icon(ICON.send),
-        type: 'primary',
-        form_action_type: 'submit',
-        behaviors: [{ type: 'callback', value: { a: 'reply', ...ref(session), ...extra } }],
-      }]),
+      row([btn('发送', { a: 'reply', ...ref(session), ...extra }, { name: 'send', type: 'primary', icon: ICON.send, submit: true })]),
     ],
   };
 }
@@ -177,7 +174,7 @@ export function stubCard(text) {
 }
 
 // Every tmux session: a light, the state, one line of what it said last.
-export function dashboardCard({ sessions, attachedKey, quiet = false, now = Date.now() }) {
+export function dashboardCard({ sessions, attachedKey, quiet = false, webUrl = '', now = Date.now() }) {
   const elements = [];
   if (!sessions.length) elements.push(md('现在没有 tmux 会话。'));
   sessions.slice(0, 16).forEach((s) => {
@@ -191,20 +188,25 @@ export function dashboardCard({ sessions, attachedKey, quiet = false, now = Date
     elements.push(row([
       attached ? detachButton({ from: 'dash' }, { size: 'small' }) : attachButton(s, { from: 'dash' }, { size: 'small' }),
       btn('查看', { a: 'peek', ...ref(s) }, { icon: ICON.peek, size: 'small' }),
+      runningTasks(s).length ? btn('任务', { a: 'tasks', ...ref(s) }, { icon: ICON.tasks, size: 'small' }) : null,
     ]));
   });
   if (sessions.length > 16) elements.push(note(`还有 ${sessions.length - 16} 个会话没有列出，用 //a <名字> 接入。`));
   elements.push({ tag: 'hr' });
   elements.push(row([btn('新建会话', { a: 'new.form' }, { icon: ICON.add, size: 'small' })]));
-  elements.push(note(`更新于 ${fmtClock(now)}${quiet ? ' · 本机键盘在用，通知暂停' : ''}`));
+  const footer = [`更新于 ${fmtClock(now)}`];
+  if (quiet) footer.push('本机键盘在用，通知暂停');
+  if (webUrl) footer.push(`[打开网页端](${webUrl})`);
+  elements.push(note(footer.join(' · ')));
   const attachedName = sessions.find((s) => s.key === attachedKey)?.name;
   const blocked = sessions.filter((s) => s.status === 'blocked').length;
   const busy = sessions.filter((s) => light(s, now).color === 'green').length;
+  const bg = sessions.filter((s) => s.status === 'background').length;
   return card({
     title: '会话面板',
     subtitle: `消息发往 ${attachedName || 'Pi 管家'}`,
     template: blocked ? 'orange' : 'default',
-    summary: `会话面板：${busy} 个运行中${blocked ? `，${blocked} 个等待确认` : ''}`,
+    summary: `会话面板：${busy} 个运行中${bg ? `，${bg} 个后台任务` : ''}${blocked ? `，${blocked} 个等待确认` : ''}`,
     icon: ICON.sessions,
     elements,
   });
@@ -213,6 +215,11 @@ export function dashboardCard({ sessions, attachedKey, quiet = false, now = Date
 // Where a session is: its state, the last prompt and the last reply. Sent by 查看 and by 接入.
 export function sessionCard({ session, attached = false, now = Date.now(), live = 'on' }) {
   const elements = [];
+  const tasks = listTasks(session);
+  const running = runningTasks(session);
+  if (running.length) {
+    elements.push(note(`🔵 后台任务运行中（${running.length} 个）：${running.slice(0, 3).map((t) => `${t.shortId} ${plainPreview(t.description, 32)}`).join('；')}`));
+  }
   if (session.lastPrompt) elements.push(note(`上一条输入：${plainPreview(session.lastPrompt, 90)}`));
   if (session.lastText) elements.push(md(truncate(session.lastText, 1200, '\n\n…（已截断）')));
   else elements.push(note('这个会话还没有回复。'));
@@ -220,6 +227,7 @@ export function sessionCard({ session, attached = false, now = Date.now(), live 
   elements.push(note('此处状态为上次查看时的快照。任务进度和回复在线程中；也可在线程内发消息。'));
   elements.push(row([
     attached ? detachButton() : attachButton(session),
+    tasks.length ? tasksButton(session) : null,
     terminalButton(session),
     btn('刷新', { a: 'peek.refresh', ...ref(session) }, { icon: ICON.refresh }),
   ]));
@@ -231,6 +239,46 @@ export function sessionCard({ session, attached = false, now = Date.now(), live 
     template: tone(session, now),
     summary: `${session.name}：${statusText(session, now)}`,
     icon: ICON.agent,
+    elements,
+  });
+}
+
+const TASK_STATE_ICON = { running: '🔵', done: '✅', error: '❌', killed: '⏹' };
+const TASK_KIND_LABEL = { command: '命令', schedule: '定时', subagent: '子代理', workflow: '工作流' };
+
+// Background tasks card for agy sessions: running/recent tasks plus a live tail of the active task log.
+export function tasksCard({ session, tasks = listTasks(session), selectedTask = null, logText = '', attached = false, now = Date.now(), live = 'on' }) {
+  const elements = [];
+  if (!tasks.length) {
+    elements.push(note('当前没有记录到后台任务。'));
+  } else {
+    const lines = tasks.slice(0, 8).map((t) => {
+      const elapsed = fmtDuration(((t.endedAt || now) - t.startedAt) / 1000);
+      const badge = TASK_STATE_ICON[t.status] || '⚪';
+      const kind = TASK_KIND_LABEL[t.kind] || t.kind;
+      const tail = t.summary ? ` · ${plainPreview(t.summary, 40)}` : '';
+      return `${badge} **${t.shortId}**（${kind} · ${elapsed}）\n<font color='grey'>${plainPreview(t.description, 65)}${tail}</font>`;
+    });
+    elements.push(md(lines.join('\n\n')));
+    if (selectedTask) {
+      elements.push(note(`日志：${selectedTask.shortId}${selectedTask.logFile ? `（${shortPath(selectedTask.logFile)}）` : ''}`));
+      elements.push(codeBlock(compactScreen(logText || '（暂无日志输出）', 16, 100)));
+    }
+  }
+  elements.push(row([
+    btn('刷新', { a: 'tasks.refresh', ...ref(session) }, { icon: ICON.refresh }),
+    terminalButton(session),
+    attached ? detachButton() : attachButton(session),
+  ]));
+  elements.push(liveNote(live, now));
+  const runningCount = tasks.filter((t) => t.status === 'running').length;
+  return card({
+    title: session.name,
+    subtitle: runningCount ? `后台任务 · ${runningCount} 个运行中` : `后台任务 · 共 ${tasks.length} 条记录`,
+    tags: sessionTags(session, now, attached),
+    template: runningCount ? 'blue' : tone(session, now),
+    summary: `${session.name} 的后台任务（${runningCount} 个运行中）`,
+    icon: ICON.tasks,
     elements,
   });
 }
@@ -287,8 +335,14 @@ function missingReply(session) {
 export function turnCard({ session, state, texts, tools, lastTool, startedAt, endedAt, now = Date.now() }) {
   const done = state === 'done';
   const elements = done && !texts.length ? [note(missingReply(session))] : turnBody(texts, done);
+  const bg = runningTasks(session);
   if (done) {
-    if (!texts.length) elements.push(row([terminalButton(session)]));
+    if (bg.length) {
+      elements.push(note(`🔵 有 ${bg.length} 个后台任务仍在运行（${bg[0].shortId}），完成后会自动唤醒并回复。`));
+      elements.push(row([tasksButton(session), ...(!texts.length ? [terminalButton(session)] : [])]));
+    } else if (!texts.length) {
+      elements.push(row([terminalButton(session)]));
+    }
     elements.push(replyForm(session, `继续 ${session.name}`));
     return card({
       title: session.name,
@@ -299,7 +353,7 @@ export function turnCard({ session, state, texts, tools, lastTool, startedAt, en
     });
   }
   if (tools) elements.push(toolNote(tools, lastTool));
-  elements.push(row([btn('中断', { a: 'key', k: 'esc', ...ref(session) }, { type: 'danger', icon: ICON.stop }), terminalButton(session)]));
+  elements.push(row([btn('中断', { a: 'key', k: 'esc', ...ref(session) }, { type: 'danger', icon: ICON.stop }), bg.length ? tasksButton(session) : null, terminalButton(session)]));
   return card({
     title: session.name,
     subtitle: `已 ${fmtElapsed(now - startedAt)}`,
@@ -363,8 +417,8 @@ function conversationLabel(c) {
   return truncate(`${KIND_LABEL[c.agent]} · ${oneLine(c.title, 26)} · ${when} · ${shortPath(c.cwd)}`, 70);
 }
 
-// `conversations` are past Claude Code and Codex conversations that the new session can resume.
-export function newSessionCard({ error, agents = ['claude', 'codex', 'pi', 'shell'], conversations = [] } = {}) {
+// `conversations` are past Claude Code, Codex and agy conversations that the new session can resume.
+export function newSessionCard({ error, agents = ['claude', 'codex', 'agy', 'dsh', 'pi', 'shell'], conversations = [] } = {}) {
   return card({
     title: '新建会话',
     icon: ICON.add,
@@ -396,7 +450,7 @@ export function newSessionCard({ error, agents = ['claude', 'codex', 'pi', 'shel
             name: 'yolo',
             initial_option: 'yes',
             options: [
-              { text: plain('免确认：是（claude -d 自动模式 / codex --yolo）'), value: 'yes' },
+              { text: plain('免确认：是（claude -d / codex --yolo / agy 免确认）'), value: 'yes' },
               { text: plain('免确认：否（不加参数）'), value: 'no' },
             ],
           },
@@ -404,15 +458,7 @@ export function newSessionCard({ error, agents = ['claude', 'codex', 'pi', 'shel
           { tag: 'input', name: 'name', label: plain('会话名'), placeholder: plain('留空自动起名') },
           { tag: 'input', name: 'prompt', label: plain('第一条消息'), placeholder: plain('可以留空') },
           note('选「恢复」时，类型和目录按那次对话来。'),
-          row([{
-            tag: 'button',
-            name: 'create',
-            text: plain('创建并接入'),
-            icon: icon(ICON.add),
-            type: 'primary',
-            form_action_type: 'submit',
-            behaviors: [{ type: 'callback', value: { a: 'new.submit' } }],
-          }]),
+          row([btn('创建并接入', { a: 'new.submit' }, { name: 'create', type: 'primary', icon: ICON.add, submit: true })]),
         ],
       },
     ],
@@ -453,14 +499,14 @@ export function helpCard() {
     icon: ICON.help,
     elements: [
       md([
-        '**面板**：发「面板」两个字，列出所有 tmux 会话。🟢 运行中　⚪ 已结束　🟠 等待确认。',
+        '**面板**：发「面板」两个字，列出所有 tmux 会话。🟢 运行中　🔵 后台任务　⚪ 已结束　🟠 等待确认。',
         '**接入**：点「接入」后，你发的消息都进那个会话，回复以卡片发回来。',
         '**断开**：回到 Pi 管家。没接入时可以直接说话，让它切换、查看、新建会话。',
         '**引用回复**：引用某个会话的卡片再回复，消息进那个会话，不用切换。',
-        '**终端**：会话卡在某个提示上时，点「终端」看屏幕、按键。',
+        '**终端 / 后台任务**：点「终端」看屏幕按键；agy 会话可点「后台任务」查看后台命令/定时/子代理实时日志。',
         '',
         '文字命令（接入时用 `//` 开头）：',
-        '`//ls` 面板　`//a <名字>` 接入　`//d` 断开　`//peek <名字>` 查看',
+        '`//ls` 面板　`//a <名字>` 接入　`//d` 断开　`//peek <名字>` 查看　`//tasks [名字]` 后台任务',
         '`//key <名字> esc|enter|1…` 按键　`//new` 新建　`//pi <消息>` 问管家',
       ].join('\n')),
     ],

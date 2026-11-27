@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { runningTasks } from './agy-tasks.mjs';
 import { Registry } from './registry.mjs';
 import * as realTmux from './tmux.mjs';
 import { log, quoteArg, sleep } from './util.mjs';
@@ -35,7 +36,7 @@ export class ManagedRegistry extends Registry {
   constructor({ cfg, store, tmux = realTmux, probe, now = Date.now, wait = sleep } = {}) {
     super({ tmux, intervalMs: cfg.poll.intervalMs, ...cfg.tmux });
     Object.assign(this, { cfg, store, rawTmux: tmux, now, wait });
-    this.liveRegistry = new Registry({ tmux, intervalMs: this.intervalMs, ...cfg.tmux, probe });
+    this.liveRegistry = new Registry({ tmux, intervalMs: this.intervalMs, ...cfg.tmux, probe, store });
     this.records = new Map(Object.entries(store.get('managedSessions') || {}));
     this.rawKeys = new Map();
     this.operations = new Map();
@@ -44,7 +45,7 @@ export class ManagedRegistry extends Registry {
     this.starting = new Map(Object.entries(store.get('startingSessions') || {}));
     this.restoring = new Set([...this.records].filter(([, r]) => r.restoring).map(([key]) => key));
     for (const [key, record] of this.records) if (this.allows(record.tmuxSession)) this.sessions.set(key, this.dormant(record));
-    for (const event of ['added', 'output', 'status', 'blocked', 'turn_end']) {
+    for (const event of ['added', 'output', 'status', 'blocked', 'turn_end', 'task_update']) {
       this.liveRegistry.on(event, (raw, ...args) => this.emit(event, this.convert(raw), ...args));
     }
     this.liveRegistry.on('removed', (raw) => {
@@ -71,6 +72,18 @@ export class ManagedRegistry extends Registry {
       sendText: (key, text, { allowBlocked = false, ...options } = {}) =>
         this.use(key, (s) => tmux.sendText(s.paneId, text, options), { allowBlocked }),
       sendKeys: (key, keys) => this.use(key, (s) => tmux.sendKeys(s.paneId, keys), { allowBlocked: true, allowUnverified: true }),
+      renameSession: async (oldName, newName) => {
+        await tmux.renameSession(oldName, newName);
+        let updated = false;
+        for (const rec of this.records.values()) {
+          if (rec.tmuxSession !== oldName) continue;
+          const wasSingle = rec.name === oldName;
+          rec.tmuxSession = newName;
+          rec.name = wasSingle ? newName : rec.name.replace(/^[^:]+/, newName);
+          updated = true;
+        }
+        if (updated) this.save(true);
+      },
       killSession: async (name, { key } = {}) => {
         const matches = this.list().filter((s) => s.tmuxSession === name && (!key || s.key === key));
         if (matches.length > 1) throw new Error('存在多个同名会话，请明确选择要结束的会话。');
@@ -103,8 +116,39 @@ export class ManagedRegistry extends Registry {
   }
 
   dormant(record) {
-    return { ...record, paneId: null, dormant: true, status: 'idle', turn: null, pending: null,
-      tail: null, dialog: null, note: '已休眠，发送消息会自动恢复', windowIndex: 0, paneIndex: 0 };
+    return {
+      ...record, paneId: null, dormant: true, status: 'idle', turn: null, pending: null,
+      tail: null, dialog: null, note: '已休眠，发送消息会自动恢复', windowIndex: 0, paneIndex: 0,
+      unitId: record.unitId || 0, model: record.model || '', modelFamily: '', effort: '',
+      stoppedAt: 0, sentAt: 0, tasks: new Map(),
+    };
+  }
+
+  listStable() {
+    const paneOrder = (s) => {
+      const m = String(s.paneId || '').match(/^%(\d+)$/);
+      return m ? Number(m[1]) : Number.MAX_SAFE_INTEGER;
+    };
+    return [...this.sessions.values()].sort((a, b) =>
+      (a.unitId || Number.MAX_SAFE_INTEGER) - (b.unitId || Number.MAX_SAFE_INTEGER)
+      || paneOrder(a) - paneOrder(b)
+      || a.name.localeCompare(b.name));
+  }
+
+  markStopped(s) {
+    if (!s) return;
+    const raw = s.paneId ? this.liveRegistry.sessions.get(s.paneId) : null;
+    if (raw) {
+      this.liveRegistry.markStopped(raw);
+      Object.assign(s, {
+        stoppedAt: raw.stoppedAt, sentAt: raw.sentAt, turn: raw.turn,
+        lastActivityAt: raw.lastActivityAt, pending: raw.pending, pendingAt: raw.pendingAt,
+        status: raw.status, statusSince: raw.statusSince,
+      });
+    } else {
+      super.markStopped(s);
+    }
+    this.emit('changed');
   }
 
   convert(raw) {
@@ -237,7 +281,7 @@ export class ManagedRegistry extends Registry {
         log('info', 'lifecycle.retired', { session: s.name });
       });
     }
-    const signature = this.list().map((s) => [s.key, s.name, s.status, s.dormant, s.note, s.lastText].join('\u0001')).join('\u0002');
+    const signature = this.list().map((s) => [s.key, s.name, s.kind, s.status, s.dormant, s.model || '', s.effort || '', s.note, s.title || '', s.lastText.slice(0, 80), runningTasks(s).length, s.tasks?.size || 0].join('\u0001')).join('\u0002');
     if (signature !== this.signature) { this.signature = signature; this.emit('changed'); }
   }
 

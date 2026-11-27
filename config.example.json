@@ -6,6 +6,19 @@
   },
   "owner": { "openId": "", "chatId": "" },
   "notify": { "minWorkSec": 20, "quietIfLocalActiveSec": 180 },
+  "attach": { "idleMinutes": 10 },
   "lifecycle": { "enabled": true, "idleMinutes": 60, "restoreTimeoutMs": 30000 },
-  "concierge": { "enabled": true }
+  "web": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 18790,
+    "publicUrl": "",
+    "oidc": { "enabled": false }
+  },
+  "highlight": {
+    "enabled": true,
+    "baseUrl": "https://api.deepseek.com/v1",
+    "model": "deepseek-chat"
+  },
+  "concierge": { "enabled": true, "model": "openai-codex/gpt-6.1-sol" }
 }

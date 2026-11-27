@@ -117,10 +117,6 @@ export class Concierge extends EventEmitter {
     if (this.child && this.busy) this.send({ type: 'abort' });
   }
 
-  newSession() {
-    this.send({ type: 'new_session' });
-  }
-
   stop() {
     const child = this.child;
     this.child = null;

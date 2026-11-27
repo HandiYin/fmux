@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 const USAGE = `fmux — one Feishu chat for all your tmux sessions
 
-  fmux                    run the hub in the foreground (the service runs this)
+  fmux [--web]            run the hub in the foreground (the service runs this; --web enables the browser UI)
   fmux setup [--force]    create the Feishu bot app with a QR code, then bind yourself as its owner
   fmux setup --app-id cli_xxx [--from-lark-channel-bridge] [--lark]
                           use a bot app you already have, then bind yourself as its owner
@@ -20,9 +20,13 @@ async function main() {
   switch (command) {
     case undefined:
     case 'run':
-    case '--fake': {
+    case '--fake':
+    case '--web': {
       const { runDaemon } = await import('../src/daemon.mjs');
-      return runDaemon({ fake: command === '--fake' || rest.includes('--fake') || process.env.FMUX_FAKE === '1' });
+      return runDaemon({
+        fake: command === '--fake' || rest.includes('--fake') || process.env.FMUX_FAKE === '1',
+        web: command === '--web' || rest.includes('--web') || process.env.FMUX_WEB === '1',
+      });
     }
     case 'setup': {
       const { createApp, pair, promptHidden, useExistingApp } = await import('../src/setup.mjs');

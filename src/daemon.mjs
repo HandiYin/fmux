@@ -4,14 +4,18 @@ import { CONFIG_PATH, ROOT, loadConfig, resolveSecret } from './config.mjs';
 import { Concierge } from './concierge.mjs';
 import { startControl } from './control.mjs';
 import { createFakeFeishu, createFeishu } from './feishu.mjs';
+import { GpuRegistry } from './gpu.mjs';
 import { ManagedRegistry } from './managed-registry.mjs';
+import { OpsEngine } from './ops.mjs';
 import { Router } from './router.mjs';
 import { Store } from './store.mjs';
 import { log } from './util.mjs';
+import { startWebServer } from './web.mjs';
 
-// The long-running process: Feishu connection, tmux registry, router, control socket.
-export async function runDaemon({ fake = false } = {}) {
+// The long-running process: Feishu connection, tmux registry, router, control socket, optional web UI.
+export async function runDaemon({ fake = false, web = false } = {}) {
   const cfg = loadConfig();
+  if (web) cfg.web = { ...cfg.web, enabled: true };
   fs.mkdirSync(cfg.stateDir, { recursive: true, mode: 0o700 });
 
   if (!fake && (!cfg.app.id || !cfg.owner.openId)) {
@@ -20,9 +24,10 @@ export async function runDaemon({ fake = false } = {}) {
   }
   if (fake && !cfg.owner.openId) cfg.owner = { openId: 'ou_fake_owner', chatId: 'oc_fake_chat' };
 
+  const appSecret = fake ? '' : await resolveSecret(cfg.app.secret);
   const feishu = fake
     ? createFakeFeishu({ dir: path.join(cfg.stateDir, 'fake') })
-    : await createFeishu({ appId: cfg.app.id, appSecret: await resolveSecret(cfg.app.secret), ownerOpenId: cfg.owner.openId, tenant: cfg.app.tenant });
+    : await createFeishu({ appId: cfg.app.id, appSecret, ownerOpenId: cfg.owner.openId, tenant: cfg.app.tenant });
 
   const store = new Store(path.join(cfg.stateDir, fake ? 'state.fake.json' : 'state.json'));
   const registry = new ManagedRegistry({ cfg, store });
@@ -38,7 +43,10 @@ export async function runDaemon({ fake = false } = {}) {
         env: { ...process.env, ...(process.platform === 'win32' ? {} : { PATH: `${path.join(ROOT, 'bin')}:${process.env.PATH}` }), FMUX_SOCK: cfg.socket, FMUX_ROOT: ROOT, FMUX_CONFIG: CONFIG_PATH },
       })
     : null;
-  const router = new Router({ feishu, registry, concierge, store, cfg, tmux: registry.transport });
+  const gpu = new GpuRegistry({ registry, stateDir: cfg.stateDir });
+  const router = new Router({ feishu, registry, concierge, store, cfg, tmux: registry.transport, gpu });
+  const ops = new OpsEngine({ router, stateDir: cfg.stateDir });
+  router.ops = ops;
   router.wire();
 
   const methods = { ...router.api };
@@ -58,20 +66,32 @@ export async function runDaemon({ fake = false } = {}) {
   const attached = store.get('attached');
   if (attached && !registry.sessions.has(attached.key)) {
     const byName = registry.resolve(attached.name);
-    store.set('attached', byName ? { key: byName.key, name: byName.name } : null);
+    store.set('attached', byName ? { ...attached, key: byName.key, name: byName.name, lastInputAt: attached.lastInputAt || Date.now() } : null);
   }
   registry.start();
+  ops.start();
+  gpu.start();
   const control = startControl({ socket: cfg.socket, methods });
+  const webServer = cfg.web?.enabled ? await startWebServer({ router, cfg, ops, gpu, getAppSecret: async () => appSecret || resolveSecret(cfg.app.secret) }) : null;
   await feishu.connect();
   await router.resume();
-  log('info', 'hub.ready', { fake, sessions: registry.sessions.size, bot: feishu.botName(), attached: store.get('attached')?.name || null });
+  log('info', 'hub.ready', {
+    fake,
+    sessions: registry.sessions.size,
+    bot: feishu.botName(),
+    attached: store.get('attached')?.name || null,
+    web: webServer ? `http://${webServer.host}:${webServer.port}` : null,
+  });
 
   function shutdown(signal) {
     log('info', 'hub.stop', { signal });
     registry.stop();
+    ops.stop();
+    gpu.stop();
     concierge?.stop();
     store.flush();
     control.close();
+    webServer?.close().catch(() => {});
     try {
       fs.unlinkSync(cfg.socket);
     } catch {

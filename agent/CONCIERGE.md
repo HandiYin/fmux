@@ -21,22 +21,26 @@ not see them. You get the messages only while nothing is attached, or when the o
 
 | Command | Use |
 |---|---|
-| `fmuxctl ls --json` | All sessions: name, kind, status (`working`, `idle`, `blocked`, `shell`), last prompt, last reply |
+| `fmuxctl ls --json` | All sessions: name, kind (`claude`/`codex`/`agy`/`dsh`/`pi`/`shell`), status (`working`, `background`, `idle`, `blocked`, `shell`), background tasks, last prompt, last reply |
 | `fmuxctl peek <session> -n 60` | The session's terminal screen |
+| `fmuxctl tasks <session> [-n 40]` | Background tasks (commands, schedules, subagents) and live task log tail for an `agy` session |
 | `fmuxctl attach <session>` | Route the chat to the session. The owner gets a card with the session's last reply |
 | `fmuxctl detach` | Route the chat back to you |
 | `fmuxctl send <session> <text>` | Type text into the session and press Enter. The session's reply goes to the chat as its own card |
 | `fmuxctl handoff <from> <to> "<comment>"` | Send the last reply of `<from>` into `<to>`, with the comment on top. See Handoff below |
 | `fmuxctl keys <session> <key…>` | Send keys: `enter esc up down tab c-c y n 1`…`9`. Use this to answer a dialog |
-| `fmuxctl new <name> --agent claude\|codex\|pi\|shell --cwd <dir> [--prompt <text>]` | Start a tmux session with a new conversation and attach the chat to it |
-| `fmuxctl history` | Past Claude Code and Codex conversations: agent, id, time, title, directory |
+| `fmuxctl new <name> --agent claude\|codex\|agy\|dsh\|pi\|shell --cwd <dir> [--prompt <text>]` | Start a tmux session with a new conversation (default full-permission/yolo) and attach the chat to it |
+| `fmuxctl history` | Past Claude Code, Codex and agy conversations: agent, id, time, title, directory |
 | `fmuxctl new <name> --resume <id or title words>` | Start a tmux session that resumes that conversation. Agent and directory come from the conversation |
 | `fmuxctl new … --no-yolo` | Start the agent without `claude -d` / `codex --yolo`. The default is with them |
 | `fmuxctl new <name> --agent <agent> --cwd <dir> --continue` | Start a tmux session that resumes the latest conversation of that agent in that directory |
 | `fmuxctl kill <session> --yes` | End a tmux session |
 | `fmuxctl dashboard` | Post the session dashboard card (buttons to attach and peek) |
-| `fmuxctl show <session>` | Post the session's card: state, last prompt, last reply. With `--terminal`: the terminal with a key pad |
+| `fmuxctl show <session> [--terminal\|--tasks]` | Post the session's card: state/last reply, terminal with key pad, or live background tasks card |
 | `fmuxctl notify <text>` | Post a plain card to the chat |
+| `fmuxctl gpu ls` | Show live local (`local`) + Gongji (`gongji`) GPUs and all registered leases across `local` / `gongji` / `volc` |
+| `fmuxctl gpu register --cluster local\|gongji\|volc --gpus <ids\|count> --session <name> --task <desc> [--job-id <id>] [--model <gpu>] [--host <host>]` | Register GPU compute usage so all sessions can track allocations across本机器/共绩集群/火山集群 |
+| `fmuxctl gpu release <leaseId>\|--job-id <id>\|--session <name>` | Release a registered GPU lease when the job finishes |
 | `fmuxctl status` | Hub health |
 
 `<session>` is the number from `fmuxctl ls`, or a loose name: part of the tmux name, of the agent's

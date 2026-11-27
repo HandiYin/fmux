@@ -85,6 +85,16 @@ test('Codex activity decorations keep the same identity through working and comp
   }
 });
 
+test('a waiting dialog keeps the named thread instead of dropping the binding', async (t) => {
+  const f = fixture(t);
+  const a = f.rollout(A, '2020-01-01');
+  f.index(A, '训练');
+  for (const marker of ['.', '!']) {
+    assert.equal(await f.locate(1, { title: `[ ${marker} ] Action Required | 训练 | user` }), a, marker);
+    assert.equal(await f.locate(1, { title: `[ ${marker} ] Action Required | 训练` }), a, marker);
+  }
+  assert.equal(await f.locate(1, { title: '[ ! ] Action Required | ubuntu' }), null);
+});
 test('activity normalization does not choose between a decorated name and a literal name', async (t) => {
   const f = fixture(t);
   f.rollout(A, '2020-01-01'); f.index(A, '训练');

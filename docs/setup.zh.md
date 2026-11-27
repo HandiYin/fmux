@@ -5,6 +5,8 @@ tmux 会话；会话里的 Claude Code、Codex 或 pi 的回复以卡片发回�
 
 这份指引讲四件事：安装、配置飞书机器人、配置 Agent、排错。
 
+> 如果想开启内置的 **WebMUX 浏览器/手机控制台**（含飞书 OIDC 授权、DeepSeek 语义高亮、定时 Heartbeat、长期目标监督、三集群 GPU 看板与自定义壁纸），请继续阅读 **[WebMUX 配置与使用指引](webmux.zh.md)**。
+
 配置飞书机器人有三种方式，选一种：扫码新建（A）、在开发者后台手工新建（B）、用已有的机器人（C）。
 
 ## 1. 准备
@@ -334,12 +336,15 @@ node --input-type=module -e "import { botMenuConfig } from './src/bot-menu.mjs';
 
 管家是一个 pi 进程。没接入会话时，你发的话由它处理：列会话、切换、新建、恢复历史对话、转发你的话。
 
-1. 先在终端里运行一次 `pi`，登录好模型。
-2. 管家用 pi 的默认模型。要指定模型，在配置里写：
+1. 先在终端里运行一次 `pi`，登录 OpenAI Codex（ChatGPT 账号）。用 `pi --list-models gpt-6.1` 确认能看到 `gpt-6.1-sol`。
+2. 管家默认使用 `openai-codex/gpt-6.1-sol`，恢复旧管家会话时也会指定这个模型。要指定其他模型，在配置里写：
 
    ```json
-   { "concierge": { "model": "provider/model-id", "thinking": "low" } }
+   { "concierge": { "model": "openai-codex/gpt-6.1-sol", "thinking": "low" } }
    ```
+
+   把 `model` 换成其他 `provider/model-id`，并在 pi 中登录对应服务即可。显式设为 `""` 会使用 pi 的默认模型或旧会话保存的模型。
+   修改配置后重启 fmux 服务。
 
 3. 不要管家：`{ "concierge": { "enabled": false } }`。这时用面板上的按钮操作。
 
@@ -351,6 +356,8 @@ node --input-type=module -e "import { botMenuConfig } from './src/bot-menu.mjs';
 |---|---|---|
 | `notify.minWorkSec` | 20 | 没接入的会话，一轮运行超过这么多秒，结束时更新会话卡片并按通知设置在线程中提醒 |
 | `notify.quietIfLocalActiveSec` | 180 | 这么多秒内本机 tmux 有键盘输入，就不发通知。设 0 总是通知 |
+| `notify.enabled` | true | 设为 false 后，未接入会话不再发完成或等待确认卡片，包括你中途切走的任务 |
+| `attach.idleMinutes` | 10 | 接入的会话空闲且这么多分钟没有输入时，自动断开并回到面板。设 0 关闭。运行中、等待确认或有前台子进程时不会自动断开 |
 
 ## 7. 排错
 

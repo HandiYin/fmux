@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="night">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>PRTS // FMUX TERMINAL</title>
+<link rel="stylesheet" href="/assets/app.css" />
+</head>
+<body class="boot-reveal">
+<div id="prtsBoot" role="status" aria-label="PRTS Terminal Initializing" onclick="this.classList.add('boot-hidden');document.body.classList.remove('boot-reveal')">
+  <div class="boot-half top"></div>
+  <div class="boot-half bot"></div>
+  <div class="boot-seam"></div>
+  <div class="boot-hud">
+    <svg class="boot-emblem" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+      <polygon class="outer" points="16,2 30,16 16,30 2,16" stroke-width="1.5"/>
+      <polygon class="inner" points="16,7 25,16 16,25 7,16" stroke-width="1.2"/>
+      <rect class="core" x="14" y="14" width="4" height="4"/>
+    </svg>
+    <div class="boot-title">PRTS // FMUX</div>
+    <div class="boot-sub">RHODES TACTICAL CONSOLE</div>
+    <div class="boot-track"><div id="bootFill" class="boot-fill"></div></div>
+    <div class="boot-meta">
+      <span id="bootStage">NEURAL LINK SYNCING…</span>
+      <span id="bootPct">READY</span>
+    </div>
+    <div class="boot-skip">CLICK ANYWHERE TO SKIP</div>
+  </div>
+</div>
+<div id="wpLayer" aria-hidden="true"></div>
+<div id="wpFrost" aria-hidden="true"></div>
+
+<div class="prts-rail">
+  <div class="rail-left">
+    <span class="rail-pill"><span id="sseDot" class="pulse-dot"></span>NEURAL LINK: <span id="linkText" class="rail-accent">SYNCING</span></span>
+    <span>PRTS // RHODES WORKSTATION</span>
+    <span class="rail-cyan">TMUX DIRECT STREAM</span>
+  </div>
+  <div class="rail-right">
+    <span id="clock" class="rail-accent">--:--:--</span>
+    <span>YOLO TMUX · DEEPSEEK HL</span>
+  </div>
+</div>
+
+<header>
+  <div class="brand">
+    <svg class="brand-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+      <polygon class="outer" points="16,2 30,16 16,30 2,16" stroke-width="1.5"/>
+      <polygon class="inner" points="16,7 25,16 16,25 7,16" stroke-width="1.2"/>
+      <rect class="core" x="14" y="14" width="4" height="4"/>
+    </svg>
+    <div>
+      <div class="brand-title">PRTS // FMUX</div>
+      <div class="brand-sub">TACTICAL AGENT ORCHESTRATION</div>
+    </div>
+  </div>
+
+  <nav class="mode-nav">
+    <button class="mode-btn active" data-mode="sessions"><span><b class="num">01</b>SESSIONS</span></button>
+    <button class="mode-btn" data-mode="heartbeat"><span><b class="num">02</b>HEARTBEAT<b id="navHbCnt" class="m-cnt" style="display:none">0</b></span></button>
+    <button class="mode-btn" data-mode="goals"><span><b class="num">03</b>GOALS<b id="navGoalCnt" class="m-cnt" style="display:none">0</b></span></button>
+    <button class="mode-btn" data-mode="gpu"><span><b class="num">04</b>GPU<b id="navGpuCnt" class="m-cnt" style="display:none">0</b></span></button>
+  </nav>
+
+  <div class="header-right">
+    <button id="themeBtn" class="btn ghost" title="切换日间 / 夜间模式">☀ DAY</button>
+    <button id="wpBtn" class="btn ghost" title="上传磨砂网格背景壁纸">BG</button>
+    <span id="opBadge" class="op-badge" style="display:none"></span>
+    <button id="newBtn" class="btn solid">+ DEPLOY</button>
+    <button id="logoutBtn" class="btn ghost" style="display:none">LOGOUT</button>
+  </div>
+</header>
+
+<!-- 01 // SESSIONS -->
+<main id="viewSessions">
+  <aside>
+    <div class="roster-stats">
+      <div class="stat-cell"><div id="statTotal" class="stat-num">00</div><div class="stat-lbl">UNITS</div></div>
+      <div class="stat-cell"><div id="statActive" class="stat-num green">00</div><div class="stat-lbl">ACTIVE</div></div>
+      <div class="stat-cell"><div id="statBg" class="stat-num cyan">00</div><div class="stat-lbl">BG-OPS</div></div>
+    </div>
+    <div class="roster-head"><span>ACTIVE ROSTER</span><span>TMUX MATRIX</span></div>
+    <div id="sessionList" class="session-list"></div>
+  </aside>
+
+  <section id="workspaceEl" class="workspace">
+    <div id="killFxOverlay" class="kill-fx-overlay" aria-hidden="true">
+      <div class="kill-fx-line"></div>
+      <div class="kill-fx-stamp">
+        <strong>SIGNAL SEVERED // UNIT TERMINATED</strong>
+        <span id="killFxSub">TMUX LINK DECOMMISSIONED</span>
+      </div>
+    </div>
+    <div id="wsWatermark" class="ws-watermark">PRTS</div>
+    <div id="wsBar" class="ws-header" style="display:none">
+      <div class="ws-identity">
+        <div class="ws-title-row">
+          <span id="wsTitle" class="ws-title"></span>
+          <span id="wsKind" class="u-chip"></span>
+          <span id="wsStatus" class="u-chip"></span>
+          <span id="wsModel" class="u-chip" style="display:none"></span>
+        </div>
+        <div id="wsSub" class="ws-sub"></div>
+      </div>
+
+      <div id="wsSubtabs" class="subtabs">
+        <button class="subtab active" data-tab="chat">COMM 对话</button>
+        <button class="subtab" data-tab="tasks">ASYNC 后台任务 <span id="taskBadge" class="cnt" style="display:none">0</span></button>
+        <button class="subtab" data-tab="term">TTY 终端</button>
+      </div>
+
+      <div class="ws-actions">
+        <button id="renameBtn" class="btn ghost" title="重命名 tmux 会话与内部 Agent 对话标题">RENAME</button>
+        <button id="escBtn" class="btn ghost" title="向终端发送 ESC">ESC</button>
+        <button id="killBtn" class="btn danger" title="销毁整个 tmux 会话">KILL</button>
+      </div>
+    </div>
+
+    <div id="hlBar" class="hl-bar" style="display:none">
+      <div class="hl-controls">
+        <label class="hl-toggle"><input type="checkbox" id="chkTldr" />TL;DR 摘要</label>
+        <label class="hl-toggle"><input type="checkbox" id="chkHl" />HIGHLIGHTS (DeepSeek)</label>
+        <label class="hl-toggle"><input type="checkbox" id="chkFade" />FADE REST</label>
+      </div>
+      <div class="hl-legend">
+        <span class="hl-key hk-result">✓ RESULT</span>
+        <span class="hl-key hk-problem">! PROBLEM</span>
+        <span class="hl-key hk-action">→ ACTION</span>
+        <span class="hl-key hk-fact"># FACT</span>
+      </div>
+    </div>
+
+    <div class="panel-wrap">
+      <!-- Top-Right Async Mini-HUD directly below the Highlight bar -->
+      <div id="cornerBg" class="corner-bg" style="display:none">
+        <div class="corner-bg-head">
+          <span class="corner-bg-title"><span id="cornerDot" class="corner-bg-dot"></span><span id="cornerTitle">ASYNC // 0</span></span>
+          <div style="display:flex;gap:4px">
+            <button id="cornerJump" class="btn xs cyan" type="button">FULL ↗</button>
+            <button id="cornerToggle" class="btn xs ghost" type="button">−</button>
+          </div>
+        </div>
+        <div id="cornerBody" class="corner-bg-body"></div>
+      </div>
+
+      <div id="panel" class="panel">
+        <div class="empty"><strong>PRTS TERMINAL READY</strong>SELECT AN AGENT UNIT FROM THE ROSTER</div>
+      </div>
+    </div>
+
+    <div id="queueTray" class="queue-tray" style="display:none">
+      <div class="queue-head">
+        <div class="queue-head-left">
+          <span class="queue-pulse"></span>
+          <span id="queueTitle">CANDIDATE QUEUE // 0</span>
+          <span id="queueHint" class="queue-hint">尚未进入会话的候选消息按序排列 · 当前回合结束后自动送入</span>
+        </div>
+        <div class="queue-head-right">
+          <button id="queueResumeBtn" type="button" class="btn xs green" style="display:none">▶ RESUME</button>
+          <button id="queueFlushBtn" type="button" class="btn xs cyan" style="display:none" title="立即将队首候选送入 tmux 终端">INJECT NEXT ↗</button>
+          <button id="queueClearBtn" type="button" class="btn xs ghost" style="display:none" title="清空所有排队中的候选消息">CLEAR</button>
+          <button id="queueToggleBtn" type="button" class="btn xs ghost" title="折叠 / 展开候选队列">−</button>
+        </div>
+      </div>
+      <div id="queueList" class="queue-list"></div>
+    </div>
+
+    <div id="modelBar" class="model-bar" style="display:none">
+      <div class="model-bar-left">
+        <button id="modelPickBtn" type="button" class="model-pick" title="点击切换模型与思考强度">
+          <span class="mp-dot">◆</span>
+          <span id="modelPickText">MODEL</span>
+          <span class="mp-caret">▾</span>
+        </button>
+        <div id="effortWrap" class="effort-wrap">
+          <span class="eff-lbl">THINKING</span>
+          <div id="effortGroup" class="effort-group">
+            <button type="button" class="eff-btn" data-eff="low">LOW</button>
+            <button type="button" class="eff-btn" data-eff="medium">MED</button>
+            <button type="button" class="eff-btn" data-eff="high">HIGH</button>
+            <button type="button" class="eff-btn" data-eff="xhigh">XHIGH</button>
+          </div>
+        </div>
+      </div>
+      <span id="modelSwitchMsg" class="model-msg"></span>
+    </div>
+
+    <form id="composer" class="composer" style="display:none">
+      <div class="composer-box">
+        <span class="composer-prompt">&gt;_</span>
+        <textarea id="input" rows="1" placeholder="输入指令后点击右侧 TRANSMIT 发送（Enter 换行，空输入按 Esc 停止）"></textarea>
+      </div>
+      <button id="stopBtn" type="button" class="btn stop-btn" disabled title="仅在模型思考/生成中可点击停止">■ STOP</button>
+      <button id="sendBtn" type="submit" class="btn solid">TRANSMIT</button>
+    </form>
+  </section>
+</main>
+
+<!-- 02 // HEARTBEAT -->
+<section id="viewHeartbeat" class="ops-view">
+  <div class="section-bar">
+    <div>
+      <div class="section-title">02 // HEARTBEAT SCHEDULER</div>
+      <div class="section-sub">定时任务调度中心 · 自动向指定会话或新建全权限（YOLO）Agent 下发周期任务</div>
+    </div>
+    <button id="addHbBtn" class="btn solid">+ NEW HEARTBEAT</button>
+  </div>
+  <div id="hbList" class="ops-grid"></div>
+</section>
+
+<!-- 03 // LONG-HORIZON GOALS -->
+<section id="viewGoals" class="ops-view">
+  <div class="section-bar">
+    <div>
+      <div class="section-title">03 // LONG-HORIZON GOALS</div>
+      <div class="section-sub">长期目标与监督中心 · 指定执行会话 + 监督对话（Supervisor）持续巡检推进</div>
+    </div>
+    <button id="addGoalBtn" class="btn solid">+ NEW GOAL</button>
+  </div>
+  <div id="goalList" class="ops-grid"></div>
+</section>
+
+<!-- 04 // GPU REGISTER -->
+<section id="viewGpu" class="ops-view">
+  <div class="section-bar">
+    <div>
+      <div class="section-title">04 // GPU COMPUTE REGISTER</div>
+      <div class="section-sub">统一 GPU 调度与遥测看板 · 按「本机器 / 共绩集群 / 火山集群」三类实时追踪全会话算力占用</div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button id="pollGpuBtn" class="btn ghost">SYNC ALL CLUSTERS</button>
+      <button id="addGpuBtn" class="btn solid">+ REGISTER GPU</button>
+    </div>
+  </div>
+  <div id="gpuKpis" class="gpu-kpis"></div>
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+    <div id="gpuClusterTabs" class="subtabs">
+      <button class="subtab active" data-cluster="all">ALL CLUSTERS</button>
+      <button class="subtab" data-cluster="local">01 // 本机器</button>
+      <button class="subtab" data-cluster="gongji">02 // 共绩集群</button>
+      <button class="subtab" data-cluster="volc">03 // 火山集群</button>
+    </div>
+    <div class="cli-hint" style="flex:1;min-width:280px">
+      <span>AGENT 登记：<code>fmuxctl gpu register --cluster local|gongji|volc --gpus 1 --job-id &lt;id&gt; --session &lt;会话&gt; --task "&lt;任务&gt;"</code></span>
+      <button id="copyGpuCli" class="btn xs cyan" type="button">COPY CLI</button>
+    </div>
+  </div>
+  <div id="gpuClusterLocal" style="display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;align-items:center;justify-content:space-between;border-left:3px solid var(--green);padding-left:10px">
+      <span style="font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:0.16em">01 // 本机器 (LOCAL MACHINE · NVIDIA-SMI)</span>
+      <span id="gpuLocalMeta" style="font-family:var(--mono);font-size:10px;color:var(--muted)"></span>
+    </div>
+    <div id="gpuLocalList" class="ops-grid"></div>
+    <div id="gpuLocalLeases"></div>
+  </div>
+  <div id="gpuClusterGongji" style="display:flex;flex-direction:column;gap:10px;margin-top:4px">
+    <div style="display:flex;align-items:center;justify-content:space-between;border-left:3px solid var(--cyan);padding-left:10px">
+      <span style="font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:0.16em">02 // 共绩集群 (GONGJI · SUANLI.CN LIVE + REGISTERED)</span>
+      <span id="gpuGongjiMeta" style="font-family:var(--mono);font-size:10px;color:var(--muted)"></span>
+    </div>
+    <div id="gpuGongjiLive" class="ops-grid"></div>
+    <div id="gpuGongjiLeases"></div>
+  </div>
+  <div id="gpuClusterVolc" style="display:flex;flex-direction:column;gap:10px;margin-top:4px">
+    <div style="display:flex;align-items:center;justify-content:space-between;border-left:3px solid var(--amber);padding-left:10px">
+      <span style="font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:0.16em">03 // 火山集群 (VOLCANO MLP · REGISTERED LEASES)</span>
+      <span id="gpuVolcMeta" style="font-family:var(--mono);font-size:10px;color:var(--muted)"></span>
+    </div>
+    <div id="gpuVolcLeases"></div>
+  </div>
+</section>
+
+<!-- Modal: Deploy New Session (Always tmux + full yolo permissions) -->
+<dialog id="newDialog">
+  <div class="modal-stripe"></div>
+  <form id="newForm" class="modal-body">
+    <div style="font-family:var(--mono);font-size:10px;letter-spacing:0.2em;color:var(--cyan);margin-bottom:4px">PRTS // DEPLOY TMUX UNIT (FULL PERMISSION / YOLO)</div>
+    <h3 style="margin:0 0 14px;font-size:17px">部署 / 恢复全权限 Agent 会话</h3>
+    <label class="field">RESUME ARCHIVE
+      <select id="fResume"><option value="new">NEW SESSION // 新建对话</option><option value="last">CONTINUE LAST // 继续目录最近对话</option></select>
+    </label>
+    <label class="field">AGENT CLASS (TMUX + YOLO DEFAULT)
+      <select id="fAgent"></select>
+    </label>
+    <label class="field">WORKING DIRECTORY<input id="fCwd" value="~" /></label>
+    <label class="field">CALLSIGN (OPTIONAL)<input id="fName" placeholder="留空自动分配代号" /></label>
+    <label class="field">INITIAL DIRECTIVE (OPTIONAL)<input id="fPrompt" placeholder="可选的首条指令" /></label>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">
+      <button type="button" class="btn ghost" onclick="document.getElementById('newDialog').close()">CANCEL</button>
+      <button type="submit" class="btn solid">DEPLOY &amp; LINK</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Modal: New Heartbeat -->
+<dialog id="hbDialog">
+  <div class="modal-stripe"></div>
+  <form id="hbForm" class="modal-body">
+    <div style="font-family:var(--mono);font-size:10px;letter-spacing:0.2em;color:var(--cyan);margin-bottom:4px">PRTS // CREATE HEARTBEAT</div>
+    <h3 style="margin:0 0 14px;font-size:17px">新建定时任务</h3>
+    <label class="field">TASK NAME<input id="hbName" required placeholder="例如：每30分钟巡检训练日志" /></label>
+    <div class="field-row">
+      <label class="field">SCHEDULE MODE
+        <select id="hbKind"><option value="interval">固定间隔（分钟）</option><option value="cron">Cron 表达式（5段）</option></select>
+      </label>
+      <label class="field" id="hbEveryWrap">EVERY MINUTES<input id="hbEvery" type="number" min="1" value="30" /></label>
+      <label class="field" id="hbCronWrap" style="display:none">CRON (m h dom mon dow)<input id="hbCron" placeholder="*/15 * * * *" /></label>
+    </div>
+    <div class="field-row">
+      <label class="field">TARGET MODE
+        <select id="hbTargetMode"><option value="session">发往已有会话</option><option value="spawn">自动新建 tmux 全权限会话</option></select>
+      </label>
+      <label class="field" id="hbRefWrap">TARGET SESSION<select id="hbRef"></select></label>
+      <label class="field" id="hbAgentWrap" style="display:none">AGENT (YOLO)
+        <select id="hbAgent"><option value="agy">AGY</option><option value="dsh">DSH (DeepSeek)</option><option value="claude">CLAUDE</option><option value="codex">CODEX</option><option value="pi">PI</option></select>
+      </label>
+    </div>
+    <label class="field" id="hbCwdWrap" style="display:none">WORKSPACE CWD<input id="hbCwd" value="~" /></label>
+    <label class="field">PROMPT / DIRECTIVE<textarea id="hbPrompt" rows="3" required placeholder="写明定时触发时要 Agent 执行的指令"></textarea></label>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">
+      <button type="button" class="btn ghost" onclick="document.getElementById('hbDialog').close()">CANCEL</button>
+      <button type="submit" class="btn solid">ACTIVATE</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Modal: New Goal -->
+<dialog id="goalDialog">
+  <div class="modal-stripe"></div>
+  <form id="goalForm" class="modal-body">
+    <div style="font-family:var(--mono);font-size:10px;letter-spacing:0.2em;color:var(--cyan);margin-bottom:4px">PRTS // LONG-HORIZON GOAL</div>
+    <h3 style="margin:0 0 14px;font-size:17px">设定长期目标与监督会话</h3>
+    <label class="field">GOAL TITLE<input id="gTitle" required placeholder="例如：把模型测试精度提升到 92%+" /></label>
+    <label class="field">OBJECTIVE<textarea id="gObj" rows="2" placeholder="目标背景与核心任务"></textarea></label>
+    <label class="field">ACCEPTANCE CRITERIA<input id="gCrit" placeholder="验收标准 / 达成条件" /></label>
+    <div class="field-row">
+      <label class="field">WORKER SESSION<select id="gWorker"></select></label>
+      <label class="field">SUPERVISOR SESSION (监督对话)<select id="gSuper"></select></label>
+    </div>
+    <label class="field">AUTO SUPERVISION INTERVAL (MINUTES, 0=MANUAL)<input id="gEvery" type="number" min="0" value="30" /></label>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">
+      <button type="button" class="btn ghost" onclick="document.getElementById('goalDialog').close()">CANCEL</button>
+      <button type="submit" class="btn solid">CREATE GOAL</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Modal: Register GPU -->
+<dialog id="gpuDialog">
+  <div class="modal-stripe"></div>
+  <form id="gpuForm" class="modal-body">
+    <div style="font-family:var(--mono);font-size:10px;letter-spacing:0.2em;color:var(--cyan);margin-bottom:4px">PRTS // REGISTER GPU COMPUTE LEASE</div>
+    <h3 style="margin:0 0 14px;font-size:17px">登记占用的 GPU 资源</h3>
+    <div class="field-row">
+      <label class="field">CLUSTER (集群分类)
+        <select id="gpuCluster">
+          <option value="local">本机器 (local)</option>
+          <option value="gongji">共绩集群 (gongji)</option>
+          <option value="volc">火山集群 (volc)</option>
+        </select>
+      </label>
+      <label class="field">JOB ID (OPTIONAL)<input id="gpuJobId" placeholder="如 3897077 或 t-2026..." /></label>
+    </div>
+    <div class="field-row">
+      <label class="field">HOST / QUEUE / REGION<input id="gpuHost" value="local" placeholder="local / tj1q / cn-beijing" /></label>
+      <label class="field">GPU IDS OR COUNT<input id="gpuIds" value="0" required placeholder="本机填 0，集群填卡数如 1 / 8" /></label>
+    </div>
+    <div class="field-row">
+      <label class="field">OWNER SESSION<select id="gpuSess"></select></label>
+      <label class="field">GPU MODEL (OPTIONAL)<input id="gpuModel" placeholder="如 RTX 4090 / 5090 / A100-80G" /></label>
+    </div>
+    <label class="field">TASK DESCRIPTION<input id="gpuTask" required placeholder="正在运行的训练/评估/推理任务" /></label>
+    <div class="field-row">
+      <label class="field">VRAM ESTIMATE (GB)<input id="gpuMem" type="number" step="0.5" placeholder="可选" /></label>
+      <label class="field">LEASE TTL (MINUTES, 0=NO EXPIRY)<input id="gpuTtl" type="number" min="0" value="240" /></label>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">
+      <button type="button" class="btn ghost" onclick="document.getElementById('gpuDialog').close()">CANCEL</button>
+      <button type="submit" class="btn solid">REGISTER</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Modal: Wallpaper Settings & Cropper -->
+<dialog id="wpDialog" class="wp-dialog">
+  <div class="modal-stripe"></div>
+  <div class="modal-body">
+    <div style="font-family:var(--mono);font-size:10px;letter-spacing:0.2em;color:var(--cyan);margin-bottom:4px">PRTS // BACKDROP WALLPAPER &amp; CROP</div>
+    <h3 style="margin:0 0 12px;font-size:17px">磨砂网格背景壁纸</h3>
+    <input id="wpFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none" />
+
+    <!-- Normal Preview Mode -->
+    <div id="wpNormalPane">
+      <div id="wpPreview" class="wp-preview">DEFAULT TACTICAL GRID</div>
+      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+        <button id="wpUploadBtn" type="button" class="btn solid" style="flex:1;justify-content:center">SELECT IMAGE</button>
+        <button id="wpRecropBtn" type="button" class="btn cyan" style="display:none">CROP CURRENT</button>
+        <button id="wpResetBtn" type="button" class="btn danger">RESET DEFAULT</button>
+      </div>
+    </div>
+
+    <!-- Interactive Crop Mode -->
+    <div id="wpCropPane" class="wp-crop-pane">
+      <div class="wp-crop-bar">
+        <div id="wpRatioGroup" class="wp-ratio-group">
+          <button type="button" class="wp-ratio-btn active" data-ratio="screen">SCREEN</button>
+          <button type="button" class="wp-ratio-btn" data-ratio="16:9">16:9</button>
+          <button type="button" class="wp-ratio-btn" data-ratio="16:10">16:10</button>
+          <button type="button" class="wp-ratio-btn" data-ratio="4:3">4:3</button>
+          <button type="button" class="wp-ratio-btn" data-ratio="9:16">9:16</button>
+          <button type="button" class="wp-ratio-btn" data-ratio="free">FREE</button>
+          <button type="button" class="wp-ratio-btn" data-ratio="full">FULL</button>
+        </div>
+        <span id="wpCropDims" class="wp-crop-dims">0 × 0</span>
+      </div>
+      <div class="wp-crop-stage">
+        <div id="wpCropFrame" class="wp-crop-frame">
+          <img id="wpCropImg" alt="Crop source" />
+          <div id="wpCropBox" class="wp-crop-box" data-handle="move">
+            <div class="wp-handle nw" data-handle="nw"></div>
+            <div class="wp-handle n" data-handle="n"></div>
+            <div class="wp-handle ne" data-handle="ne"></div>
+            <div class="wp-handle e" data-handle="e"></div>
+            <div class="wp-handle se" data-handle="se"></div>
+            <div class="wp-handle s" data-handle="s"></div>
+            <div class="wp-handle sw" data-handle="sw"></div>
+            <div class="wp-handle w" data-handle="w"></div>
+          </div>
+        </div>
+      </div>
+      <div class="wp-crop-hint">拖拽框内移动截取区 · 拖拽四角或边缘缩放框区 · 默认按当前屏幕比例裁切</div>
+      <div style="display:flex;gap:8px">
+        <button id="wpCropCancel" type="button" class="btn ghost">CANCEL</button>
+        <button id="wpCropApply" type="button" class="btn solid" style="flex:1;justify-content:center">APPLY CROP &amp; SAVE</button>
+      </div>
+    </div>
+
+    <label class="field"><span>WALLPAPER OPACITY (<span id="wpOpVal">45</span>%)</span>
+      <input id="wpOpRange" type="range" min="10" max="90" step="5" value="45" style="padding:0" />
+    </label>
+    <label class="field"><span>FROSTED BLUR (<span id="wpBlurVal">6</span>px)</span>
+      <input id="wpBlurRange" type="range" min="0" max="20" step="1" value="6" style="padding:0" />
+    </label>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px">
+      <button type="button" class="btn ghost" onclick="document.getElementById('wpDialog').close()">CLOSE</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- Modal: Switch Model & Reasoning Effort -->
+<dialog id="modelDialog" class="model-dialog">
+  <div class="modal-stripe"></div>
+  <div class="modal-body">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">
+      <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.2em;color:var(--cyan)">PRTS // MODEL &amp; REASONING EFFORT</span>
+      <button id="refreshModelsBtn" type="button" class="btn xs ghost">SYNC MODELS</button>
+    </div>
+    <h3 id="modelDialogTitle" style="margin:0 0 12px;font-size:17px">切换模型与思考强度</h3>
+    <div id="modelList" class="model-list"></div>
+    <form id="customModelForm" style="display:flex;gap:8px;align-items:flex-end;border-top:1px solid var(--line);padding-top:12px">
+      <label class="field" style="flex:1;margin:0">CUSTOM MODEL ID
+        <input id="customModelInput" placeholder="例如 gemini-4-neon-xhigh / deepseek-reasoner / claude-opus-4-6" />
+      </label>
+      <label class="field" id="customEffortWrap" style="width:110px;margin:0">EFFORT
+        <select id="customEffortSelect">
+          <option value="">KEEP</option>
+          <option value="low">LOW</option>
+          <option value="medium">MEDIUM</option>
+          <option value="high">HIGH</option>
+          <option value="xhigh">XHIGH</option>
+        </select>
+      </label>
+      <button type="submit" class="btn solid">APPLY</button>
+    </form>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px">
+      <button type="button" class="btn ghost" onclick="document.getElementById('modelDialog').close()">CLOSE</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- Modal: Rename tmux Session & Agent Conversation -->
+<dialog id="renameDialog">
+  <div class="modal-stripe"></div>
+  <form id="renameForm" class="modal-body">
+    <div style="font-family:var(--mono);font-size:10px;letter-spacing:0.2em;color:var(--cyan);margin-bottom:4px">PRTS // RENAME UNIT &amp; SESSION</div>
+    <h3 style="margin:0 0 12px;font-size:17px">重命名 tmux 会话与对话标题</h3>
+    <label class="field"><span>TMUX SESSION NAME（左侧列表显示名，支持中英文/数字/<code>_</code>/<code>-</code>）</span>
+      <input id="rnTmux" maxlength="48" placeholder="例如 vision-v3 或 机器人仿真" />
+    </label>
+    <div id="rnAgentWrap">
+      <label class="field">
+        <span style="display:flex;justify-content:space-between;align-items:center">
+          <span>AGENT SESSION TITLE（同步执行 <code>/rename</code> 修改内部对话标题）</span>
+          <button id="rnSyncBtn" type="button" class="btn xs cyan" style="padding:1px 6px">= 同上</button>
+        </span>
+        <input id="rnTitle" maxlength="120" placeholder="例如 OmniFusion v3 多视角重建（留空则不改内部标题）" />
+      </label>
+      <div id="rnBusyHint" style="display:none;font-family:var(--mono);font-size:10.5px;color:var(--amber);margin:-4px 0 10px">
+        ⚠ 当前 Agent 正在运行中：tmux 会话名可立即修改，内部对话标题需等回合结束后再改。
+      </div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">
+      <button type="button" class="btn ghost" onclick="document.getElementById('renameDialog').close()">CANCEL</button>
+      <button id="rnSubmitBtn" type="submit" class="btn solid">SAVE RENAME</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Modal: Tactical Kill / Decommission Confirmation -->
+<dialog id="killDialog">
+  <div class="modal-stripe danger"></div>
+  <form id="killForm" class="modal-body">
+    <div style="font-family:var(--mono);font-size:10px;letter-spacing:0.2em;color:var(--red);margin-bottom:4px">PRTS WARNING // DECOMMISSION TMUX UNIT</div>
+    <h3 style="margin:0 0 8px;font-size:17px">确认终止并销毁该会话？</h3>
+    <div class="kill-target-box">
+      <div class="kill-target-top">
+        <span id="killTargetName" class="kill-target-name"></span>
+        <div style="display:flex;gap:5px">
+          <span id="killTargetKind" class="u-chip"></span>
+          <span id="killTargetStatus" class="u-chip"></span>
+        </div>
+      </div>
+      <div id="killTargetSub" class="kill-target-sub"></div>
+    </div>
+    <div id="killBusyWarn" class="kill-warn-banner" style="display:none">
+      ⚠ 该会话当前正在运行推理或后台任务，执行 KILL 将立即切断 tmux 进程且不可恢复。
+    </div>
+    <div style="font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.5">
+      提示：若只想中断当前生成而保留会话，请取消并点击右下角 <strong style="color:var(--ink)">■ STOP</strong>。
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+      <button type="button" class="btn ghost" onclick="document.getElementById('killDialog').close()">ABORT</button>
+      <button id="confirmKillBtn" type="submit" class="btn danger" style="font-weight:800">■ TERMINATE UNIT</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="/assets/markdown.js"></script>
+<script src="/assets/wallpaper.js"></script>
+<script src="/assets/app.js"></script>
+</body>
+</html>

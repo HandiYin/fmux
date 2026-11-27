@@ -1,44 +1,58 @@
-# fmux
+# fmux & WebMUX
 
-用一个飞书聊天窗口管理本机所有 tmux 会话，包括 Claude Code、Codex、pi 和普通 Shell。
-fmux 将飞书机器人连接到它所在电脑的 tmux 会话，支持 Linux、macOS，以及通过 psmux 或 WSL 运行的 Windows 环境。
+用一个飞书聊天窗口 **+ 内置明日方舟 PRTS 风格 Web / 移动端控制台（WebMUX）**，统一管理本机所有 tmux 会话：支持 **Antigravity CLI（`agy`）、DeepSeek（`dsh`）、Claude Code、Codex、pi** 和普通 Shell。
+fmux 将飞书机器人与实时浏览器控制台直接连接到它所在电脑的 tmux 会话，支持 Linux、macOS，以及通过 psmux 或 WSL 运行的 Windows 环境。
 
-**详细安装指南：[docs/setup.zh.md](docs/setup.zh.md)**
+**详细配置指南：[飞书机器人配置 (docs/setup.zh.md)](docs/setup.zh.md) · [WebMUX 网页控制台配置指引 (docs/webmux.zh.md)](docs/webmux.zh.md)**
 
-- 聊天窗口每次**接入**一个 tmux 会话，类似 `tmux attach`。你发出的消息进入该会话，会话回复以飞书卡片返回。
-- **会话面板**列出各个会话和状态：🟢 运行中、⚪ 已结束、🟠 等待确认。点击按钮即可接入或查看终端。
-- 未接入的会话在一轮任务结束或需要确认时，也可以在会话卡片的线程中通知。
-- 未接入任何会话时，由 **pi 管家**回复。你可以用自然语言让它切换、查看或新建会话。
+![WebMUX PRTS Console Demo](docs/media/webmux-demo.gif)
+
+> 完整高清演示录像：[docs/media/webmux-demo.mp4](docs/media/webmux-demo.mp4) · 桌面端与移动端更多截图见 [docs/webmux.zh.md](docs/webmux.zh.md)。
+
+### 核心特性
+
+- **WebMUX 浏览器与移动端控制台**（`01 // SESSIONS`、`02 // HEARTBEAT`、`03 // GOALS`、`04 // GPU`）：
+  - 实时 tmux 流式对话与固定创建顺序编号（`01`, `02`…）、缓存零闪烁标签/会话切换（后台预取 + 条件跳过 + Gzip）、PRTS 启动快门 / 滑动指示器 / CRT 信号切断关停动效（无阻塞外链 CDN）。
+  - **候选发送队列（Candidate Message Queue）**：空闲会话直发即刻上屏；运行中 / 等待确认时自动排队，支持立即注入 `INJECT ↗`、上下调序 `↑/↓`、撤回编辑 `✎`、取消 `✕`，以及点击 `■ STOP` 时自动暂停防误发。
+  - 一键 **`■ STOP` 中断按钮**、**模型与思考强度实时切换**（`LOW / MED / HIGH / XHIGH`，原生支持 `agy`）、**tmux + 内部对话双端重命名**、思考过程折叠、工具调用轨迹、完整 GFM Markdown（表格/任务列表/嵌套列表/引用）、异步 LaTeX 数学公式、**DeepSeek API 语义高亮**（`✓ RESULT` / `! PROBLEM` / `→ ACTION` / `# FACT`）与 TL;DR、右上角 **Async 后台任务 HUD**、日夜双主题、自定义毛玻璃网格壁纸裁剪。
+  - 内置 **飞书 OIDC** 仅主人可访问鉴权（支持 Tailscale/WireGuard 直连与 Cloudflare Tunnel / Nginx HTTPS）。
+  - 原生 **Heartbeat** 定时任务（间隔 & 5 字段 Cron）、**Long-Horizon Goals** 长程目标与监督巡检、**三集群 GPU 统一看板**（本机 `nvidia-smi` + 共绩实时同步 + 火山集群登记）。
+- **飞书机器人与持久化会话管理**：
+  - 聊天窗口每次**接入**一个 tmux 会话，类似 `tmux attach`。你发出的消息进入该会话，回复以卡片进入该会话线程。
+  - **会话面板**列出所有会话和状态：🟢 运行中、🔵 后台任务、⚪ 已结束/休眠、🟠 等待确认。点击按钮即可接入、查看终端或查看后台任务日志。
+  - **持久会话与自动休眠恢复**：Claude Code / Codex 空闲后可自动休眠关闭终端、保留卡片绑定，下次发消息或接入时自动恢复同一对话。
+  - 未接入任何会话时，由 **pi 管家**回复，可用自然语言切换、查看、转交或新建会话。
 
 ## 工作原理
 
 ```text
-飞书应用 ⇄ @larksuite/channel（WebSocket）⇄ Router
-                                          ├─► tmux send-keys / paste-buffer
-                                          └─► pi --mode rpc（管家）
-                                              ▲
-                          Registry：每 2 秒轮询 tmux，读取会话状态
+飞书应用 ⇄ @larksuite/channel（WebSocket）⇄ Router ──► tmux send-keys / paste-buffer
+WebMUX 浏览器/手机 ⇄ HTTP + SSE + OIDC  ──┘   ▲   └──► pi --mode rpc（管家）
+                                              │
+                          ManagedRegistry / Registry：每 2 秒轮询 tmux，读取会话状态
                           ├─ 进程：/proc（Linux、WSL）、ps + lsof（macOS）、PowerShell（Windows）
                           ├─ Claude Code：~/.claude/sessions/<pid>.json + 对话记录 JSONL
-                          ├─ Codex：终端状态标记 + rollout JSONL
+                          ├─ Codex：终端状态标记 + rollout JSONL（跨瞬时标题与重启持久化）
+                          ├─ agy：活跃锁/DB 文件描述符 + transcript_full.jsonl + 后台任务日志
+                          ├─ dsh：zstd 多帧对话记录 + 终端状态标记
                           ├─ pi：终端状态标记 + 会话 JSONL
                           └─ Shell：终端画面
 ```
 
 - **输入**通过 tmux 粘贴缓冲区发送，随后按 Enter 提交。Claude Code 的多行输入会逐键发送，行间使用 Ctrl+J，让它按键入内容处理。无需在已有会话中安装插件。
 - **回复**从 Agent 的对话记录文件读取。普通 Shell 没有对话记录，因此在画面停止变化后返回终端截图式卡片。
-- **状态**包括 `working`、`idle`、`blocked`、`shell`。Claude Code 优先读取状态文件，其他 Agent 根据终端画面中的标记判断。
+- **状态**包括 `working`、`background`、`idle`、`blocked`、`shell`。Claude Code 优先读取状态文件，`agy` 结合活跃会话 DB FD 与后台任务队列判断，其他 Agent 根据终端画面中的标记与记录活跃度判断。
 - 已经在 tmux 中运行的会话可以直接接入，继续按原来的方式启动 Agent 即可。
 
 对于使用共享 app-server 的 Codex，fmux 通过终端显示的对话名称查询会话索引，核对会话 ID 和目录后读取对应记录，恢复旧对话时也适用。已有唯一名称的对话无需重复改名；仅在尚未命名或名称重复时，使用 `/rename` 设置唯一名称，并保留 tmux 的自动窗格标题更新。
 
-运行时的 `⠋` 等动画标记和结束时的 `●` 标记会被识别，不影响会话匹配。fmux 不会仅凭“同目录最近更新”来选择 Codex 的记录；无法确认会话身份时，会在卡片中说明，并提供终端查看入口。
+运行时的 `⠋` 等动画标记、结束时的 `●` 标记、等待对话框时的 `Action Required` 前缀，以及工作期间短暂丢掉标题名只剩目录的情况均会被平滑处理；已确认的 rollout 路径与字节偏移保存在 `state.json` 中，服务重启期间也不会丢回复。fmux 不会仅凭“同目录最近更新”来选择 Codex 的记录；无法确认会话身份时，会在卡片中说明，并提供终端查看入口。
 
 ## 在手机上使用
 
 | 操作 | 结果 |
 |---|---|
-| 发送 `面板` | 显示各会话及其状态的面板卡片 |
+| 发送 `面板` | 显示各会话及其状态的面板卡片（配置了 `web.publicUrl` 时附带网页端直达链接） |
 | 点击可选菜单中的**会话面板** | 在聊天末尾发送新面板，保持当前接入 |
 | 点击可选菜单中的**回到管家** | 断开当前接入并显示面板，tmux 任务继续运行 |
 | 点击可选菜单中的**新建会话** | 打开新建会话表单，提交前不会创建会话 |
@@ -50,11 +64,12 @@ fmux 将飞书机器人连接到它所在电脑的 tmux 会话，支持 Linux、
 | 在会话卡片的线程内继续发消息 | 继续该会话，即使当前接入的是别的会话 |
 | 对管家说“把 A 的最后一条回复发给 B，让它照着改” | 将你的说明作为输入、A 的最后一条回复作为粘贴内容交给 B，随后转发 B 的回复 |
 | 在“已结束”卡片的输入框中回复 | 同样直接回复该会话，无需切换 |
-| 点击**查看** | 显示状态、上一条输入和最后回复；可点击「终端」查看终端画面 |
+| 点击**查看** | 显示状态、上一条输入和最后回复；可点击「终端」或「后台任务」查看详情 |
 | 点击**终端** | 显示适合手机阅读的最近 18 行、四个常用按键、折叠的更多按键和输入框 |
+| 点击**后台任务** | 查看 `agy` 会话的后台命令/定时/子代理实时状态与日志 |
 | 点击**等待确认**卡片中的选项 | 向终端对话框发送对应按键 |
 | 点击**断开**，或发送 `//d` | 退出接入，回到管家 |
-| 点击**新建会话** | 打开表单，选择新对话或历史对话、Agent 类型、是否启用 `-d` / `--yolo`、目录、可选名称和首条消息 |
+| 点击**新建会话** | 打开表单，选择新对话或历史对话、Agent 类型（`claude`/`codex`/`agy`/`dsh`/`pi`/`shell`）、是否启用免确认参数、目录、可选名称和首条消息 |
 
 暂不转发语音消息。可以使用手机键盘的语音输入功能，转成文字后发送。
 
@@ -65,7 +80,7 @@ fmux 将飞书机器人连接到它所在电脑的 tmux 会话，支持 Linux、
 
 ### 卡片显示与刷新
 
-卡片标题仅在需要关注时显示颜色：运行中为绿色，等待确认时为橙色。每张卡片只展示当前状态需要的按钮。
+卡片标题仅在需要关注时显示颜色：运行中为绿色，后台任务为蓝色，等待确认时为橙色。每张卡片只展示当前状态需要的按钮。
 
 | 卡片 | 刷新方式 | 停止刷新条件 |
 |---|---|---|
@@ -73,7 +88,7 @@ fmux 将飞书机器人连接到它所在电脑的 tmux 会话，支持 Linux、
 | 会话卡片 | 保留输入框和会话控制，是线程的根消息；「查看」「接入」「刷新」时更新快照 | 任务期间不自动重绘，避免输入框草稿丢失 |
 | 本轮响应卡片 | 在会话卡片的线程内创建，随输出更新，完成后保留结果和继续输入框；下一轮使用新响应卡片 | 本轮结束 |
 | 确认卡片 | 在同一线程中显示待确认选项，处理后标记已处理 | 对话框处理完成 |
-| 终端卡片 | 在线程内显式打开并复用；每 3 秒检查一次，画面变化时更新 | 距离最后一次点击超过 10 分钟 |
+| 终端 / 后台任务卡片 | 在线程内显式打开并复用；每 3 秒检查一次，画面或任务日志变化时更新 | 距离最后一次点击超过 10 分钟 |
 
 响应、确认和通知使用 `replyInThread`，进入会话卡片的同一线程，不把普通引用回复加到主聊天流。
 会话卡片始终保留输入框，不再被运行或最终结果的布局覆盖。可使用根卡片的输入框、结果卡片的输入框，
@@ -91,33 +106,32 @@ fmux 将飞书机器人连接到它所在电脑的 tmux 会话，支持 Linux、
 接入会话后，fmux 命令使用 `//` 前缀，单个 `/` 留给会话内的命令，例如 `/compact`、`/model`。未接入时，也可以用单个 `/` 操作 fmux。
 
 ```text
-//ls                    会话面板             //peek [session]        查看终端
-//a <number|name>       接入会话             //key [session] esc 1   发送按键
-//d                     断开接入             //new [name agent dir]  新建会话
-//pi <message>          不断开当前会话，直接询问管家
+//ls                    会话面板             //peek [session]        查看会话
+//a <number|name>       接入会话             //tasks [session]       查看后台任务
+//d                     断开接入             //key [session] esc 1   发送按键
+//new [name agent dir]  新建会话             //pi <message>          不断开当前会话，直接询问管家
 //stop                  向当前接入的会话发送 Esc
 ```
 
 ### 新建和恢复会话
 
-| 选项 | Claude Code | Codex |
-|---|---|---|
-| 启用 `-d` / `--yolo`（默认） | `claude -d --permission-mode auto` | `codex --yolo` |
-| 不启用 | `claude` | `codex` |
-| 新对话 | `… -n <session name>` | 使用普通启动命令 |
-| 继续该目录最近一次对话 | `… -c` | `… resume --last` |
-| 恢复指定历史对话 | 在该对话的目录下运行 `… -r <id>` | 在该对话的目录下运行 `… resume <id>` |
+| 选项 | Claude Code | Codex | Antigravity (`agy`) | DeepSeek (`dsh`) |
+|---|---|---|---|---|
+| 启用免确认参数（默认） | `claude --dangerously-skip-permissions` | `codex --yolo` | `agy --dangerously-skip-permissions` | `dsh-tui` |
+| 不启用 | `claude` | `codex` | `agy` | `dsh-tui` |
+| 新对话 | `… -n <session name>` | 普通启动命令 | 普通启动命令（首条消息用 `-i`） | 普通启动命令（首条消息用 `--`） |
+| 继续该目录最近一次对话 | `… -c` | `… resume --last` | `… -c` | `dsh-tui -c` |
+| 恢复指定历史对话 | `… -r <id>` | `… resume <id>` | `… -r <id>` | `dsh-tui --resume <id>` |
 
-`claude -d` 是 Claude Code 的调试模式；控制自动处理权限请求的是 `--permission-mode auto`。表单列出最近 10 条 Claude Code 和 5 条 Codex 历史对话，排除目录已不存在的记录，以及已经由运行中的 Claude Code 打开的对话。
+表单列出最近的历史对话，自动排除目录已不存在的记录。选择会话时支持模糊匹配，例如 `//a proc`、`fmuxctl peek "gt proc"`，可以按 tmux 名称、Agent 标题、目录的一部分或 Agent 类型查找。匹配到多个会话时，飞书中会显示选择按钮，`fmuxctl` 会列出候选项并报错。
 
-选择会话时支持模糊匹配，例如 `//a proc`、`fmuxctl peek "gt proc"`，可以按 tmux 名称、Agent 标题、目录的一部分或 Agent 类型查找。匹配到多个会话时，飞书中会显示选择按钮，`fmuxctl` 会列出候选项并报错。
-
-### 通知
+### 通知与自动返回面板
 
 未接入的会话在运行至少 `notify.minWorkSec`（默认 20 秒）的一轮结束时，或等待对话框确认时，
 按通知设置在线程内发送结果或确认卡片。已请求任务即使切走或静音，其线程进度卡仍可静默更新为最终结果。
-
 如果 tmux 客户端在最近 `notify.quietIfLocalActiveSec`（默认 180 秒）内收到过键盘输入，则跳过这些通知，避免你正在电脑前操作时手机重复提醒。将该值设为 `0` 可始终通知。
+
+当前接入的会话在空闲状态下若超过 `attach.idleMinutes`（默认 10 分钟）无新输入，会自动断开并返回新的会话面板，避免忘记断开导致后续普通消息误发；正在运行、等待确认、执行后台任务或忙碌中的 Shell 不会被自动断开。设为 `0` 可关闭自动返回。
 
 ### 自动休眠与恢复
 
@@ -128,10 +142,8 @@ fmux 关闭其 tmux 会话，面板保留「休眠」条目和最后回复。再
 不需要在开机时启动所有历史会话，也不会自动重放重启前未完成的命令。
 
 正在工作、等待确认、存在子进程、有本地 tmux 客户端连接、多窗格，或无法确认对话 ID 的会话，
-不会被自动关闭。Shell 和 pi 暂不自动休眠或在终端消失后自动重建；终端仍在运行时，重启 fmux 服务
-会保留它们及多窗格会话的卡片绑定。首次启用前发出的旧卡片未使用持久 ID，
-请从新面板重新接入一次，之后产生的卡片才具备完整的恢复绑定。
-明确「结束」会话会删除其恢复记录；休眠不会删除历史对话。
+不会被自动关闭。Shell、pi、`agy` 和 `dsh` 暂不自动休眠或在终端消失后自动重建；终端仍在运行时，重启 fmux 服务
+会保留它们及多窗格会话的卡片绑定。明确「结束」会话会删除其恢复记录；休眠不会删除历史对话。
 
 ```json
 { "lifecycle": { "enabled": true, "idleMinutes": 60, "restoreTimeoutMs": 30000 } }
@@ -140,20 +152,10 @@ fmux 关闭其 tmux 会话，面板保留「休眠」条目和最后回复。再
 `enabled: false` 或 `idleMinutes: 0` 关闭自动休眠；已保存的休眠会话仍可恢复。
 例如在 `userconfig.json` 中设置 `"lifecycle": { "idleMinutes": 2160 }`，即可延长为空闲 36 小时；
 设置 `"lifecycle": { "enabled": false }` 则只由用户手动结束会话。修改后重启服务。
-接入休眠会话时会立即尝试恢复同一个对话，无需先发送消息；恢复失败时保留原先接入。
-恢复沿用 fmux 新建会话时选择的权限参数；从外部发现的会话不会自动增加免确认参数。
-目录缺失、同名终端冲突或恢复超时会明确报错，消息不会被输入到未验证的终端中。可查看终端解决
-登录或权限提示后重试；并发消息会串行发送，避免重复创建终端。
-
-等待确认时，可用终端卡片的输入框明确提交文字；普通聊天和会话回复框仍会提示先处理确认。
-终端输入也会核验恢复或启动中的会话身份，未就绪时不会把文字输入到错误的终端。
-
-旧线程的绑定会随根卡片更新保留，并在服务重启后继续使用；若历史绑定已被清理、无法定位目标，
-fmux 会提示从面板重新选择会话，不会将该回复转发到当前接入的其他会话。
 
 ## 安装与运行
 
-需要 Node.js 20.12 或更新版本，以及 tmux。各个 Agent（`claude`、`codex`、`pi`）按需安装。
+需要 Node.js 20.12 或更新版本，以及 tmux。各个 Agent（`claude`、`codex`、`agy`、`dsh`、`pi`）按需安装。
 
 | 系统 | 使用的组件 | 服务托管方式 | 验证情况 |
 |---|---|---|---|
@@ -161,8 +163,6 @@ fmux 会提示从面板重新选择会话，不会将该回复转发到当前接
 | macOS | tmux、系统自带的 `ps` 和 `lsof` | launchd 用户服务 | `ps`、`lsof` 实现已在 Linux 上通过端到端测试，尚未在 Mac 上实测 |
 | Windows | 通过 [psmux](https://github.com/psmux/psmux) 提供 `tmux`，通过 PowerShell 查询进程 | 登录时启动的 psmux 会话 | 根据 psmux 文档实现，解析逻辑有单元测试，尚未在 Windows 上实测 |
 | Windows、WSL 2 | 使用 Linux 实现，fmux、tmux 和 Agent 均运行在 WSL 内 | 有 systemd 时使用 systemd，否则使用 tmux 会话 | 已在无 systemd 的容器内通过端到端测试，尚未在 WSL 上实测 |
-
-各系统的差异见[平台说明](#平台说明)。
 
 ```bash
 git clone https://github.com/Primatix-Intelligence/fmux.git ~/fmux
@@ -187,14 +187,11 @@ fmux doctor             # 检查环境、依赖和服务状态
 fmux install-service    # Linux 使用 systemd，macOS 使用 launchd，其他情况使用 tmux 会话
 ```
 
-随后向机器人发送 `面板` 即可开始使用。详细安装指南还包含 Agent 配置和排错步骤。
-`fmux doctor` 可以查看主服务是否运行，以及由哪种方式托管。
-
-一个飞书应用的每个事件只会交给一个连接处理。请避免让其他程序（例如 `lark-channel-bridge` 或另一个 fmux 实例）同时连接同一个应用。
+随后向机器人发送 `面板` 即可开始使用；若需启用 WebMUX 浏览器控制台与飞书 OIDC 登录，请参见 [docs/webmux.zh.md](docs/webmux.zh.md)。
 
 ### 平台说明
 
-`fmux install-service` 会选择适合当前系统的服务管理方式，并继承执行安装命令时 Shell 的 `PATH`。请在能找到 `tmux`、`claude`、`codex` 等命令的终端中执行它。
+`fmux install-service` 会选择适合当前系统的服务管理方式，并继承执行安装命令时 Shell 的 `PATH`。请在能找到 `tmux`、`claude`、`codex`、`agy` 等命令的终端中执行它。
 
 | 项目 | 使用 systemd 的 Linux | macOS | 无 systemd（部分 WSL、容器），或指定 `--tmux` |
 |---|---|---|---|
@@ -206,45 +203,12 @@ fmux install-service    # Linux 使用 systemd，macOS 使用 launchd，其他�
 | 停止 | `systemctl --user stop fmux` | `launchctl bootout gui/$(id -u)/com.primatix.fmux` | `tmux kill-session -t =fmux-hub` |
 | 控制套接字 | `$XDG_RUNTIME_DIR/fmux.sock` | `~/.local/state/fmux/fmux.sock` | 使用对应系统的路径 |
 
-**macOS**
-
-使用 `brew install tmux node` 安装依赖。仅通过 SSH 使用、没有登录桌面的 Mac 不具备 launchd 的 `gui` 域，请使用 `fmux install-service --tmux`。Mac 休眠期间主服务无法响应。
-
-**Windows 与 psmux**
-
-tmux 不能原生运行在 Windows 上。psmux 提供兼容的命令接口，并安装名为 `tmux` 的命令，让 Agent 直接运行在 Windows 环境中。
-
-```powershell
-winget install psmux
-git clone https://github.com/Primatix-Intelligence/fmux.git $HOME\fmux
-cd $HOME\fmux; npm install; npm link        # npm link 将 fmux 和 fmuxctl 加入 PATH
-fmux doctor
-```
-
-与 Linux 一样，使用 `tmux new -s name` 启动会话。主要差异如下：
-
-- 主服务运行在名为 `fmux-hub` 的 psmux 会话中。`fmux install-service` 还会向启动文件夹写入 `fmux.cmd`，让服务在登录时启动；删除该文件即可取消登录启动。控制通道为命名管道 `\\.\pipe\fmux-<user>`。
-- 注销或重启 Windows 会结束会话。
-- Windows 无法直接判断进程从哪里读取输入，因此根据命令行识别由程序驱动的 Agent，例如 `codex app-server`、`claude -p`、`pi --mode rpc`。
-- psmux 不报告客户端最后一次输入时间，`notify.quietIfLocalActiveSec` 因此不生效，符合通知条件的结束事件会始终通知。
-- 多行文字通过粘贴发送，新会话的首条消息按 PowerShell 规则转义。
-- 管家需要 pi，而 pi 在 Windows 上需要 Git Bash。不使用管家时，将 `concierge.enabled` 设为 `false`。Windows 不支持 `fmux setup --from-lark-channel-bridge`。
-
-**Windows 与 WSL 2**
-
-安装 WSL（`wsl --install`）后，在 WSL 内按 Linux 步骤安装。tmux、Node.js 和 Agent 都需要安装在 WSL 内，代码目录也应放在 Linux 文件系统中，例如 `~/fmux`。安装在 Windows 一侧的 `claude` 或 `codex` 不属于 WSL 内的 tmux 会话。
-
-如需启用 systemd，在 `/etc/wsl.conf` 中添加 `[boot]` 和 `systemd=true`，然后在 Windows 中执行 `wsl --shutdown`。systemd 服务本身不会让 WSL 持续运行，需要保留一个打开的 WSL 窗口。
-
 ### 配置
 
 配置文件为 `~/.config/fmux/config.json`，默认值见 `src/config.mjs`。
 
 个人偏好可以单独放在同目录的 `userconfig.json`，覆盖主配置中的行为设置，而不混入应用凭证。
-支持 `tmux`、`notify`、`sessions`、`lifecycle`、`live`、`concierge`、`agents`；不支持在该文件中覆盖
-应用身份、主人或状态目录。使用 `FMUX_CONFIG` 时，默认在该配置文件的旁边寻找 `userconfig.json`；
-也可通过 `FMUX_USER_CONFIG` 指定其他路径。修改后重启服务；首次给服务添加环境变量时重新运行
-`fmux install-service`。
+支持 `tmux`、`notify`、`sessions`、`lifecycle`、`live`、`attach`、`web`、`highlight`、`concierge`、`agents`；不支持在该文件中覆盖应用身份、主人或状态目录。使用 `FMUX_CONFIG` 时，默认在该配置文件的旁边寻找 `userconfig.json`；也可通过 `FMUX_USER_CONFIG` 指定其他路径。修改后重启服务。
 
 仓库的 `userconfig.example.json` 提供一份安静的个人配置：
 
@@ -261,36 +225,24 @@ fmux doctor
 }
 ```
 
-`include` 为空时匹配所有会话；否则只匹配列出的名称模式。模式支持 `*` 和 `?`，`exclude` 和已有
-`hide` 优先。被过滤的会话不读取对话、不通知、不休眠或自动恢复，也不会出现在面板；保存的历史
-恢复记录仍保留在磁盘上。上面的配置只管理 `fmux-*`，其他私人 tmux 会话不受影响。
-
-`namePrefix` 自动添加到新建会话的名称上，已含该前缀时不会重复添加。`onConflict: "replace-idle"`
-使明确指定的同名会话替换旧的空闲或休眠会话，保留当前接入和旧卡片的绑定，使它们转到新会话。
-运行中、等待确认、有本地客户端或子进程，以及多窗格会话会拒绝替换。默认 `"error"` 保留同名报错。
-自动生成的名称仍会保持唯一。
-
-默认通知范围是 `all`：所有可见会话的长任务结束或等待确认时，都可能推送。`scope: "followed"`
-只显示当前接入或本次消息指定的会话的正常进度和回复；后台其他会话不主动推送。
-`completionPing: false` 关闭长任务结束后额外用于手机提醒的文字，`detachedCompletion: false` 关闭
-切走或断开会话后的额外结果卡片。`enabled: false` 关闭这些主动提醒，但仍保留用户请求的回复和
-当前会话需要的确认卡片。卡片的原位刷新不会增加新消息，也不会触发手机通知。
-
 | 配置项 | 含义 |
 |---|---|
-| `app.id`、`app.secret` | 飞书应用信息。Secret 通过引用读取，不直接写入配置：`{"source":"file","path":…}`、`{"source":"env","name":…}`，或密钥提供程序使用的 `{"source":"exec","command":…,"id":…}` |
+| `app.id`、`app.secret` | 飞书应用信息。Secret 通过引用读取，不直接写入配置：`{"source":"file","path":…}`、`{"source":"env","name":…}`，或 `{"source":"exec","command":…,"id":…}` |
 | `app.tenant` | `feishu`（默认）或 `lark` |
-| `owner.openId` | 唯一允许发送消息和点击卡片的用户 |
+| `owner.openId` | 唯一允许发送消息、点击卡片和登录 WebMUX OIDC 的用户 |
 | `owner.chatId` | 接收卡片的聊天 |
-| `notify.*` | 通知设置，见[通知](#通知) |
-| `live.peekMinutes` | 终端卡片的自动刷新时长，默认 10 分钟 |
-| `lifecycle.*` | 自动休眠开关、空闲分钟数和恢复等待时长，见「自动休眠与恢复」 |
-| `tmux.hide` | 面板中隐藏的 tmux 会话名称 |
-| `tmux.include`、`tmux.exclude` | 会话名称的包含/排除模式，过滤同时影响发现、通知和生命周期管理 |
-| `sessions.namePrefix`、`sessions.onConflict` | 新建名称前缀与同名会话策略 |
-| `agents.<type>` | 各类 Agent 的启动方式：`command` 新建对话，`continue` 继续目录最近一次对话，`resume` 恢复指定对话；`flags` 填入 `{flags}`，新建时不启用 `-d` / `--yolo` 则留空 |
+| `notify.*` | 通知设置（`enabled`、`scope`、`minWorkSec`、`quietIfLocalActiveSec`、`completionPing`、`detachedCompletion`） |
+| `attach.idleMinutes` | 接入会话空闲无输入多少分钟后自动返回面板（默认 10，`0` 禁用） |
+| `live.peekMinutes` | 终端/后台任务卡片的自动刷新时长，默认 10 分钟 |
+| `lifecycle.*` | 自动休眠开关、空闲分钟数和恢复等待时长（默认开启，空闲 60 分钟） |
+| `web.enabled`、`.host`、`.port`、`.token`、`.publicUrl` | 可选内置 WebMUX PRTS 控制台（HTTP + SSE）。填写 `web.publicUrl` 后飞书面板底部附带网页端直达链接 |
+| `web.oidc.*` | 飞书/Lark OIDC 浏览器登录（`enabled`、`redirectUri`、`allowedOpenIds`、`sessionHours`），复用 `app.id` + `app.secret` |
+| `highlight.*` | DeepSeek API 语义高亮与 TL;DR（`enabled`、`baseUrl`、`model`、`apiKey`；自动读取 `DEEPSEEK_API_KEY` 或 `~/.dsh/.credentials.yaml`） |
+| `tmux.hide`、`tmux.include`、`tmux.exclude` | 会话名称的隐藏与包含/排除模式，同时影响发现、通知和生命周期管理 |
+| `sessions.namePrefix`、`sessions.onConflict` | 新建名称前缀与同名会话策略（`error` / `replace-idle`） |
+| `agents.<type>` | 各类 Agent 的启动方式：`command`、`continue`、`resume`、`flags`、`promptFlag` |
 | `agents.claude.autoTrust` | 自动确认由主服务创建的 Claude Code 会话中的“信任此文件夹”提示，默认开启 |
-| `concierge.enabled`、`.model`、`.thinking` | pi 管家配置；模型为空时使用 pi 的默认设置 |
+| `concierge.enabled`、`.model`、`.thinking` | pi 管家配置；默认模型 `openai-codex/gpt-6.1-sol`，留空使用 pi 默认设置 |
 
 修改配置后重启服务。
 
@@ -304,19 +256,23 @@ fmuxctl peek gt_process -n 60    # 查看终端最近 60 行
 fmuxctl send gt_process "继续"    # 向会话输入文字
 fmuxctl handoff proc coll "照这个结论改"   # 将 gt_process 的最后回复和你的说明交给 gt_collection
 fmuxctl attach proc               # 支持模糊名称，这里匹配 gt_process
-fmuxctl history                  # 查看 Claude Code 和 Codex 的历史对话
+fmuxctl history                  # 查看历史对话
 fmuxctl new fig --resume 魔方     # 新建 tmux 会话并恢复该标题的对话
 fmuxctl new fix --agent codex --cwd ~/proj --no-yolo
-fmuxctl show gt_process          # 向聊天发送会话卡片，添加 --terminal 可发送终端卡片
-fmuxctl notify "渲染跑完了"        # 向手机发送通知卡片
+fmuxctl rename fig vision-v3 --title "Vision v3"  # 双端重命名 tmux 会话与内部对话标题
+fmuxctl show gt_process          # 向聊天发送会话卡片（--terminal 终端 / --tasks 后台任务）
+fmuxctl notify "渲染跑完了"        # 向手机发送线程通知
+fmuxctl gpu ls                   # 查看本机 nvidia-smi 及全集群 GPU 占用
+fmuxctl gpu register --cluster local --gpus 0 --model "RTX 4090" --session train --task "SFT"
+fmuxctl gpu release --id gpu_xxx # 释放登记的 GPU 租约（也支持 --session <name>）
 ```
 
 ## 安全说明
 
-- 只接受 `owner.openId` 对应用户的消息和卡片操作，不响应群聊。
+- 只接受 `owner.openId` 对应用户的消息、卡片操作和 WebMUX OIDC 登录，不响应群聊。
 - 卡片点击只能发送 `KEYS`（`src/tmux.mjs`）中允许的按键；文字通过粘贴作为数据输入。
-- 主服务以你的系统用户身份运行。控制你的飞书账号的人可以通过机器人向终端输入内容，因此应保护好飞书账号。
-- 除非在表单中另行选择，新建 Claude Code 会话默认使用自动权限模式，Codex 默认使用 `--yolo`。可以通过 `agents.<type>.flags` 修改默认参数。
+- 主服务以你的系统用户身份运行。控制你的飞书账号的人可以通过机器人或 WebMUX 向终端输入内容，因此应保护好飞书账号。
+- 除非在表单中另行选择，新建编码 Agent 会话默认启用免确认权限参数，可通过 `agents.<type>.flags` 修改。
 - Unix 控制套接字的权限为 `600`。
 
 ## 开发与测试
@@ -326,6 +282,7 @@ npm test                                   # 单元测试，不访问网络，�
 npm run test:integration                   # 独立 tmux、模拟 Agent、临时 HOME 和模拟飞书通道
 FMUX_PROCS=ps npm run test:integration     # 使用 macOS 的进程查询方式运行相同测试
 fmux --fake                                # 使用真实 tmux，将飞书替换为记录器
+fmux --web                                 # 强制开启 WebMUX 本地调试
 fmuxctl dev say "//ls"                    # 模拟主人发消息
 fmuxctl dev click '{"a":"attach","n":"gt_process"}'
 fmuxctl dev outbox 3                      # 查看主服务准备发送的卡片
@@ -335,19 +292,19 @@ fmuxctl dev outbox 3                      # 查看主服务准备发送的卡片
 
 | 文件 | 职责 |
 |---|---|
-| `src/registry.mjs` | 轮询 tmux，识别窗格类型，跟踪状态和对话轮次，发出事件 |
+| `src/registry.mjs`、`src/codex-bindings.mjs`、`src/session-filter.mjs` | 轮询 tmux，过滤并识别窗格类型，跟踪状态与对话轮次，持久化 Codex rollout 偏移 |
 | `src/managed-registry.mjs` | 持久对话 ID、空闲休眠、按需恢复，以及终端输入的串行化 |
-| `src/procs.mjs`、`src/win/procs.ps1` | 通过 `/proc`、`ps` 和 `lsof` 或 Windows 进程表定位窗格中的 Agent 进程 |
-| `src/transcript.mjs` | 定位并跟踪 Claude Code、Codex 和 pi 的对话记录 |
-| `src/codex-transcript.mjs` | 根据打开的文件或唯一会话名称定位 Codex 记录，识别标题中的运行和完成标记 |
+| `src/procs.mjs`、`src/procs/`、`src/win/procs.ps1` | 通过 `/proc`、`ps` + `lsof` 或 Windows PowerShell 定位窗格中的 Agent 进程 |
+| `src/transcript.mjs`、`src/codex-transcript.mjs`、`src/agy.mjs`、`src/agy-tasks.mjs`、`src/dsh.mjs`、`src/agent-files.mjs`、`src/jsonl.mjs` | 定位并跟踪 Claude Code、Codex、agy（含后台任务日志）、dsh（zstd）和 pi 的对话记录 |
+| `src/web.mjs`、`src/web/`（`queue.mjs`、`wallpaper.mjs`、`login-page.mjs`、`ui.html`、`assets/`）、`src/feishu-oidc.mjs`、`src/highlight.mjs`、`src/ops.mjs`、`src/gpu.mjs` | 零依赖模块化 WebMUX PRTS 控制台（HTML/CSS/JS 静态资源）、候选发送队列、飞书 OIDC 鉴权、DeepSeek 语义高亮、Heartbeat/Goals 引擎与三集群 GPU 看板 |
 | `src/screen.mjs` | 从终端画面识别对话框和运行状态标记 |
-| `src/router.mjs` | 路由消息和点击事件，将会话事件转换成卡片 |
+| `src/router.mjs`、`src/router/`（`live-cards.mjs`、`actions.mjs`、`commands.mjs`、`sessions.mjs`、`control-api.mjs`） | 路由消息、线程/复用卡片、命令、卡片回调、会话创建/转交/双端重命名与本地控制 API |
 | `src/cards.mjs` | 生成 Card JSON 2.0 卡片 |
 | `src/concierge.mjs` | pi RPC 客户端 |
-| `src/feishu.mjs` | 飞书通道封装、卡片更新限流和模拟通道 |
+| `src/feishu.mjs`、`src/bot-menu.mjs` | 飞书通道封装、卡片更新限流、底部菜单处理与模拟通道 |
 | `src/control.mjs`、`bin/fmuxctl.mjs` | 本地控制接口及命令行工具 |
 | `src/setup.mjs`、`bin/fmux.mjs` | 实现 `fmux setup`、`pair`、`install-service`、`doctor` |
-| `src/service.mjs` | 服务托管：systemd、launchd 或 tmux 会话，Windows 使用 psmux |
+| `src/service.mjs`、`src/service/templates.mjs` | 服务托管检测与 systemd/launchd/tmux/Windows 模板 |
 | `test/integration/` | 在独立 tmux 服务中使用模拟 Agent 进行端到端测试 |
 | `src/history.mjs`、`src/match.mjs` | 查询可恢复的历史对话，以及会话名称模糊匹配 |
 | `agent/CONCIERGE.md` | pi 管家的行为规则 |
@@ -356,5 +313,5 @@ fmuxctl dev outbox 3                      # 查看主服务准备发送的卡片
 
 - 对话框检测依赖终端画面。遇到尚未适配的布局时，会显示终端片段和按键区，不会生成对应的选项按钮。
 - 编辑卡片不会触发手机通知；启用通知时，超过 `notify.minWorkSec` 的一轮结束后会在线程内发送简短文字。
-- 每张卡片的大小上限约为 30 KB。较长回复会被截断，完整内容仍保留在终端。
+- 每张卡片的大小上限约为 30 KB。较长回复会被截断，完整内容仍保留在终端和 WebMUX 中。
 - 默认每 2 秒轮询状态，任务结束的显示通常有 2～4 秒延迟。
